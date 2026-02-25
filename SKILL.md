@@ -4,7 +4,7 @@ description: "Controls ROS/ROS2 robots via rosbridge WebSocket CLI. Use when the
 license: Apache-2.0
 compatibility: "Requires python3, websocket-client pip package, and rosbridge running on the robot (default port 9090)"
 user-invocable: true
-metadata: {"openclaw": {"emoji": "🤖", "requires": {"bins": ["python3"], "pip": ["websocket-client"]}, "category": "robotics", "tags": ["ros", "ros2", "robotics", "rosbridge"]}, "author": "lpigeon", "version": "1.0.0"}
+metadata: {"openclaw": {"emoji": "🤖", "requires": {"bins": ["python3"], "pip": ["websocket-client"]}, "category": "robotics", "tags": ["ros", "ros2", "robotics", "rosbridge"]}, "author": "lpigeon", "version": "1.0.1"}
 ---
 
 # ROS Skill
