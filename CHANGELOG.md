@@ -19,6 +19,10 @@ All notable changes to ros2-skill will be documented in this file.
 - **`estop --topic` silent wrong-type fallback**: when a custom topic was not visible in the graph, code silently fell back to trying all `VELOCITY_TYPES` and published the wrong type; now returns a clear error instead
 - **`msg_to_dict` crashes on binary fields**: `bytes`/`bytearray` fields (e.g. `sensor_msgs/Image.data`) caused `json.dumps` to raise `TypeError`; added explicit branch to convert to list of ints
 - **`cmd_params_get` reports `exists: False` for empty-string parameters**: `bool(value_str)` returns `False` for `""`; replaced with explicit `exists = True` flag set whenever the parameter type is known (1–9)
+- **`json.loads(None)` crashes in `topics publish`, `topics publish-sequence`, `actions send`**: positional args are `nargs="?"` so they can be `None`; `json.loads(None)` raises `TypeError` which is not a `JSONDecodeError` subclass and escapes both `try` blocks, crashing with a raw traceback; broadened exception catches to `(json.JSONDecodeError, TypeError, ValueError)`
+- **`TopicPublisher.pub` / `TopicSubscriber.sub` not initialized to `None`**: both `__init__` methods only set `self.pub`/`self.sub` inside `if msg_class:`; if `get_msg_type` returned `None`, accessing `publisher.pub` raised `AttributeError` instead of evaluating to `None`; added `self.pub = None` / `self.sub = None` before the conditional
+- **`topics subscribe` silent timeout on bad message type**: after creating `TopicSubscriber`, there was no check that the subscription was actually created; a wrong `--msg-type` would spin to timeout with "Timeout waiting for message" instead of a type error; added `if subscriber.sub is None:` guard
+- **`params set` sets boolean values as strings**: `"true"`/`"false"` fell through int parsing and were stored as type 4 (string); nodes owning a boolean parameter reject this; added explicit `args.value.lower() in ('true', 'false')` check that sets type 1 with `bool_value`
 
 ### Added
 - `get_srv_type()`: loads ROS 2 service classes via `importlib`, mirrors `get_msg_type()`

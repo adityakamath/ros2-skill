@@ -564,7 +564,8 @@ class TopicSubscriber(Node):
         self.msg_type = msg_type
         self.messages = []
         self.lock = threading.Lock()
-        
+        self.sub = None
+
         msg_class = get_msg_type(msg_type)
         if msg_class:
             self.sub = self.create_subscription(
@@ -593,7 +594,11 @@ def cmd_topics_subscribe(args):
                 return output({"error": f"Could not detect message type for topic: {args.topic}"})
         
         subscriber = TopicSubscriber(args.topic, msg_type)
-        
+
+        if subscriber.sub is None:
+            rclpy.shutdown()
+            return output({"error": f"Could not load message type: {msg_type}"})
+
         if args.duration:
             executor = rclpy.executors.SingleThreadedExecutor()
             executor.add_node(subscriber)
@@ -636,7 +641,8 @@ class TopicPublisher(Node):
         super().__init__('publisher')
         self.topic = topic
         self.msg_type = msg_type
-        
+        self.pub = None
+
         msg_class = get_msg_type(msg_type)
         if msg_class:
             self.pub = self.create_publisher(msg_class, topic, qos_profile_system_default)
@@ -645,7 +651,7 @@ class TopicPublisher(Node):
 def cmd_topics_publish(args):
     try:
         msg_data = json.loads(args.msg)
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         return output({"error": f"Invalid JSON message: {e}"})
     
     try:
@@ -708,7 +714,7 @@ def cmd_topics_publish_sequence(args):
     try:
         messages = json.loads(args.messages)
         durations = json.loads(args.durations)
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         return output({"error": f"Invalid JSON: {e}"})
     if len(messages) != len(durations):
         return output({"error": "messages and durations must have same length"})
@@ -1060,7 +1066,10 @@ def cmd_params_set(args):
         
         pv = ParameterValue()
         try:
-            if '.' in args.value:
+            if args.value.lower() in ('true', 'false'):
+                pv.type = 1
+                pv.bool_value = args.value.lower() == 'true'
+            elif '.' in args.value:
                 pv.type = 3
                 pv.double_value = float(args.value)
             else:
@@ -1162,7 +1171,7 @@ def cmd_actions_details(args):
 def cmd_actions_send(args):
     try:
         goal_data = json.loads(args.goal)
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
         return output({"error": f"Invalid JSON goal: {e}"})
     
     try:
