@@ -309,6 +309,8 @@ def msg_to_dict(msg):
             continue
         if hasattr(value, 'get_fields_and_field_types'):
             result[field] = msg_to_dict(value)
+        elif isinstance(value, (bytes, bytearray)):
+            result[field] = list(value)
         elif isinstance(value, (list, tuple)):
             result[field] = [msg_to_dict(v) if hasattr(v, 'get_fields_and_field_types') else v for v in value]
         else:
@@ -408,67 +410,76 @@ def cmd_estop(args):
 
     Not applicable for: robot arms, grippers, or position-controlled robots.
     """
-    rclpy.init()
-    node = ROS2CLI("estop")
+    try:
+        rclpy.init()
+        node = ROS2CLI("estop")
 
-    if args.topic:
-        # Custom topic specified — detect its type from the graph
-        topic = args.topic
-        msg_type = None
-        for name, types in node.get_topic_names():
-            if name == topic and types:
-                msg_type = types[0]
-                break
-    else:
-        topic, msg_type = find_velocity_topic(node)
+        if args.topic:
+            # Custom topic specified — detect its type from the graph only; no fallback
+            topic = args.topic
+            msg_type = None
+            for name, types in node.get_topic_names():
+                if name == topic and types:
+                    msg_type = types[0]
+                    break
+            if not msg_type:
+                rclpy.shutdown()
+                return output({
+                    "error": f"Could not detect message type for topic '{topic}'",
+                    "hint": "Ensure the topic is active and visible in the ROS graph, or specify --msg-type explicitly."
+                })
+        else:
+            topic, msg_type = find_velocity_topic(node)
 
-    if not topic:
+        if not topic:
+            rclpy.shutdown()
+            return output({
+                "error": "Could not find velocity command topic",
+                "hint": "This command is for mobile robots only (not arms). Ensure the robot has a /cmd_vel topic."
+            })
+
+        msg_class = get_msg_type(msg_type)
+        if not msg_class:
+            for t in VELOCITY_TYPES:
+                msg_class = get_msg_type(t)
+                if msg_class:
+                    msg_type = t
+                    break
+
+        if not msg_class:
+            rclpy.shutdown()
+            return output({"error": f"Could not load message type: {msg_type}"})
+
+        pub = node.create_publisher(msg_class, topic, 10)
+        msg = msg_class()
+
+        if hasattr(msg, "twist"):
+            msg.header.stamp = node.get_clock().now().to_msg()
+            msg.twist.linear.x = 0.0
+            msg.twist.linear.y = 0.0
+            msg.twist.linear.z = 0.0
+            msg.twist.angular.x = 0.0
+            msg.twist.angular.y = 0.0
+            msg.twist.angular.z = 0.0
+        else:
+            msg.linear.x = 0.0
+            msg.linear.y = 0.0
+            msg.linear.z = 0.0
+            msg.angular.x = 0.0
+            msg.angular.y = 0.0
+            msg.angular.z = 0.0
+
+        pub.publish(msg)
+        time.sleep(0.1)
         rclpy.shutdown()
-        return output({
-            "error": "Could not find velocity command topic",
-            "hint": "This command is for mobile robots only (not arms). Ensure the robot has a /cmd_vel topic."
+        output({
+            "success": True,
+            "topic": topic,
+            "type": msg_type,
+            "message": "Emergency stop activated (mobile robot stopped)"
         })
-
-    msg_class = get_msg_type(msg_type)
-    if not msg_class:
-        for t in VELOCITY_TYPES:
-            msg_class = get_msg_type(t)
-            if msg_class:
-                msg_type = t
-                break
-
-    if not msg_class:
-        rclpy.shutdown()
-        return output({"error": f"Could not load message type: {msg_type}"})
-
-    pub = node.create_publisher(msg_class, topic, 10)
-    msg = msg_class()
-
-    if hasattr(msg, "twist"):
-        msg.header.stamp = node.get_clock().now().to_msg()
-        msg.twist.linear.x = 0.0
-        msg.twist.linear.y = 0.0
-        msg.twist.linear.z = 0.0
-        msg.twist.angular.x = 0.0
-        msg.twist.angular.y = 0.0
-        msg.twist.angular.z = 0.0
-    else:
-        msg.linear.x = 0.0
-        msg.linear.y = 0.0
-        msg.linear.z = 0.0
-        msg.angular.x = 0.0
-        msg.angular.y = 0.0
-        msg.angular.z = 0.0
-
-    pub.publish(msg)
-    time.sleep(0.1)
-    rclpy.shutdown()
-    output({
-        "success": True,
-        "topic": topic,
-        "type": msg_type,
-        "message": "Emergency stop activated (mobile robot stopped)"
-    })
+    except Exception as e:
+        output({"error": str(e)})
 
 
 def cmd_topics_list(args):
@@ -992,20 +1003,26 @@ def cmd_params_get(args):
             result = future.result()
             values = result.values if result.values else []
             value_str = ""
+            exists = False
             if values:
                 v = values[0]
                 if v.type == 1:
                     value_str = str(v.bool_value)
+                    exists = True
                 elif v.type == 2:
                     value_str = str(v.integer_value)
+                    exists = True
                 elif v.type == 3:
                     value_str = str(v.double_value)
+                    exists = True
                 elif v.type == 4:
                     value_str = v.string_value
+                    exists = True
                 elif v.type in [5, 6, 7, 8, 9]:
                     value_str = str(v)
+                    exists = True
             rclpy.shutdown()
-            output({"name": args.name, "value": value_str, "exists": bool(value_str)})
+            output({"name": args.name, "value": value_str, "exists": exists})
         else:
             rclpy.shutdown()
             output({"error": "Timeout getting parameter"})

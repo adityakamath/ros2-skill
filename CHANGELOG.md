@@ -2,6 +2,16 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.6] - 2026-02-28
+
+### Fixed
+- **`cmd_estop` no `try/except`**: unhandled exceptions left `rclpy` initialized and printed raw tracebacks instead of clean JSON; wrapped entire function body in `try/except` to match all other commands
+- **`estop --topic` silent wrong-type fallback**: when a custom topic was specified but not visible in the graph, `msg_type` was `None` and the code silently fell back to trying all `VELOCITY_TYPES`, potentially publishing the wrong message type to the user's topic; now returns a clear error instead
+- **`msg_to_dict` crashes on binary fields**: `bytes`/`bytearray` fields (e.g. `sensor_msgs/Image.data`, `sensor_msgs/PointCloud2.data`) fell through to the `else` branch, causing `json.dumps` to raise `TypeError: Object of type bytes is not JSON serializable`; added explicit `isinstance(value, (bytes, bytearray))` branch that converts to a list of ints
+- **`cmd_params_get` reports `exists: False` for empty-string parameters**: used `bool(value_str)` to set `exists`, which returns `False` for an empty string even when the parameter is set to `""`; replaced with an explicit `exists = True` flag set whenever the parameter type matches a known type (1–9)
+
+---
+
 ## [1.0.5] - 2026-02-28
 
 ### Fixed
