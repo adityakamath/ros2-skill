@@ -437,27 +437,31 @@ def cmd_topics_details(args):
     try:
         rclpy.init()
         node = ROS2CLI()
-        publishers = node.get_publisher_names_and_types_by_node(args.node)
-        subscribers = node.get_subscriber_names_and_types_by_node(args.node)
         topic_types = node.get_topic_names_and_types()
-        
+
         result = {"topic": args.topic, "type": "", "publishers": [], "subscribers": []}
-        
+
         for name, types in topic_types:
             if name == args.topic:
                 result["type"] = types[0] if types else ""
                 break
-        
-        for node_name, topics in publishers:
-            for t in topics:
-                if t[0] == args.topic:
-                    result["publishers"].append(node_name)
-        
-        for node_name, topics in subscribers:
-            for t in topics:
-                if t[0] == args.topic:
-                    result["subscribers"].append(node_name)
-        
+
+        try:
+            pub_info = node.get_publishers_info_by_topic(args.topic)
+            result["publishers"] = [
+                f"{i.node_namespace.rstrip('/')}/{i.node_name}" for i in pub_info
+            ]
+        except Exception:
+            pass
+
+        try:
+            sub_info = node.get_subscriptions_info_by_topic(args.topic)
+            result["subscribers"] = [
+                f"{i.node_namespace.rstrip('/')}/{i.node_name}" for i in sub_info
+            ]
+        except Exception:
+            pass
+
         rclpy.shutdown()
         output(result)
     except Exception as e:
@@ -513,7 +517,7 @@ def cmd_topics_subscribe(args):
             executor.add_node(subscriber)
             end_time = time.time() + args.duration
             while time.time() < end_time and len(subscriber.messages) < (args.max_messages or 100):
-                executor.wait_once(timeout_sec=0.1)
+                executor.spin_once(timeout_sec=0.1)
             
             with subscriber.lock:
                 messages = subscriber.messages[:args.max_messages] if args.max_messages else subscriber.messages
@@ -531,7 +535,7 @@ def cmd_topics_subscribe(args):
             end_time = time.time() + timeout_sec
             
             while time.time() < end_time:
-                executor.wait_once(timeout_sec=0.1)
+                executor.spin_once(timeout_sec=0.1)
                 with subscriber.lock:
                     if subscriber.messages:
                         msg = subscriber.messages[0]
@@ -812,7 +816,8 @@ def cmd_nodes_list(args):
     try:
         rclpy.init()
         node = ROS2CLI()
-        names = [n for n, _ in node.get_node_names_and_types()]
+        node_info = node.get_node_names_and_namespaces()
+        names = [f"{ns.rstrip('/')}/{n}" for n, ns in node_info]
         result = {"nodes": names, "count": len(names)}
         rclpy.shutdown()
         output(result)
@@ -820,22 +825,33 @@ def cmd_nodes_list(args):
         output({"error": str(e)})
 
 
+def _split_node_path(full_name):
+    """Split '/namespace/node_name' into (node_name, namespace)."""
+    s = full_name.lstrip('/')
+    if '/' in s:
+        idx = s.rindex('/')
+        return s[idx + 1:], '/' + s[:idx]
+    return s, '/'
+
+
 def cmd_nodes_details(args):
     try:
         rclpy.init()
         node = ROS2CLI()
-        
-        publishers = node.get_publisher_names_and_types_by_node(args.node)
-        subscribers = node.get_subscriber_names_and_types_by_node(args.node)
-        services = node.get_service_names_and_types_by_node(args.node)
-        
+
+        node_name, namespace = _split_node_path(args.node)
+
+        publishers = node.get_publisher_names_and_types_by_node(node_name, namespace)
+        subscribers = node.get_subscriber_names_and_types_by_node(node_name, namespace)
+        services = node.get_service_names_and_types_by_node(node_name, namespace)
+
         result = {
             "node": args.node,
-            "publishers": [t[0] for node_name, topics in publishers for t in topics],
-            "subscribers": [t[0] for node_name, topics in subscribers for t in topics],
-            "services": [s[0] for node_name, srvs in services for s in srvs]
+            "publishers": [topic for topic, _ in publishers],
+            "subscribers": [topic for topic, _ in subscribers],
+            "services": [svc for svc, _ in services],
         }
-        
+
         rclpy.shutdown()
         output(result)
     except Exception as e:
