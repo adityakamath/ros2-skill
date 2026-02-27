@@ -140,6 +140,7 @@ Examples:
 """
 
 import argparse
+import importlib
 import json
 import os
 import sys
@@ -163,39 +164,43 @@ from rosidl_runtime_py import import_message
 def get_msg_type(type_str):
     if not type_str:
         return None
-    
-    formats = []
-    
+
+    # Normalize to pkg, msg_name components
     if '/msg/' in type_str:
         pkg, msg_name = type_str.split('/msg/', 1)
         msg_name = msg_name.strip()
-        formats = [
-            f"{pkg}.msg.{msg_name}",
-        ]
     elif '/' in type_str:
         pkg, msg_name = type_str.rsplit('/', 1)
-        formats = [
-            f"{pkg}.msg.{msg_name}",
-        ]
+    elif '.' in type_str:
+        # Already dot-separated (e.g. "geometry_msgs.msg.Twist")
+        parts = type_str.split('.')
+        try:
+            module = importlib.import_module('.'.join(parts[:-1]))
+            return getattr(module, parts[-1])
+        except Exception:
+            return None
     else:
-        formats = [type_str]
-    
-    for fmt in formats:
-        try:
-            return import_message(fmt)
-        except Exception:
-            continue
-    
-    for fmt in formats:
-        try:
-            parts = fmt.split('.')
-            module = __import__(parts[0])
-            for part in parts[1:]:
-                module = getattr(module, part)
-            return module
-        except Exception:
-            continue
-    
+        return None
+
+    # Primary: importlib (works whenever the ROS env is sourced)
+    try:
+        module = importlib.import_module(f"{pkg}.msg")
+        return getattr(module, msg_name)
+    except Exception:
+        pass
+
+    # Fallback: rosidl import_message with slash format
+    try:
+        return import_message(f"{pkg}/msg/{msg_name}")
+    except Exception:
+        pass
+
+    # Last resort: rosidl import_message with dot format
+    try:
+        return import_message(f"{pkg}.msg.{msg_name}")
+    except Exception:
+        pass
+
     return None
 
 
