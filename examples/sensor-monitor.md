@@ -2,11 +2,20 @@
 
 Workflows for subscribing to and analyzing robot sensor data.
 
+## Prerequisites
+
+```bash
+# Source ROS 2 environment
+source /opt/ros/${ROS_DISTRO}/setup.bash
+
+# Install dependencies
+pip install rclpy rosidl-runtime-py
+```
+
 ## 1. Discover Available Sensors
 
 ```bash
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> connect
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics list
+python {baseDir}/scripts/ros2_cli.py topics list
 ```
 
 Common sensor topics:
@@ -19,9 +28,9 @@ Common sensor topics:
 ## 2. Read a Single Sensor Value
 
 ```bash
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics type /scan
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics message sensor_msgs/LaserScan
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics subscribe /scan sensor_msgs/LaserScan
+python {baseDir}/scripts/ros2_cli.py topics type /scan
+python {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/LaserScan
+python {baseDir}/scripts/ros2_cli.py topics subscribe /scan
 ```
 
 ## 3. Monitor Sensor Over Time
@@ -29,21 +38,19 @@ python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics subscribe /scan senso
 Collect odometry data for 10 seconds:
 
 ```bash
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics subscribe /odom nav_msgs/Odometry \
-  --duration 10 --max-messages 50
+python {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
 ```
 
 Monitor IMU:
 
 ```bash
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics subscribe /imu/data sensor_msgs/Imu \
-  --duration 5 --max-messages 20
+python {baseDir}/scripts/ros2_cli.py topics subscribe /imu/data --duration 5 --max-messages 20
 ```
 
 ## 4. Joint State Monitoring
 
 ```bash
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics subscribe /joint_states sensor_msgs/JointState
+python {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states
 ```
 
 Returns joint names, positions, velocities, and efforts.
@@ -51,7 +58,7 @@ Returns joint names, positions, velocities, and efforts.
 ## 5. LiDAR Obstacle Detection
 
 ```bash
-python {baseDir}/scripts/ros_cli.py --ip <ROBOT_IP> topics subscribe /scan sensor_msgs/LaserScan --timeout 3
+python {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
 ```
 
 The response includes:

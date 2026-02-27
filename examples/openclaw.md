@@ -1,6 +1,6 @@
 # OpenClaw Tutorial
 
-Tutorial for installing ros-skill and controlling ROS robots with OpenClaw.
+Tutorial for installing ros2-skill and controlling ROS 2 robots with OpenClaw.
 
 ## What is OpenClaw?
 
@@ -16,16 +16,16 @@ openclaw onboard --install-daemon
 
 The setup wizard will guide you through gateway, workspace, channel, and skill configuration.
 
-## Step 2: Install ros-skill from ClawHub
+## Step 2: Install ros2-skill from ClawHub
 
-[ClawHub](https://docs.openclaw.ai/tools/clawhub) is a public skills registry for OpenClaw. Install the CLI and ros-skill:
+[ClawHub](https://docs.openclaw.ai/tools/clawhub) is a public skills registry for OpenClaw. Install the CLI and ros2-skill:
 
 ```bash
 # Install ClawHub CLI
 npm install -g clawhub
 
-# Install ros-skill
-clawhub install ros-skill
+# Install ros2-skill
+clawhub install ros2-skill
 ```
 
 By default, skills install into `./skills/` in your working directory. Move it to one of OpenClaw's skill directories:
@@ -36,49 +36,35 @@ By default, skills install into `./skills/` in your working directory. Move it t
 You can also search for it first:
 
 ```bash
-clawhub search "ros-skill"
+clawhub search "ros2-skill"
 ```
 
 To update later:
 
 ```bash
-clawhub update ros-skill
+clawhub update ros2-skill
 ```
 
 
-## Step 3: Setup rosbridge on the robot
+## Step 3: Run on ROS 2 Robot
 
-ros-skill communicates with ROS robots via rosbridge WebSocket.
-
-**ROS 1:**
+ros2-skill communicates with ROS 2 robots directly via rclpy. Run the CLI on a machine with ROS 2 installed:
 
 ```bash
-sudo apt install ros-${ROS_DISTRO}-rosbridge-server
-roslaunch rosbridge_server rosbridge_websocket.launch
+# Source ROS 2 environment
+source /opt/ros/${ROS_DISTRO}/setup.bash
+
+# Install dependencies
+pip install rclpy rosidl-runtime-py
+
+# Run commands
+python ros2_cli.py topics list
+python ros2_cli.py nodes list
 ```
-
-**ROS 2:**
-
-```bash
-sudo apt install ros-${ROS_DISTRO}-rosbridge-server
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
-```
-
-The default port is `9090`.
 
 ## Step 4: Talk to your robot
 
 Control your robot with natural language in the OpenClaw chat.
-
-### Connect
-
-> "Connect to the ROS robot"
-
-The agent runs `ros_cli.py connect` to check connectivity.
-
-For a remote robot:
-
-> "Connect to the ROS robot at 192.168.1.100"
 
 ### Explore
 
@@ -110,7 +96,6 @@ Try the full workflow with turtlesim.
 
 ```bash
 ros2 run turtlesim turtlesim_node
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 ```
 
 ### 2. Chat with OpenClaw
@@ -123,13 +108,13 @@ Chat with OpenClaw like this:
 - "Draw a square with the turtle"
 - "Change the background color to red"
 
-The agent automatically combines ros-skill commands to execute your requests.
+The agent automatically combines ros2-skill commands to execute your requests.
 
 
 ## Architecture
 
 ```text
-User (Chat) → OpenClaw → ros-skill → ros_cli.py → rosbridge (:9090) → ROS/ROS2 Robot
+User (Chat) → OpenClaw → ros2-skill → ros2_cli.py → rclpy → ROS 2
 ```
 
-OpenClaw understands natural language, translates it into ros-skill CLI commands, and controls the robot through rosbridge.
+OpenClaw understands natural language, translates it into ros2-skill CLI commands, and controls the robot through rclpy.

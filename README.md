@@ -1,60 +1,52 @@
-# ROS Skill
+# ROS 2 Skill
 
-![Static Badge](https://img.shields.io/badge/ROS-Available-green)
-![Static Badge](https://img.shields.io/badge/ROS2-Available-green)
+![Static Badge](https://img.shields.io/badge/ROS2-Supported-green)
 ![Static Badge](https://img.shields.io/badge/Linux-Supported-green)
 ![Static Badge](https://img.shields.io/badge/macOS-Supported-green)
-![Static Badge](https://img.shields.io/badge/Windows-Supported-green)
 ![Static Badge](https://img.shields.io/badge/License-Apache%202.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-[![ClawHub](https://img.shields.io/badge/ClawHub-ros--skill-orange)](https://clawhub.ai/lpigeon/ros-skill)
+[![ClawHub](https://img.shields.io/badge/ClawHub-ros2--skill-orange)](https://clawhub.ai/adityakamath/ros2-skill)
 
-[Agent Skill](https://agentskills.io) for ROS/ROS2 robot control via rosbridge WebSocket.
+[Agent Skill](https://agentskills.io) for ROS 2 robot control via rclpy.
 
 ```text
-Agent (LLM) → ros_cli.py → rosbridge (WebSocket :9090) → ROS/ROS2 Robot
+Agent (LLM) → ros2_cli.py → rclpy → ROS 2
 ```
 
 ## Overview
 
-An AI agent skill that lets agents control ROS robots through natural language. The agent reads `SKILL.md`, understands available commands, and executes `ros_cli.py` to interact with any ROS/ROS2 system via rosbridge.
+An AI agent skill that lets agents control ROS 2 robots through natural language. The agent reads `SKILL.md`, understands available commands, and executes `ros2_cli.py` to interact with ROS 2 systems directly via rclpy.
 
 ## Quick Start (CLI)
 
-Use `ros_cli.py` directly from the command line.
+Use `ros2_cli.py` directly from the command line.
 
 ```bash
-# Install
-pip install websocket-client
+# Source ROS 2 environment
+source /opt/ros/${ROS_DISTRO}/setup.bash
 
-# Launch rosbridge on the robot (ROS 2)
-sudo apt install ros-${ROS_DISTRO}-rosbridge-server
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
-```
+# Install dependencies
+pip install rclpy rosidl-runtime-py
 
-```bash
-# Connect
-python scripts/ros_cli.py connect
-
-# Explore
-python scripts/ros_cli.py topics list
-python scripts/ros_cli.py nodes list
+# Run commands
+python scripts/ros2_cli.py version
+python scripts/ros2_cli.py topics list
+python scripts/ros2_cli.py nodes list
 
 # Move robot forward for 3 seconds
-python scripts/ros_cli.py topics publish /cmd_vel geometry_msgs/Twist \
+python scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
 
 # Read sensor data
-python scripts/ros_cli.py topics subscribe /scan sensor_msgs/LaserScan --timeout 3
+python scripts/ros2_cli.py topics subscribe /scan --duration 3
 ```
 
 ## Quick Start (AI Agent)
 
-**ros-skill** works with any AI agent that supports [Agent Skills](https://agentskills.io). For easy setup, we recommend [OpenClaw](https://github.com/openclaw/openclaw) — install **ros-skill** from [ClawHub](https://clawhub.ai/lpigeon/ros-skill) and talk to your robot:
+**ros2-skill** works with any AI agent that supports [Agent Skills](https://agentskills.io). For easy setup, we recommend [OpenClaw](https://github.com/openclaw/openclaw) — install **ros2-skill** from [ClawHub](https://clawhub.ai/adityakamath/ros2-skill) and talk to your robot:
 
-- "Connect to the ROS robot"
-- "Move the robot forward 1 meter"
 - "What topics are available?"
+- "Move the robot forward 1 meter"
 
 See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 
@@ -62,12 +54,12 @@ See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 
 | Category | Commands |
 | -------- | -------- |
-| Connection | `connect`, `version` |
+| Connection | `version` |
 | Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence` |
 | Services | `list`, `type`, `details`, `call` |
 | Nodes | `list`, `details` |
-| Parameters | `list`, `get`, `set` (ROS 2 only) |
-| Actions | `list`, `details`, `send` (ROS 2 only) |
+| Parameters | `list`, `get`, `set` |
+| Actions | `list`, `details`, `send` |
 
 All commands output JSON. See `SKILL.md` for quick reference and `references/COMMANDS.md` for full details with output examples.
 
@@ -76,38 +68,49 @@ All commands output JSON. See `SKILL.md` for quick reference and `references/COM
 1. The agent platform loads `SKILL.md` into the agent's system prompt
 2. `{baseDir}` in commands is replaced with the actual skill installation path
 3. User asks something like "move the robot forward"
-4. Agent executes: `python {baseDir}/scripts/ros_cli.py topics publish /cmd_vel ...`
-5. `ros_cli.py` connects to rosbridge via WebSocket and returns JSON
+4. Agent executes: `python {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel ...`
+5. `ros2_cli.py` uses rclpy to communicate with ROS 2 and returns JSON
 6. Agent parses the JSON and responds in natural language
 
 ## File Structure
 
-```text
-ros-skill/
+```
+ros2-skill/
 ├── SKILL.md              # Skill document (loaded into agent's system prompt)
 ├── scripts/
-│   └── ros_cli.py        # Standalone CLI tool (all ROS operations)
+│   └── ros2_cli.py       # Standalone CLI tool (all ROS 2 operations)
 ├── references/
-│   └── COMMANDS.md       # Full command reference with output examples
+│   └── COMMANDS.md      # Full command reference with output examples
 ├── examples/
-│   ├── turtlesim.md      # Turtlesim tutorial
+│   ├── turtlesim.md     # Turtlesim tutorial
 │   ├── sensor-monitor.md # Sensor monitoring workflows
-│   └── openclaw.md       # OpenClaw integration tutorial
+│   └── openclaw.md      # OpenClaw integration tutorial
 └── tests/
-    └── test_ros_cli.py   # Unit tests (52 tests, no ROS environment needed)
+    └── test_ros_cli.py  # Unit tests (tests ros2_cli.py)
 ```
 
 ## Requirements
 
 - Python 3.10+
-- `websocket-client` (pip package)
-- rosbridge running on the robot (default port 9090)
+- ROS 2 environment sourced
+- `rclpy` and `rosidl-runtime-py` packages
 
 ## Testing
 
 ```bash
-pip install websocket-client
+# Source ROS 2 environment
+source /opt/ros/${ROS_DISTRO}/setup.bash
+
+# Run tests
 python3 -m pytest tests/ -v
 ```
 
-All 52 tests run without a ROS environment (WebSocket calls are mocked).
+Note: Some tests require a ROS 2 environment to run fully.
+
+---
+
+## About
+
+This is a fork of the original [ros-skill](https://github.com/lpigeon/ros-skill) repository. The original supports both ROS 1 and ROS 2 using rosbridge WebSocket for communication, making it suitable for controlling remote robots over a network.
+
+This version (`ros2-skill`) is designed to run directly on a ROS 2 robot and uses `rclpy` for direct local communication with ROS 2, without requiring rosbridge.
