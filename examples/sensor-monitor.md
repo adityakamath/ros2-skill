@@ -15,7 +15,7 @@ pip install rclpy rosidl-runtime-py
 ## 1. Discover Available Sensors
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics list
+python3 {baseDir}/scripts/ros2_cli.py topics list
 ```
 
 Common sensor topics:
@@ -28,9 +28,9 @@ Common sensor topics:
 ## 2. Read a Single Sensor Value
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics type /scan
-python {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/LaserScan
-python {baseDir}/scripts/ros2_cli.py topics subscribe /scan
+python3 {baseDir}/scripts/ros2_cli.py topics type /scan
+python3 {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /scan
 ```
 
 ## 3. Monitor Sensor Over Time
@@ -38,19 +38,19 @@ python {baseDir}/scripts/ros2_cli.py topics subscribe /scan
 Collect odometry data for 10 seconds:
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
 ```
 
 Monitor IMU:
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics subscribe /imu/data --duration 5 --max-messages 20
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /imu/data --duration 5 --max-messages 20
 ```
 
 ## 4. Joint State Monitoring
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states
 ```
 
 Returns joint names, positions, velocities, and efforts.
@@ -58,7 +58,7 @@ Returns joint names, positions, velocities, and efforts.
 ## 5. LiDAR Obstacle Detection
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
 ```
 
 The response includes:

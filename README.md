@@ -27,16 +27,16 @@ source /opt/ros/${ROS_DISTRO}/setup.bash
 pip install rclpy rosidl-runtime-py
 
 # Run commands
-python scripts/ros2_cli.py version
-python scripts/ros2_cli.py topics list
-python scripts/ros2_cli.py nodes list
+python3 scripts/ros2_cli.py version
+python3 scripts/ros2_cli.py topics list
+python3 scripts/ros2_cli.py nodes list
 
 # Move robot forward for 3 seconds
-python scripts/ros2_cli.py topics publish /cmd_vel \
+python3 scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
 
 # Read sensor data
-python scripts/ros2_cli.py topics subscribe /scan --duration 3
+python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 ```
 
 ## Quick Start (AI Agent)
@@ -66,7 +66,7 @@ All commands output JSON. See `SKILL.md` for quick reference and `references/COM
 1. The agent platform loads `SKILL.md` into the agent's system prompt
 2. `{baseDir}` in commands is replaced with the actual skill installation path
 3. User asks something like "move the robot forward"
-4. Agent executes: `python {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel ...`
+4. Agent executes: `python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel ...`
 5. `ros2_cli.py` uses rclpy to communicate with ROS 2 and returns JSON
 6. Agent parses the JSON and responds in natural language
 

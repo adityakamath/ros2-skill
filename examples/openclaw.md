@@ -58,8 +58,8 @@ source /opt/ros/${ROS_DISTRO}/setup.bash
 pip install rclpy rosidl-runtime-py
 
 # Run commands
-python ros2_cli.py topics list
-python ros2_cli.py nodes list
+python3 ros2_cli.py topics list
+python3 ros2_cli.py nodes list
 ```
 
 ## Step 4: Talk to your robot

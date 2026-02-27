@@ -44,7 +44,7 @@ The CLI must run on a machine with ROS 2 installed and sourced.
 Before any operation, verify ROS 2 is available:
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py version
+python3 {baseDir}/scripts/ros2_cli.py version
 ```
 
 ---
@@ -54,6 +54,7 @@ python {baseDir}/scripts/ros2_cli.py version
 | Category | Command | Description |
 |----------|---------|-------------|
 | Connection | `version` | Detect ROS 2 distro |
+| Safety | `estop` | Emergency stop for mobile robots |
 | Topics | `topics list` | List all active topics with types |
 | Topics | `topics type <topic>` | Get message type of a topic |
 | Topics | `topics details <topic>` | Get topic publishers/subscribers |
@@ -81,16 +82,16 @@ python {baseDir}/scripts/ros2_cli.py version
 ### version
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py version
+python3 {baseDir}/scripts/ros2_cli.py version
 ```
 
 ### topics list / type / details / message
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics list
-python {baseDir}/scripts/ros2_cli.py topics type /turtle1/cmd_vel
-python {baseDir}/scripts/ros2_cli.py topics details /turtle1/cmd_vel
-python {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics list
+python3 {baseDir}/scripts/ros2_cli.py topics type /turtle1/cmd_vel
+python3 {baseDir}/scripts/ros2_cli.py topics details /turtle1/cmd_vel
+python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
 ```
 
 ### topics subscribe
@@ -98,8 +99,8 @@ python {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
 Without `--duration`: returns first message. With `--duration`: collects multiple messages.
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics subscribe /turtle1/pose
-python {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /turtle1/pose
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
 ```
 
 ### topics publish
@@ -108,14 +109,14 @@ Without `--duration`: single-shot. With `--duration`: publishes repeatedly at `-
 
 ```bash
 # Single-shot
-python {baseDir}/scripts/ros2_cli.py topics publish /trigger '{"data": ""}'
+python3 {baseDir}/scripts/ros2_cli.py topics publish /trigger '{"data": ""}'
 
 # Move forward 3 seconds (velocity — use --duration)
-python {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
 
 # Stop
-python {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
 ```
 
@@ -127,12 +128,12 @@ Publish a sequence of messages, each repeated at `--rate` Hz for its correspondi
 
 ```bash
 # Forward 3s then stop
-python {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
   '[3.0, 0.5]'
 
 # Draw a square (turtlesim)
-python {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
   '[{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":0},"angular":{"z":0}}]' \
   '[1,1,1,1,1,1,1,1,0.5]'
 ```
@@ -142,24 +143,24 @@ Options: `--rate HZ` (default 10)
 ### services list / type / details
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py services list
-python {baseDir}/scripts/ros2_cli.py services type /spawn
-python {baseDir}/scripts/ros2_cli.py services details /spawn
+python3 {baseDir}/scripts/ros2_cli.py services list
+python3 {baseDir}/scripts/ros2_cli.py services type /spawn
+python3 {baseDir}/scripts/ros2_cli.py services details /spawn
 ```
 
 ### services call
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py services call /reset '{}'
-python {baseDir}/scripts/ros2_cli.py services call /spawn \
+python3 {baseDir}/scripts/ros2_cli.py services call /reset '{}'
+python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
   '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
 ```
 
 ### nodes list / details
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py nodes list
-python {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+python3 {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
 ```
 
 ### params list / get / set
@@ -167,17 +168,17 @@ python {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
 Uses `node:param_name` format.
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py params list /turtlesim
-python {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
-python {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
+python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
 ```
 
 ### actions list / details / send
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py actions list
-python {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
-python {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
+python3 {baseDir}/scripts/ros2_cli.py actions list
+python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
+python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
   '{"theta":3.14}'
 ```
 
@@ -188,14 +189,14 @@ python {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
 ### 1. Explore a Robot System
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py version
-python {baseDir}/scripts/ros2_cli.py topics list
-python {baseDir}/scripts/ros2_cli.py nodes list
-python {baseDir}/scripts/ros2_cli.py services list
-python {baseDir}/scripts/ros2_cli.py topics type /cmd_vel
-python {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
-python {baseDir}/scripts/ros2_cli.py actions list
-python {baseDir}/scripts/ros2_cli.py params list /robot_node
+python3 {baseDir}/scripts/ros2_cli.py version
+python3 {baseDir}/scripts/ros2_cli.py topics list
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+python3 {baseDir}/scripts/ros2_cli.py services list
+python3 {baseDir}/scripts/ros2_cli.py topics type /cmd_vel
+python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+python3 {baseDir}/scripts/ros2_cli.py actions list
+python3 {baseDir}/scripts/ros2_cli.py params list /robot_node
 ```
 
 ### 2. Move a Robot
@@ -203,8 +204,8 @@ python {baseDir}/scripts/ros2_cli.py params list /robot_node
 Always check the message structure first, then publish movement, and always stop after.
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
-python {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
   '[2.0, 0.5]'
 ```
@@ -212,38 +213,38 @@ python {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
 ### 3. Read Sensor Data
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics type /scan
-python {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/LaserScan
-python {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
-python {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+python3 {baseDir}/scripts/ros2_cli.py topics type /scan
+python3 {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
 ```
 
 ### 4. Use Services
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py services list
-python {baseDir}/scripts/ros2_cli.py services details /spawn
-python {baseDir}/scripts/ros2_cli.py services call /spawn \
+python3 {baseDir}/scripts/ros2_cli.py services list
+python3 {baseDir}/scripts/ros2_cli.py services details /spawn
+python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
   '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
 ```
 
 ### 5. Actions
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py actions list
-python {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
-python {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
+python3 {baseDir}/scripts/ros2_cli.py actions list
+python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
+python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
   '{"theta":1.57}'
 ```
 
 ### 6. Change Parameters
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py params list /turtlesim
-python {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
-python {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
-python {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_g 0
-python {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_b 0
+python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
+python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_g 0
+python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_b 0
 ```
 
 ---

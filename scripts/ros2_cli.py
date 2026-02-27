@@ -7,33 +7,38 @@ Commands:
 
   version
     Detect ROS 2 version and distro.
-    $ python ros2_cli.py version
+    $ python3 ros2_cli.py version
+
+  estop
+    Emergency stop for mobile robots. Auto-detects velocity topic and type,
+    then publishes zero velocity. For mobile bases only (not arms).
+    $ python3 ros2_cli.py estop
 
   topics list
     List all active topics with their message types.
-    $ python ros2_cli.py topics list
+    $ python3 ros2_cli.py topics list
 
   topics type <topic>
     Get the message type of a specific topic.
-    $ python ros2_cli.py topics type /cmd_vel
-    $ python ros2_cli.py topics type /turtle1/pose
+    $ python3 ros2_cli.py topics type /cmd_vel
+    $ python3 ros2_cli.py topics type /turtle1/pose
 
   topics details <topic>
     Get topic details including type, publishers, and subscribers.
-    $ python ros2_cli.py topics details /cmd_vel
+    $ python3 ros2_cli.py topics details /cmd_vel
 
   topics message <message_type>
     Get the field structure of a message type.
-    $ python ros2_cli.py topics message geometry_msgs/Twist
-    $ python ros2_cli.py topics message sensor_msgs/LaserScan
+    $ python3 ros2_cli.py topics message geometry_msgs/Twist
+    $ python3 ros2_cli.py topics message sensor_msgs/LaserScan
 
   topics subscribe <topic> [--duration SEC] [--max-messages N]
     Subscribe to a topic. Without --duration, returns the first message and exits.
     With --duration, collects messages for the specified time.
     --duration SECONDS   Collect messages for this duration (default: single message)
     --max-messages N     Max messages to collect during duration (default: 100)
-    $ python ros2_cli.py topics subscribe /turtle1/pose
-    $ python ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+    $ python3 ros2_cli.py topics subscribe /turtle1/pose
+    $ python3 ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
 
   topics publish <topic> <json_message> [--duration SEC] [--rate HZ]
     Publish a message to a topic.
@@ -41,9 +46,9 @@ Commands:
     With --duration: publishes repeatedly at --rate Hz for the specified seconds.
     --duration SECONDS   Publish repeatedly for this duration
     --rate HZ            Publish rate (default: 10 Hz)
-    $ python ros2_cli.py topics publish /turtle1/cmd_vel \
+    $ python3 ros2_cli.py topics publish /turtle1/cmd_vel \
         '{"linear":{"x":2.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
-    $ python ros2_cli.py topics publish /cmd_vel \
+    $ python3 ros2_cli.py topics publish /cmd_vel \
         '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
 
   topics publish-sequence <topic> <json_messages> <json_durations> [--rate HZ]
@@ -52,61 +57,61 @@ Commands:
     <json_messages>   JSON array of messages to publish in order
     <json_durations>  JSON array of durations (seconds) for each message (must match length)
     --rate HZ         Publish rate (default: 10 Hz)
-    $ python ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
+    $ python3 ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
         '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
         '[3.0, 0.5]'
 
   services list
     List all available services.
-    $ python ros2_cli.py services list
+    $ python3 ros2_cli.py services list
 
   services type <service>
     Get the type of a specific service.
-    $ python ros2_cli.py services type /reset
+    $ python3 ros2_cli.py services type /reset
 
   services details <service>
     Get service details including type, request fields, and response fields.
-    $ python ros2_cli.py services details /spawn
+    $ python3 ros2_cli.py services details /spawn
 
   services call <service> <json_request>
     Call a service with a JSON request payload.
-    $ python ros2_cli.py services call /reset '{}'
-    $ python ros2_cli.py services call /spawn \
+    $ python3 ros2_cli.py services call /reset '{}'
+    $ python3 ros2_cli.py services call /spawn \
         '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
 
   nodes list
     List all active nodes.
-    $ python ros2_cli.py nodes list
+    $ python3 ros2_cli.py nodes list
 
   nodes details <node>
     Get node details including publishers, subscribers, and services.
-    $ python ros2_cli.py nodes details /turtlesim
+    $ python3 ros2_cli.py nodes details /turtlesim
 
   params list <node>
     List all parameters for a node.
-    $ python ros2_cli.py params list /turtlesim
+    $ python3 ros2_cli.py params list /turtlesim
 
   params get <node:param_name>
     Get a parameter value. Format: /node_name:parameter_name
-    $ python ros2_cli.py params get /turtlesim:background_r
-    $ python ros2_cli.py params get /turtlesim:background_b
+    $ python3 ros2_cli.py params get /turtlesim:background_r
+    $ python3 ros2_cli.py params get /turtlesim:background_b
 
   params set <node:param_name> <value>
     Set a parameter value. Format: /node_name:parameter_name
-    $ python ros2_cli.py params set /turtlesim:background_r 255
-    $ python ros2_cli.py params set /turtlesim:background_g 0
+    $ python3 ros2_cli.py params set /turtlesim:background_r 255
+    $ python3 ros2_cli.py params set /turtlesim:background_g 0
 
   actions list
     List all available action servers.
-    $ python ros2_cli.py actions list
+    $ python3 ros2_cli.py actions list
 
   actions details <action>
     Get action details including goal, result, and feedback fields.
-    $ python ros2_cli.py actions details /turtle1/rotate_absolute
+    $ python3 ros2_cli.py actions details /turtle1/rotate_absolute
 
   actions send <action> <json_goal>
     Send an action goal and wait for the result.
-    $ python ros2_cli.py actions send /turtle1/rotate_absolute '{"theta":3.14}'
+    $ python3 ros2_cli.py actions send /turtle1/rotate_absolute '{"theta":3.14}'
 
 Output:
     All commands output JSON to stdout.
@@ -115,27 +120,28 @@ Output:
 
 Examples:
     # Explore the robot system
-    python ros2_cli.py version
-    python ros2_cli.py topics list
-    python ros2_cli.py nodes list
-    python ros2_cli.py services list
+    python3 ros2_cli.py version
+    python3 ros2_cli.py topics list
+    python3 ros2_cli.py nodes list
+    python3 ros2_cli.py services list
 
     # Move turtlesim forward 2 sec then stop
-    python ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
+    python3 ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
       '[{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
       '[2.0, 0.5]'
 
     # Read LiDAR data
-    python ros2_cli.py topics subscribe /scan --duration 3
+    python3 ros2_cli.py topics subscribe /scan --duration 3
 
     # Change turtlesim background to red
-    python ros2_cli.py params set /turtlesim:background_r 255
-    python ros2_cli.py params set /turtlesim:background_g 0
-    python ros2_cli.py params set /turtlesim:background_b 0
+    python3 ros2_cli.py params set /turtlesim:background_r 255
+    python3 ros2_cli.py params set /turtlesim:background_g 0
+    python3 ros2_cli.py params set /turtlesim:background_b 0
 """
 
 import argparse
 import json
+import os
 import sys
 import time
 import threading
@@ -149,16 +155,49 @@ except ImportError:
     print(json.dumps({"error": "rclpy not installed. Run: pip install rclpy (or source ROS 2)"}))
     sys.exit(1)
 
-from rcl_interfaces.srv import GetParameters, SetParameters
-from rosidl_runtime_py.utilities import get_message
+from rcl_interfaces.msg import Parameter, ParameterValue
+from rcl_interfaces.srv import GetParameters, SetParameters, ListParameters
 from rosidl_runtime_py import import_message
 
 
 def get_msg_type(type_str):
-    try:
-        return import_message(type_str)
-    except Exception:
+    if not type_str:
         return None
+    formats = [
+        type_str,
+        type_str.replace('/', '.msg.'),
+        type_str.replace('/', '.msg.').replace('.msg.msg', '.msg'),
+    ]
+    for fmt in formats:
+        try:
+            return import_message(fmt)
+        except Exception:
+            continue
+    return None
+
+
+def get_msg_error(msg_type):
+    """Generate helpful error message when message type cannot be loaded."""
+    suggestions = []
+    base_type = msg_type.split('/')[-1] if '/' in msg_type else msg_type
+    common_types = {
+        'twist': 'geometry_msgs/Twist',
+        'twiststamped': 'geometry_msgs/TwistStamped',
+        'pose': 'turtlesim/Pose',
+        'odom': 'nav_msgs/Odometry',
+        'laserscan': 'sensor_msgs/LaserScan',
+        'image': 'sensor_msgs/Image',
+        'battery': 'sensor_msgs/BatteryState',
+        'jointstate': 'sensor_msgs/JointState',
+        'imu': 'sensor_msgs/Imu',
+    }
+    if base_type.lower() in common_types:
+        suggestions.append(common_types[base_type.lower()])
+    return {
+        "error": f"Unknown message type: {msg_type}",
+        "hint": "Try using the full type name (e.g., geometry_msgs/Twist instead of Twist)",
+        "suggestions": suggestions if suggestions else None
+    }
 
 
 def msg_to_dict(msg):
@@ -192,31 +231,14 @@ def output(data):
 
 
 class ROS2CLI(Node):
-    def __init__(self):
-        super().__init__('ros2_cli')
-
-    def get_node_names(self):
-        names = self.get_node_names()
-        return names
+    def __init__(self, node_name='ros2_cli'):
+        super().__init__(node_name)
 
     def get_topic_names(self):
         return self.get_topic_names_and_types()
 
     def get_service_names(self):
         return self.get_service_names_and_types()
-
-    def get_action_names(self):
-        topics = self.get_topic_names_and_types()
-        actions = []
-        for name, types in topics:
-            if '/feedback' in name or '/goal' in name or '/cancel' in name or '/result' in name:
-                continue
-            for t in types:
-                if 'action/' in t:
-                    action_name = name.replace('/feedback', '').replace('/goal', '').replace('/cancel', '').replace('/result', '')
-                    if action_name not in actions:
-                        actions.append(action_name)
-        return actions
 
 
 def get_msg_fields(msg_type_str):
@@ -250,7 +272,90 @@ def cmd_version(args):
         output({"error": str(e)})
 
 
-import os
+VELOCITY_TOPICS = ["/cmd_vel", "/cmd_vel_nav", "/cmd_vel_raw", "/mobile_base/commands/velocity"]
+VELOCITY_TYPES = ["geometry_msgs/Twist", "geometry_msgs/TwistStamped"]
+
+
+def find_velocity_topic(node):
+    """Find the velocity command topic and its type."""
+    topics = node.get_topic_names()
+    for topic_name, types in topics:
+        if topic_name in VELOCITY_TOPICS:
+            for msg_type in types:
+                if msg_type in VELOCITY_TYPES:
+                    return topic_name, msg_type
+    for topic_name, types in topics:
+        if "cmd_vel" in topic_name.lower():
+            return topic_name, types[0] if types else None
+    return None, None
+
+
+def cmd_estop(args):
+    """Emergency stop for mobile robots - auto-detect and publish zero velocity.
+
+    This command is designed for mobile base robots (differential drive, omnidirectional, etc.)
+    that use velocity commands for movement. It will NOT work for robotic arms or manipulators.
+
+    The command:
+    1. Searches for common velocity topics (/cmd_vel, /cmd_vel_nav, etc.)
+    2. Auto-detects message type (Twist or TwistStamped)
+    3. Publishes zero velocity to stop all movement
+    4. Only works for mobile robots with velocity-based control
+
+    Not applicable for: robot arms, grippers, or position-controlled robots.
+    """
+    rclpy.init()
+    node = ROS2CLI("estop")
+
+    topic, msg_type = find_velocity_topic(node)
+
+    if not topic:
+        rclpy.shutdown()
+        return output({
+            "error": "Could not find velocity command topic",
+            "hint": "This command is for mobile robots only (not arms). Ensure the robot has a /cmd_vel topic."
+        })
+
+    msg_class = get_msg_type(msg_type)
+    if not msg_class:
+        for t in VELOCITY_TYPES:
+            msg_class = get_msg_type(t)
+            if msg_class:
+                msg_type = t
+                break
+
+    if not msg_class:
+        rclpy.shutdown()
+        return output({"error": f"Could not load message type: {msg_type}"})
+
+    pub = node.create_publisher(msg_class, topic, 10)
+    msg = msg_class()
+
+    if hasattr(msg, "twist"):
+        msg.header.stamp = node.get_clock().now().to_msg()
+        msg.twist.linear.x = 0.0
+        msg.twist.linear.y = 0.0
+        msg.twist.linear.z = 0.0
+        msg.twist.angular.x = 0.0
+        msg.twist.angular.y = 0.0
+        msg.twist.angular.z = 0.0
+    else:
+        msg.linear.x = 0.0
+        msg.linear.y = 0.0
+        msg.linear.z = 0.0
+        msg.angular.x = 0.0
+        msg.angular.y = 0.0
+        msg.angular.z = 0.0
+
+    pub.publish(msg)
+    time.sleep(0.1)
+    rclpy.shutdown()
+    output({
+        "success": True,
+        "topic": topic,
+        "type": msg_type,
+        "message": "Emergency stop activated (mobile robot stopped)"
+    })
 
 
 def cmd_topics_list(args):
@@ -330,7 +435,6 @@ class TopicSubscriber(Node):
         super().__init__('subscriber')
         self.msg_type = msg_type
         self.messages = []
-        self.running = True
         self.lock = threading.Lock()
         
         msg_class = get_msg_type(msg_type)
@@ -347,7 +451,20 @@ class TopicSubscriber(Node):
 def cmd_topics_subscribe(args):
     try:
         rclpy.init()
-        subscriber = TopicSubscriber(args.topic, args.msg_type)
+        node = ROS2CLI("temp")
+        
+        msg_type = args.msg_type
+        if not msg_type:
+            topics = node.get_topic_names()
+            for name, types in topics:
+                if name == args.topic:
+                    msg_type = types[0] if types else None
+                    break
+            if not msg_type:
+                rclpy.shutdown()
+                return output({"error": f"Could not detect message type for topic: {args.topic}"})
+        
+        subscriber = TopicSubscriber(args.topic, msg_type)
         
         if args.duration:
             executor = rclpy.executors.SingleThreadedExecutor()
@@ -409,12 +526,27 @@ def cmd_topics_publish(args):
         msg_type = args.msg_type
         topic = args.topic
         
+        if not msg_type:
+            node = ROS2CLI("temp")
+            topics = node.get_topic_names()
+            for name, types in topics:
+                if name == topic:
+                    msg_type = types[0] if types else None
+                    break
+            if not msg_type:
+                rclpy.shutdown()
+                return output({"error": f"Could not detect message type for topic: {topic}"})
+        
         msg_class = get_msg_type(msg_type)
         if not msg_class:
             rclpy.shutdown()
-            return output({"error": f"Unknown message type: {msg_type}"})
+            return output(get_msg_error(msg_type))
         
         publisher = TopicPublisher(topic, msg_type)
+        
+        if publisher.pub is None:
+            rclpy.shutdown()
+            return output({"error": f"Failed to create publisher for {msg_type}"})
         
         msg = dict_to_msg(msg_class, msg_data)
         
@@ -458,12 +590,27 @@ def cmd_topics_publish_sequence(args):
         msg_type = args.msg_type
         topic = args.topic
         
+        if not msg_type:
+            node = ROS2CLI("temp")
+            topics = node.get_topic_names()
+            for name, types in topics:
+                if name == topic:
+                    msg_type = types[0] if types else None
+                    break
+            if not msg_type:
+                rclpy.shutdown()
+                return output({"error": f"Could not detect message type for topic: {topic}"})
+        
         msg_class = get_msg_type(msg_type)
         if not msg_class:
             rclpy.shutdown()
-            return output({"error": f"Unknown message type: {msg_type}"})
+            return output(get_msg_error(msg_type))
         
         publisher = TopicPublisher(topic, msg_type)
+        
+        if publisher.pub is None:
+            rclpy.shutdown()
+            return output({"error": f"Failed to create publisher for {msg_type}"})
         
         rate = getattr(args, "rate", None) or 10.0
         interval = 1.0 / rate
@@ -545,12 +692,12 @@ def cmd_services_details(args):
                 try:
                     req_fields = get_msg_fields(req_type)
                     result["request"] = req_fields
-                except:
+                except Exception:
                     pass
                 try:
                     resp_fields = get_msg_fields(resp_type)
                     result["response"] = resp_fields
-                except:
+                except Exception:
                     pass
         
         rclpy.shutdown()
@@ -623,7 +770,7 @@ def cmd_nodes_list(args):
     try:
         rclpy.init()
         node = ROS2CLI()
-        names = node.get_node_names()
+        names = [n for n, _ in node.get_node_names_and_types()]
         result = {"nodes": names, "count": len(names)}
         rclpy.shutdown()
         output(result)
@@ -664,7 +811,6 @@ def cmd_params_list(args):
         
         service_name = f"{node_name}/list_parameters"
         
-        from rcl_interfaces.srv import ListParameters
         client = node.create_client(ListParameters, service_name)
         
         if not client.wait_for_service(timeout_sec=5.0):
@@ -773,9 +919,6 @@ def cmd_params_set(args):
         
         request = SetParameters.Request()
         
-        from rcl_interfaces.msg import Parameter
-        from rcl_interfaces.msg import ParameterValue
-        
         param = Parameter()
         param.name = param_name
         
@@ -788,10 +931,10 @@ def cmd_params_set(args):
                 try:
                     pv.type = 2
                     pv.integer_value = int(args.value)
-                except:
+                except Exception:
                     pv.type = 4
                     pv.string_value = args.value
-        except:
+        except Exception:
             pv.type = 4
             pv.string_value = args.value
         
@@ -871,15 +1014,15 @@ def cmd_actions_details(args):
             
             try:
                 result["goal"] = get_msg_fields(goal_type)
-            except:
+            except Exception:
                 pass
             try:
                 result["result"] = get_msg_fields(result_type)
-            except:
+            except Exception:
                 pass
             try:
                 result["feedback"] = get_msg_fields(feedback_type)
-            except:
+            except Exception:
                 pass
         
         rclpy.shutdown()
@@ -926,7 +1069,6 @@ def cmd_actions_send(args):
             rclpy.shutdown()
             return output({"error": f"Action server not available: {args.action}"})
         
-        goal_msg = action_class.Goal()
         goal_msg = dict_to_msg(action_class.Goal, goal_data)
         
         goal_id = f"goal_{int(time.time() * 1000)}"
@@ -976,6 +1118,9 @@ def build_parser():
 
     sub.add_parser("version", help="Detect ROS 2 version")
 
+    estop = sub.add_parser("estop", help="Emergency stop for mobile robots (publishes zero velocity)")
+    estop.add_argument("--topic", dest="topic", default=None, help="Custom velocity topic (default: auto-detect)")
+
     topics = sub.add_parser("topics", help="Topic operations")
     tsub = topics.add_subparsers(dest="subcommand")
     tsub.add_parser("list", help="List all topics")
@@ -986,20 +1131,21 @@ def build_parser():
     p = tsub.add_parser("message", help="Get message structure")
     p.add_argument("message_type")
     p = tsub.add_parser("subscribe", help="Subscribe to a topic")
-    p.add_argument("topic")
+    p.add_argument("topic", nargs="?")
+    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
     p.add_argument("--duration", type=float, default=None, help="Subscribe for duration (seconds)")
     p.add_argument("--max-messages", type=int, default=100, help="Max messages to collect")
     p = tsub.add_parser("publish", help="Publish a message")
-    p.add_argument("topic")
-    p.add_argument("msg", help="JSON message")
-    p.add_argument("--msg-type", dest="msg_type", default="std_msgs/msg/String", help="Message type")
+    p.add_argument("topic", nargs="?")
+    p.add_argument("msg", nargs="?", help="JSON message")
+    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
     p.add_argument("--duration", type=float, default=None, help="Publish repeatedly for duration (seconds)")
     p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
     p = tsub.add_parser("publish-sequence", help="Publish message sequence with delays")
-    p.add_argument("topic")
-    p.add_argument("messages", help="JSON array of messages")
-    p.add_argument("durations", help="JSON array of durations in seconds (message is repeated during each)")
-    p.add_argument("--msg-type", dest="msg_type", default="std_msgs/msg/String", help="Message type")
+    p.add_argument("topic", nargs="?")
+    p.add_argument("messages", nargs="?", help="JSON array of messages")
+    p.add_argument("durations", nargs="?", help="JSON array of durations in seconds (message is repeated during each)")
+    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
     p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
 
     services = sub.add_parser("services", help="Service operations")
@@ -1043,6 +1189,7 @@ def build_parser():
 
 DISPATCH = {
     ("version", None): cmd_version,
+    ("estop", None): cmd_estop,
     ("topics", "list"): cmd_topics_list,
     ("topics", "type"): cmd_topics_type,
     ("topics", "details"): cmd_topics_details,

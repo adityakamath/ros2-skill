@@ -9,7 +9,7 @@ Full reference for all `ros2_cli.py` commands with arguments, options, and outpu
 Detect the ROS 2 version and distro name.
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py version
+python3 {baseDir}/scripts/ros2_cli.py version
 ```
 
 Output:
@@ -19,12 +19,39 @@ Output:
 
 ---
 
+## estop
+
+Emergency stop for mobile robots. Auto-detects the velocity command topic and message type, then publishes zero velocity to stop the robot.
+
+**Note:** This command is for mobile robots only (differential drive, omnidirectional, etc.). It will NOT work for robotic arms or manipulators.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py estop
+python3 {baseDir}/scripts/ros2_cli.py estop --topic /cmd_vel_nav
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--topic` | auto-detect | Custom velocity topic (default: auto-detect from /cmd_vel, /cmd_vel_nav, etc.) |
+
+Output:
+```json
+{"success": true, "topic": "/cmd_vel", "type": "geometry_msgs/Twist", "message": "Emergency stop activated (mobile robot stopped)"}
+```
+
+If no velocity topic is found:
+```json
+{"error": "Could not find velocity command topic", "hint": "This command is for mobile robots only (not arms). Ensure the robot has a /cmd_vel topic."}
+```
+
+---
+
 ## topics list
 
 List all active topics with their message types.
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics list
+python3 {baseDir}/scripts/ros2_cli.py topics list
 ```
 
 Output:
@@ -47,7 +74,7 @@ Get the message type of a specific topic.
 | `topic` | Yes | Topic name (e.g. `/cmd_vel`, `/turtle1/pose`) |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics type /turtle1/cmd_vel
+python3 {baseDir}/scripts/ros2_cli.py topics type /turtle1/cmd_vel
 ```
 
 Output:
@@ -66,7 +93,7 @@ Get topic details including message type, publishers, and subscribers.
 | `topic` | Yes | Topic name |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics details /turtle1/cmd_vel
+python3 {baseDir}/scripts/ros2_cli.py topics details /turtle1/cmd_vel
 ```
 
 Output:
@@ -90,7 +117,7 @@ Get the field structure of a message type.
 | `message_type` | Yes | Full message type (e.g. `geometry_msgs/Twist`, `sensor_msgs/LaserScan`) |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
 ```
 
 Output:
@@ -121,7 +148,7 @@ Subscribe to a topic and receive messages.
 
 **Single message (default):**
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics subscribe /turtle1/pose
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /turtle1/pose
 ```
 
 Output:
@@ -133,7 +160,7 @@ Output:
 
 **Collect over time:**
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
 ```
 
 Output:
@@ -167,13 +194,13 @@ Publish a message to a topic. Without `--duration`, sends once. With `--duration
 
 **Single-shot (trigger, one-time command):**
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics publish /turtle1/cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish /turtle1/cmd_vel \
   '{"linear":{"x":2.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
 ```
 
 **Move forward for 3 seconds (recommended for velocity):**
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
 ```
 
@@ -184,13 +211,13 @@ Output:
 
 **Rotate left for 2 seconds:**
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.5}}' --duration 2
 ```
 
 **Stop (single-shot is fine for stop):**
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
 ```
 
@@ -213,7 +240,7 @@ Publish a sequence of messages. Each message is published repeatedly at `--rate`
 
 **Move forward 3 seconds then stop:**
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
   '[3.0, 0.5]'
 ```
@@ -225,7 +252,7 @@ Output:
 
 **Draw a square (turtlesim):**
 ```bash
-python {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
   '[{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":0},"angular":{"z":0}}]' \
   '[1,1,1,1,1,1,1,1,0.5]'
 ```
@@ -237,7 +264,7 @@ python {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
 List all available services.
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py services list
+python3 {baseDir}/scripts/ros2_cli.py services list
 ```
 
 Output:
@@ -259,7 +286,7 @@ Get the type of a specific service.
 | `service` | Yes | Service name (e.g. `/spawn`, `/reset`) |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py services type /spawn
+python3 {baseDir}/scripts/ros2_cli.py services type /spawn
 ```
 
 Output:
@@ -278,7 +305,7 @@ Get service details including type, request fields, and response fields.
 | `service` | Yes | Service name |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py services details /spawn
+python3 {baseDir}/scripts/ros2_cli.py services details /spawn
 ```
 
 Output:
@@ -304,12 +331,12 @@ Call a service with a JSON request payload.
 
 **Reset turtlesim:**
 ```bash
-python {baseDir}/scripts/ros2_cli.py services call /reset '{}'
+python3 {baseDir}/scripts/ros2_cli.py services call /reset '{}'
 ```
 
 **Spawn a new turtle:**
 ```bash
-python {baseDir}/scripts/ros2_cli.py services call /spawn \
+python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
   '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
 ```
 
@@ -320,7 +347,7 @@ Output:
 
 **Set pen color:**
 ```bash
-python {baseDir}/scripts/ros2_cli.py services call /turtle1/set_pen \
+python3 {baseDir}/scripts/ros2_cli.py services call /turtle1/set_pen \
   '{"r":255,"g":0,"b":0,"width":3,"off":0}'
 ```
 
@@ -331,7 +358,7 @@ python {baseDir}/scripts/ros2_cli.py services call /turtle1/set_pen \
 List all active ROS nodes.
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py nodes list
+python3 {baseDir}/scripts/ros2_cli.py nodes list
 ```
 
 Output:
@@ -353,7 +380,7 @@ Get node details including topics and services.
 | `node` | Yes | Node name (e.g. `/turtlesim`) |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
 ```
 
 Output:
@@ -377,7 +404,7 @@ List all parameters for a specific node.
 | `node` | Yes | Node name (e.g. `/turtlesim`) |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py params list /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
 ```
 
 Output:
@@ -400,7 +427,7 @@ Get a parameter value.
 | `name` | Yes | Parameter in `/node:param` format |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
 ```
 
 Output:
@@ -420,7 +447,7 @@ Set a parameter value.
 | `value` | Yes | New value to set |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
+python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
 ```
 
 Output:
@@ -435,7 +462,7 @@ Output:
 List all available action servers.
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py actions list
+python3 {baseDir}/scripts/ros2_cli.py actions list
 ```
 
 Output:
@@ -457,7 +484,7 @@ Get action details including goal, result, and feedback field structures.
 | `action` | Yes | Action server name |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
+python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
 ```
 
 Output:
@@ -483,7 +510,7 @@ Send an action goal and wait for the result.
 | `json_goal` | Yes | JSON string of the goal arguments |
 
 ```bash
-python {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
+python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
   '{"theta":3.14}'
 ```
 
