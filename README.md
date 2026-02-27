@@ -1,8 +1,6 @@
 # ROS 2 Skill
 
 ![Static Badge](https://img.shields.io/badge/ROS2-Supported-green)
-![Static Badge](https://img.shields.io/badge/Linux-Supported-green)
-![Static Badge](https://img.shields.io/badge/macOS-Supported-green)
 ![Static Badge](https://img.shields.io/badge/License-Apache%202.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 [![ClawHub](https://img.shields.io/badge/ClawHub-ros2--skill-orange)](https://clawhub.ai/adityakamath/ros2-skill)
