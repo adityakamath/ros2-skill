@@ -143,6 +143,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 import sys
 import time
 import threading
@@ -198,6 +199,35 @@ def get_msg_type(type_str):
     # Last resort: rosidl import_message with dot format
     try:
         return import_message(f"{pkg}.msg.{msg_name}")
+    except Exception:
+        pass
+
+    return None
+
+
+def get_action_type(type_str):
+    """Import a ROS 2 action type class from a type string."""
+    if not type_str:
+        return None
+
+    if '/action/' in type_str:
+        pkg, action_name = type_str.split('/action/', 1)
+        action_name = action_name.strip()
+    elif '/' in type_str:
+        pkg, action_name = type_str.rsplit('/', 1)
+    else:
+        return None
+
+    # Primary: importlib
+    try:
+        module = importlib.import_module(f"{pkg}.action")
+        return getattr(module, action_name)
+    except Exception:
+        pass
+
+    # Fallback: import_message with slash format
+    try:
+        return import_message(f"{pkg}/action/{action_name}")
     except Exception:
         pass
 
@@ -344,7 +374,10 @@ def cmd_version(args):
 
 
 VELOCITY_TOPICS = ["/cmd_vel", "/cmd_vel_nav", "/cmd_vel_raw", "/mobile_base/commands/velocity"]
-VELOCITY_TYPES = ["geometry_msgs/Twist", "geometry_msgs/TwistStamped"]
+VELOCITY_TYPES = [
+    "geometry_msgs/msg/Twist", "geometry_msgs/msg/TwistStamped",  # ROS 2 /msg/ format
+    "geometry_msgs/Twist", "geometry_msgs/TwistStamped",           # legacy format fallback
+]
 
 
 def find_velocity_topic(node):
@@ -378,7 +411,16 @@ def cmd_estop(args):
     rclpy.init()
     node = ROS2CLI("estop")
 
-    topic, msg_type = find_velocity_topic(node)
+    if args.topic:
+        # Custom topic specified — detect its type from the graph
+        topic = args.topic
+        msg_type = None
+        for name, types in node.get_topic_names():
+            if name == topic and types:
+                msg_type = types[0]
+                break
+    else:
+        topic, msg_type = find_velocity_topic(node)
 
     if not topic:
         rclpy.shutdown()
@@ -1043,12 +1085,11 @@ def cmd_actions_list(args):
         seen = set()
         
         for name, types in topics:
-            for t in types:
-                if '/action/' in t:
-                    action_name = name.rsplit('/goal', 1)[0].rsplit('/cancel', 1)[0].rsplit('/feedback', 1)[0].rsplit('/result', 1)[0]
-                    if action_name not in seen:
-                        seen.add(action_name)
-                        actions.append(action_name)
+            if '/_action/' in name:
+                action_name = name.split('/_action/')[0]
+                if action_name not in seen:
+                    seen.add(action_name)
+                    actions.append(action_name)
         
         rclpy.shutdown()
         output({"actions": actions, "count": len(actions)})
@@ -1065,42 +1106,35 @@ def cmd_actions_details(args):
         
         result = {"action": args.action, "action_type": "", "goal": {}, "result": {}, "feedback": {}}
         
+        # In ROS 2, action topics use the /_action/ prefix.
+        # The feedback topic type encodes the action package and name.
         action_type = ""
         for name, types in topics:
-            if name == args.action + "/goal":
+            if name == args.action + "/_action/feedback":
                 for t in types:
                     if '/action/' in t:
-                        action_type = t.replace('/Goal', '').replace('/goal', '')
+                        action_type = re.sub(r'_FeedbackMessage$', '', t)
                         break
                 if action_type:
                     break
-            elif name == args.action:
-                for t in types:
-                    if '/action/' in t:
-                        action_type = t.replace('/Goal', '').replace('/goal', '')
-                        break
-                if action_type:
-                    break
-        
+
         result["action_type"] = action_type
-        
+
         if action_type:
-            goal_type = action_type + "/Goal"
-            result_type = action_type + "/Result"
-            feedback_type = action_type + "/Feedback"
-            
-            try:
-                result["goal"] = get_msg_fields(goal_type)
-            except Exception:
-                pass
-            try:
-                result["result"] = get_msg_fields(result_type)
-            except Exception:
-                pass
-            try:
-                result["feedback"] = get_msg_fields(feedback_type)
-            except Exception:
-                pass
+            action_class = get_action_type(action_type)
+            if action_class:
+                try:
+                    result["goal"] = msg_to_dict(action_class.Goal())
+                except Exception:
+                    pass
+                try:
+                    result["result"] = msg_to_dict(action_class.Result())
+                except Exception:
+                    pass
+                try:
+                    result["feedback"] = msg_to_dict(action_class.Feedback())
+                except Exception:
+                    pass
         
         rclpy.shutdown()
         output(result)
@@ -1120,25 +1154,26 @@ def cmd_actions_send(args):
         
         topics = node.get_topic_names_and_types()
         
+        # In ROS 2, action topics use the /_action/ prefix.
+        # The feedback topic type encodes the action package and name.
         action_type = None
         for name, types in topics:
-            if name == args.action + "/goal":
+            if name == args.action + "/_action/feedback":
                 for t in types:
                     if '/action/' in t:
-                        action_type = t.replace('/Goal', '').replace('/goal', '')
+                        action_type = re.sub(r'_FeedbackMessage$', '', t)
                         break
                 if action_type:
                     break
-        
+
         if not action_type:
             rclpy.shutdown()
             return output({"error": f"Action server not found: {args.action}"})
-        
-        try:
-            action_class = import_message(f"{action_type}/action/{action_type.split('/')[-1]}")
-        except Exception as e:
+
+        action_class = get_action_type(action_type)
+        if not action_class:
             rclpy.shutdown()
-            return output({"error": f"Cannot load action type: {e}"})
+            return output({"error": f"Cannot load action type: {action_type}"})
         
         client = ActionClient(node, action_class, args.action)
         

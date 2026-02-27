@@ -2,6 +2,18 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.5] - 2026-02-28
+
+### Fixed
+- **`VELOCITY_TYPES`**: list only contained old-format strings (`geometry_msgs/Twist`) but ROS 2 `get_topic_names_and_types()` returns `/msg/`-format strings; the first match loop in `find_velocity_topic` never fired; added `/msg/` variants
+- **`estop --topic`**: parser defined `--topic` but `cmd_estop` always called `find_velocity_topic()` and ignored it; now detects type from graph for the specified topic
+- **`actions list`**: extracted action name by stripping `/goal`, `/cancel`, etc. from topic name, but ROS 2 action topics use the `/_action/` infix (e.g. `/_action/feedback`); replaced with `name.split('/_action/')[0]`
+- **`actions details`**: searched for `action_name + "/goal"` (ROS 1 style); now uses `action_name + "/_action/feedback"` and strips `_FeedbackMessage` suffix to recover action type; loads Goal/Result/Feedback via action class instead of broken `get_msg_fields` calls
+- **`actions send`**: same bad topic name search as above; `import_message(f"{action_type}/action/{action_type.split('/')[-1]}")` built a doubled path (e.g. `pkg/action/Name/action/Name`); replaced with new `get_action_type()` using `importlib.import_module(f"{pkg}.action")`
+- **Added `get_action_type()`**: mirrors `get_msg_type()` / `get_srv_type()` for action classes
+
+---
+
 ## [1.0.4] - 2026-02-28
 
 ### Fixed
