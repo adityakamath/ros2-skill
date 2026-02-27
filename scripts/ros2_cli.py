@@ -170,13 +170,11 @@ def get_msg_type(type_str):
         pkg, msg_name = type_str.split('/msg/', 1)
         msg_name = msg_name.strip()
         formats = [
-            type_str,
             f"{pkg}.msg.{msg_name}",
         ]
     elif '/' in type_str:
         pkg, msg_name = type_str.rsplit('/', 1)
         formats = [
-            type_str,
             f"{pkg}.msg.{msg_name}",
         ]
     else:
@@ -187,6 +185,17 @@ def get_msg_type(type_str):
             return import_message(fmt)
         except Exception:
             continue
+    
+    for fmt in formats:
+        try:
+            parts = fmt.split('.')
+            module = __import__(parts[0])
+            for part in parts[1:]:
+                module = getattr(module, part)
+            return module
+        except Exception:
+            continue
+    
     return None
 
 
@@ -196,20 +205,20 @@ def get_msg_error(msg_type):
     suggestions = []
     base_type = msg_type.split('/')[-1] if '/' in msg_type else msg_type
     common_types = {
-        'twist': 'geometry_msgs/Twist',
-        'twiststamped': 'geometry_msgs/TwistStamped',
-        'pose': 'turtlesim/Pose',
-        'odom': 'nav_msgs/Odometry',
-        'laserscan': 'sensor_msgs/LaserScan',
-        'image': 'sensor_msgs/Image',
-        'battery': 'sensor_msgs/BatteryState',
-        'jointstate': 'sensor_msgs/JointState',
-        'imu': 'sensor_msgs/Imu',
+        'twist': 'geometry_msgs/msg/Twist',
+        'twiststamped': 'geometry_msgs/msg/TwistStamped',
+        'pose': 'turtlesim/msg/Pose',
+        'odom': 'nav_msgs/msg/Odometry',
+        'laserscan': 'sensor_msgs/msg/LaserScan',
+        'image': 'sensor_msgs/msg/Image',
+        'battery': 'sensor_msgs/msg/BatteryState',
+        'jointstate': 'sensor_msgs/msg/JointState',
+        'imu': 'sensor_msgs/msg/Imu',
     }
     if base_type.lower() in common_types:
         suggestions.append(common_types[base_type.lower()])
     
-    hint = "Try using the full type name (e.g., geometry_msgs/Twist instead of Twist)"
+    hint = "ROS 2 message types use /msg/ format (e.g., geometry_msgs/msg/Twist)"
     if ros_distro:
         hint += f". Ensure ROS 2 workspace is built: cd ~/ros2_ws && colcon build && source install/setup.bash"
     else:
@@ -223,8 +232,7 @@ def get_msg_error(msg_type):
         "troubleshooting": [
             "1. Source ROS 2: source /opt/ros/<distro>/setup.bash",
             "2. If using custom messages, build workspace: cd ~/ros2_ws && colcon build",
-            "3. Install rosidl_runtime_py: pip install rosidl-runtime-py",
-            "4. Verify package is installed: python3 -c 'from geometry_msgs.msg import Twist; print(Twist)'"
+            "3. Verify: python3 -c 'from geometry_msgs.msg import Twist; print(Twist)'"
         ]
     }
 
