@@ -163,11 +163,25 @@ from rosidl_runtime_py import import_message
 def get_msg_type(type_str):
     if not type_str:
         return None
-    formats = [
-        type_str,
-        type_str.replace('/', '.msg.'),
-        type_str.replace('/', '.msg.').replace('.msg.msg', '.msg'),
-    ]
+    
+    formats = []
+    
+    if '/msg/' in type_str:
+        pkg, msg_name = type_str.split('/msg/', 1)
+        msg_name = msg_name.strip()
+        formats = [
+            type_str,
+            f"{pkg}.msg.{msg_name}",
+        ]
+    elif '/' in type_str:
+        pkg, msg_name = type_str.rsplit('/', 1)
+        formats = [
+            type_str,
+            f"{pkg}.msg.{msg_name}",
+        ]
+    else:
+        formats = [type_str]
+    
     for fmt in formats:
         try:
             return import_message(fmt)
@@ -178,6 +192,7 @@ def get_msg_type(type_str):
 
 def get_msg_error(msg_type):
     """Generate helpful error message when message type cannot be loaded."""
+    ros_distro = os.environ.get('ROS_DISTRO', '')
     suggestions = []
     base_type = msg_type.split('/')[-1] if '/' in msg_type else msg_type
     common_types = {
@@ -193,10 +208,24 @@ def get_msg_error(msg_type):
     }
     if base_type.lower() in common_types:
         suggestions.append(common_types[base_type.lower()])
+    
+    hint = "Try using the full type name (e.g., geometry_msgs/Twist instead of Twist)"
+    if ros_distro:
+        hint += f". Ensure ROS 2 workspace is built: cd ~/ros2_ws && colcon build && source install/setup.bash"
+    else:
+        hint += ". Ensure ROS 2 environment is sourced: source /opt/ros/<distro>/setup.bash"
+    
     return {
         "error": f"Unknown message type: {msg_type}",
-        "hint": "Try using the full type name (e.g., geometry_msgs/Twist instead of Twist)",
-        "suggestions": suggestions if suggestions else None
+        "hint": hint,
+        "suggestions": suggestions if suggestions else None,
+        "ros_distro": ros_distro if ros_distro else None,
+        "troubleshooting": [
+            "1. Source ROS 2: source /opt/ros/<distro>/setup.bash",
+            "2. If using custom messages, build workspace: cd ~/ros2_ws && colcon build",
+            "3. Install rosidl_runtime_py: pip install rosidl-runtime-py",
+            "4. Verify package is installed: python3 -c 'from geometry_msgs.msg import Twist; print(Twist)'"
+        ]
     }
 
 
