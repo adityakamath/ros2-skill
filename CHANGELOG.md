@@ -2,6 +2,15 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.2] - 2026-02-27
+
+### Fixed
+- Fixed `get_msg_type()` failing for all message type formats (`geometry_msgs/msg/Twist`, `geometry_msgs/Twist`, etc.)
+- Root cause: `import_message` was called with dot-separated format but expects slash format; the `__import__` fallback only loaded the top-level package, making subpackage attribute lookups always fail
+- Replaced broken `__import__` fallback with `importlib.import_module`, which correctly loads subpackages and works for any ROS 2 message package whenever the environment is sourced
+
+---
+
 ## [1.0.1] - 2026-02-27
 
 ### Added
