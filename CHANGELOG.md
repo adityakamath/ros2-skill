@@ -2,6 +2,14 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.4] - 2026-02-28
+
+### Fixed
+- Fixed `services call` failing with "module object is not callable": `rsplit('/', 1)` on `std_srvs/srv/SetBool` produced `pkg="std_srvs/srv"` (wrong), causing a garbage import path; replaced with `get_srv_type()` using `importlib.import_module(f"{pkg}.srv")` + `getattr`
+- Fixed `services details` using the same broken path logic and trying to pass `"SetBoolRequest"` to `get_msg_fields`; now loads the service class via `get_srv_type()` and introspects `.Request()` / `.Response()` directly
+
+---
+
 ## [1.0.3] - 2026-02-28
 
 ### Changed

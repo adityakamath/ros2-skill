@@ -204,6 +204,35 @@ def get_msg_type(type_str):
     return None
 
 
+def get_srv_type(type_str):
+    """Import a ROS 2 service type class from a type string."""
+    if not type_str:
+        return None
+
+    if '/srv/' in type_str:
+        pkg, srv_name = type_str.split('/srv/', 1)
+        srv_name = srv_name.strip()
+    elif '/' in type_str:
+        pkg, srv_name = type_str.rsplit('/', 1)
+    else:
+        return None
+
+    # Primary: importlib
+    try:
+        module = importlib.import_module(f"{pkg}.srv")
+        return getattr(module, srv_name)
+    except Exception:
+        pass
+
+    # Fallback: import_message with slash format
+    try:
+        return import_message(f"{pkg}/srv/{srv_name}")
+    except Exception:
+        pass
+
+    return None
+
+
 def get_msg_error(msg_type):
     """Generate helpful error message when message type cannot be loaded."""
     ros_distro = os.environ.get('ROS_DISTRO', '')
@@ -732,19 +761,14 @@ def cmd_services_details(args):
                 break
         
         if result["type"]:
-            service_type = result["type"]
-            if '/' in service_type:
-                pkg, name = service_type.rsplit('/', 1)
-                req_type = f"{pkg}/srv/{name}Request"
-                resp_type = f"{pkg}/srv/{name}Response"
+            srv_class = get_srv_type(result["type"])
+            if srv_class:
                 try:
-                    req_fields = get_msg_fields(req_type)
-                    result["request"] = req_fields
+                    result["request"] = msg_to_dict(srv_class.Request())
                 except Exception:
                     pass
                 try:
-                    resp_fields = get_msg_fields(resp_type)
-                    result["response"] = resp_fields
+                    result["response"] = msg_to_dict(srv_class.Response())
                 except Exception:
                     pass
         
@@ -775,41 +799,34 @@ def cmd_services_call(args):
             rclpy.shutdown()
             return output({"error": f"Service not found: {args.service}"})
         
-        if '/' in service_type:
-            pkg, name = service_type.rsplit('/', 1)
-            srv_type = f"{pkg}.srv.{name}"
-            try:
-                srv_class = import_message(srv_type)
-            except Exception as e:
-                rclpy.shutdown()
-                return output({"error": f"Cannot load service type: {e}"})
-            
-            client = node.create_client(srv_class, args.service)
-            
-            if not client.wait_for_service(timeout_sec=5.0):
-                rclpy.shutdown()
-                return output({"error": f"Service not available: {args.service}"})
-            
-            request = dict_to_msg(srv_class.Request, request_data)
-            future = client.call_async(request)
-            
-            timeout = args.timeout if hasattr(args, 'timeout') else 5.0
-            end_time = time.time() + timeout
-            
-            while time.time() < end_time and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-            
-            if future.done():
-                result_msg = future.result()
-                result_dict = msg_to_dict(result_msg)
-                rclpy.shutdown()
-                output({"service": args.service, "success": True, "result": result_dict})
-            else:
-                rclpy.shutdown()
-                output({"service": args.service, "success": False, "error": "Service call timeout"})
+        srv_class = get_srv_type(service_type)
+        if not srv_class:
+            rclpy.shutdown()
+            return output({"error": f"Cannot load service type: {service_type}"})
+
+        client = node.create_client(srv_class, args.service)
+
+        if not client.wait_for_service(timeout_sec=5.0):
+            rclpy.shutdown()
+            return output({"error": f"Service not available: {args.service}"})
+
+        request = dict_to_msg(srv_class.Request, request_data)
+        future = client.call_async(request)
+
+        timeout = args.timeout if hasattr(args, 'timeout') else 5.0
+        end_time = time.time() + timeout
+
+        while time.time() < end_time and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        if future.done():
+            result_msg = future.result()
+            result_dict = msg_to_dict(result_msg)
+            rclpy.shutdown()
+            output({"service": args.service, "success": True, "result": result_dict})
         else:
             rclpy.shutdown()
-            output({"error": "Invalid service type"})
+            output({"service": args.service, "success": False, "error": "Service call timeout"})
     except Exception as e:
         output({"error": str(e)})
 
