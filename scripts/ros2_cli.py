@@ -568,38 +568,39 @@ def cmd_topics_publish(args):
     
     try:
         rclpy.init()
-        
+
         msg_type = args.msg_type
         topic = args.topic
-        
+
+        # Always query the graph so we use the type the topic actually expects.
+        # Falls back to --msg-type only when the topic isn't visible yet.
+        temp_node = ROS2CLI("temp")
+        for name, types in temp_node.get_topic_names():
+            if name == topic and types:
+                msg_type = types[0]
+                break
+
         if not msg_type:
-            node = ROS2CLI("temp")
-            topics = node.get_topic_names()
-            for name, types in topics:
-                if name == topic:
-                    msg_type = types[0] if types else None
-                    break
-            if not msg_type:
-                rclpy.shutdown()
-                return output({"error": f"Could not detect message type for topic: {topic}"})
-        
+            rclpy.shutdown()
+            return output({"error": f"Could not detect message type for topic: {topic}. Use --msg-type to specify."})
+
         msg_class = get_msg_type(msg_type)
         if not msg_class:
             rclpy.shutdown()
             return output(get_msg_error(msg_type))
-        
+
         publisher = TopicPublisher(topic, msg_type)
-        
+
         if publisher.pub is None:
             rclpy.shutdown()
             return output({"error": f"Failed to create publisher for {msg_type}"})
-        
+
         msg = dict_to_msg(msg_class, msg_data)
-        
+
         rate = getattr(args, "rate", None) or 10.0
         duration = getattr(args, "duration", None)
         interval = 1.0 / rate
-        
+
         if duration and duration > 0:
             published = 0
             end_time = time.time() + duration
@@ -632,32 +633,33 @@ def cmd_topics_publish_sequence(args):
 
     try:
         rclpy.init()
-        
+
         msg_type = args.msg_type
         topic = args.topic
-        
+
+        # Always query the graph so we use the type the topic actually expects.
+        # Falls back to --msg-type only when the topic isn't visible yet.
+        temp_node = ROS2CLI("temp")
+        for name, types in temp_node.get_topic_names():
+            if name == topic and types:
+                msg_type = types[0]
+                break
+
         if not msg_type:
-            node = ROS2CLI("temp")
-            topics = node.get_topic_names()
-            for name, types in topics:
-                if name == topic:
-                    msg_type = types[0] if types else None
-                    break
-            if not msg_type:
-                rclpy.shutdown()
-                return output({"error": f"Could not detect message type for topic: {topic}"})
-        
+            rclpy.shutdown()
+            return output({"error": f"Could not detect message type for topic: {topic}. Use --msg-type to specify."})
+
         msg_class = get_msg_type(msg_type)
         if not msg_class:
             rclpy.shutdown()
             return output(get_msg_error(msg_type))
-        
+
         publisher = TopicPublisher(topic, msg_type)
-        
+
         if publisher.pub is None:
             rclpy.shutdown()
             return output({"error": f"Failed to create publisher for {msg_type}"})
-        
+
         rate = getattr(args, "rate", None) or 10.0
         interval = 1.0 / rate
         

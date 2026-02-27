@@ -2,12 +2,20 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.3] - 2026-02-28
+
+### Changed
+- `topics publish` and `topics publish-sequence` now always query the ROS graph for the topic's actual message type before publishing, overriding any `--msg-type` argument when the topic is visible (e.g. correctly uses `TwistStamped` instead of `Twist` for controllers that require it)
+
+---
+
 ## [1.0.2] - 2026-02-27
 
 ### Fixed
 - Fixed `get_msg_type()` failing for all message type formats (`geometry_msgs/msg/Twist`, `geometry_msgs/Twist`, etc.)
 - Root cause: `import_message` was called with dot-separated format but expects slash format; the `__import__` fallback only loaded the top-level package, making subpackage attribute lookups always fail
 - Replaced broken `__import__` fallback with `importlib.import_module`, which correctly loads subpackages and works for any ROS 2 message package whenever the environment is sourced
+- Fixed four rclpy API bugs: `get_node_names_and_types()` → `get_node_names_and_namespaces()`; `get_*_by_node()` wrong arg count and return parsing; `topics details` used undefined `args.node`; `executor.wait_once()` → `executor.spin_once()`
 
 ---
 
