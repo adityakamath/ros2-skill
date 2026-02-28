@@ -603,6 +603,7 @@ Output:
 ```json
 {
   "services": ["/clear", "/kill", "/reset", "/spawn", "/turtle1/set_pen", "/turtle1/teleport_absolute"],
+  "types": ["std_srvs/Empty", "turtlesim/Kill", "std_srvs/Empty", "turtlesim/Spawn", "turtlesim/SetPen", "turtlesim/TeleportAbsolute"],
   "count": 6
 }
 ```
@@ -654,8 +655,8 @@ Output:
 {
   "service": "/spawn",
   "type": "turtlesim/Spawn",
-  "request": {"x": "float32", "y": "float32", "theta": "float32", "name": "string"},
-  "response": {"name": "string"}
+  "request": {"x": 0.0, "y": 0.0, "theta": 0.0, "name": ""},
+  "response": {"name": ""}
 }
 ```
 
@@ -1148,9 +1149,9 @@ Output:
 {
   "action": "/turtle1/rotate_absolute",
   "action_type": "turtlesim/action/RotateAbsolute",
-  "goal": {"theta": "float32"},
-  "result": {"delta": "float32"},
-  "feedback": {"remaining": "float32"}
+  "goal": {"theta": 0.0},
+  "result": {"delta": 0.0},
+  "feedback": {"remaining": 0.0}
 }
 ```
 

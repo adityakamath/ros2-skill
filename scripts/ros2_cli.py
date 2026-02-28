@@ -1156,6 +1156,8 @@ def cmd_topics_publish_until(args):
     if euclidean and next(iter(active)) != 'delta':
         return output({"error": "--euclidean requires --delta (threshold is the Euclidean distance from start)"})
     operator, threshold = next(iter(active.items()))
+    if euclidean and operator == 'delta' and threshold <= 0:
+        return output({"error": "--delta must be > 0 when --euclidean is used"})
 
     try:
         msg_data = json.loads(args.msg)
