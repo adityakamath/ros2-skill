@@ -34,7 +34,6 @@ All notable changes to ros2-skill will be documented in this file.
 - **`params delete`**: delete one or more parameters via `DeleteParameters` service; accepts multiple parameter names; reports `deleted`, `count`
 - **`actions cancel`**: cancel all in-flight goals on an action server by sending a `CancelGoal` request with zero UUID (`[0]*16`) and zero timestamp — per ROS 2 spec this cancels all goals; reports `return_code` and `cancelled_goals`
 - **`actions send --feedback`**: new `--feedback` flag on both `send` and `send-goal`; when set, passes a `feedback_callback` to `send_goal_async`; collected feedback messages are included in output as `feedback_msgs: [...]`
-- **`interface show <type>` / `interface proto <type>`**: aliases for `topics message`; same handler, same arguments
 - **`BwMonitor(Node)`**: top-level subscriber class that accumulates `(timestamp, serialized_size)` tuples and sets `threading.Event` after `window` samples
 - **`DelayMonitor(Node)`**: top-level subscriber class that accumulates header-stamp latency samples; sets `header_missing` flag if the message has no `header.stamp`
 - **`_param_value_to_python(v)`**: converts a `ParameterValue` (types 1–9) to a native Python value; used by `cmd_params_dump`
@@ -44,7 +43,9 @@ All notable changes to ros2-skill will be documented in this file.
 - **Troubleshooting row** for `publish-until` hangs/no feedback
 
 ### Removed
-- **`interface list`**, **`interface packages`**, **`interface package`**: removed all three commands that required `rosidl_runtime_py`; `rosidl_runtime_py` is no longer a dependency of ros2-skill; `interface show` and `interface proto` (aliases for `topics message`) remain and do not need this package
+- **`interface list`**, **`interface packages`**, **`interface package`**: removed all three commands that required `rosidl_runtime_py`; `rosidl_runtime_py` is no longer a dependency of ros2-skill
+- **`interface show`**, **`interface proto`**: removed the `interface` command category entirely; `topics message` remains and provides identical functionality
+- **Mandatory top-level imports for Phase 2 service types**: `GetParameters`, `SetParameters`, `ListParameters`, `DescribeParameters`, `DeleteParameters`, `ActionClient`, `CancelGoal`, `BuiltinTime` are now imported locally inside each function that uses them; `GoalInfo` and `UniqueUUID` (dead imports) are removed; this prevents a boot-time crash on ROS 2 distros where any one of these symbols is unavailable
 
 ---
 

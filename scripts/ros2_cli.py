@@ -233,14 +233,6 @@ Commands:
     Delete one or more parameters from a node via DeleteParameters service.
     $ python3 ros2_cli.py params delete /turtlesim background_r
 
-  interface show <message_type>
-  interface proto <message_type>
-    Get the field structure of a message, service, or action type.
-    (proto is an alias for show, ros2 interface show / proto)
-    $ python3 ros2_cli.py interface show geometry_msgs/Twist
-    $ python3 ros2_cli.py interface proto std_srvs/SetBool
-
-
 Output:
     All commands output JSON to stdout.
     Successful results contain relevant data fields.
@@ -279,15 +271,8 @@ import threading
 try:
     import rclpy
     from rclpy.node import Node
-    from rclpy.action import ActionClient
     from rclpy.qos import qos_profile_system_default
     from rcl_interfaces.msg import Parameter, ParameterValue
-    from rcl_interfaces.srv import GetParameters, SetParameters, ListParameters, \
-        DescribeParameters, DeleteParameters
-    from action_msgs.srv import CancelGoal
-    from action_msgs.msg import GoalInfo
-    from builtin_interfaces.msg import Time as BuiltinTime
-    from unique_identifier_msgs.msg import UUID as UniqueUUID
 except ImportError as e:
     print(json.dumps({"error": f"Missing ROS 2 dependency: {e}. Source ROS 2 setup.bash or install the missing package."}))
     sys.exit(1)
@@ -1415,6 +1400,7 @@ def cmd_nodes_details(args):
 
 def cmd_params_list(args):
     try:
+        from rcl_interfaces.srv import ListParameters
         rclpy.init()
         node = ROS2CLI()
         
@@ -1460,16 +1446,17 @@ def cmd_params_get(args):
         return output({"error": "Use format /node_name:param_name or /node_name param_name (e.g. /turtlesim background_r)"})
 
     try:
+        from rcl_interfaces.srv import GetParameters
         rclpy.init()
         node = ROS2CLI()
 
         node_name, param_name = full_name.split(':', 1)
-        
+
         if not node_name.startswith('/'):
             node_name = '/' + node_name
-        
+
         service_name = f"{node_name}/get_parameters"
-        
+
         client = node.create_client(GetParameters, service_name)
         
         if not client.wait_for_service(timeout_sec=args.timeout):
@@ -1528,6 +1515,7 @@ def cmd_params_set(args):
         return output({"error": "Use format /node_name:param_name value or /node_name param_name value (e.g. /turtlesim background_r 255)"})
 
     try:
+        from rcl_interfaces.srv import SetParameters
         rclpy.init()
         node = ROS2CLI()
 
@@ -1670,8 +1658,9 @@ def cmd_actions_send(args):
         goal_data = json.loads(args.goal)
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         return output({"error": f"Invalid JSON goal: {e}"})
-    
+
     try:
+        from rclpy.action import ActionClient
         rclpy.init()
         node = ROS2CLI()
         
@@ -2156,6 +2145,7 @@ def cmd_params_describe(args):
         return output({"error": "Use format /node_name:param_name or /node_name param_name"})
 
     try:
+        from rcl_interfaces.srv import DescribeParameters
         rclpy.init()
         node = ROS2CLI()
 
@@ -2215,6 +2205,7 @@ def cmd_params_dump(args):
         node_name = '/' + node_name
 
     try:
+        from rcl_interfaces.srv import ListParameters, GetParameters
         rclpy.init()
         node = ROS2CLI()
 
@@ -2322,6 +2313,7 @@ def cmd_params_load(args):
         return output({"error": "JSON must be a flat object {param_name: value, ...}"})
 
     try:
+        from rcl_interfaces.srv import SetParameters
         rclpy.init()
         node = ROS2CLI()
 
@@ -2378,6 +2370,7 @@ def cmd_params_delete(args):
     param_names = [param_name] + (list(args.extra_names) if getattr(args, 'extra_names', None) else [])
 
     try:
+        from rcl_interfaces.srv import DeleteParameters
         rclpy.init()
         node = ROS2CLI()
 
@@ -2413,6 +2406,8 @@ def cmd_actions_cancel(args):
     timeout = args.timeout
 
     try:
+        from action_msgs.srv import CancelGoal
+        from builtin_interfaces.msg import Time as BuiltinTime
         rclpy.init()
         node = ROS2CLI()
 
@@ -2637,13 +2632,6 @@ def build_parser():
     p.add_argument("action", nargs="?")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
 
-    interface = sub.add_parser("interface", help="Interface introspection")
-    isub = interface.add_subparsers(dest="subcommand")
-    p = isub.add_parser("show", help="Show message/service/action structure (alias for topics message)")
-    p.add_argument("message_type")
-    p = isub.add_parser("proto", help="Show prototype JSON (alias for topics message)")
-    p.add_argument("message_type")
-
     return parser
 
 
@@ -2707,9 +2695,6 @@ DISPATCH = {
     ("params", "delete"): cmd_params_delete,
     # actions — Phase 2
     ("actions", "cancel"): cmd_actions_cancel,
-    # interface — Phase 2
-    ("interface", "show"): cmd_topics_message,
-    ("interface", "proto"): cmd_topics_message,
 }
 
 
