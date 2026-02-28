@@ -550,7 +550,8 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /heater/cmd \
 
 | Problem | Cause | Solution |
 |---------|-------|----------|
-| rclpy not installed | Missing Python packages | Run: `pip install rclpy rosidl-runtime-py` |
+| `Missing ROS 2 dependency: No module named 'X'` | A required ROS 2 package is not installed | Source ROS 2: `source /opt/ros/${ROS_DISTRO}/setup.bash`; then install: `sudo apt install ros-${ROS_DISTRO}-<package>` |
+| rclpy not installed | rclpy missing or wrong Python version | Source ROS 2 setup.bash; if Python version mismatch, run with `python3.12` instead of `python3` |
 | ROS 2 not sourced | Environment not set up | Run: `source /opt/ros/${ROS_DISTRO}/setup.bash` |
 | No topics found | ROS nodes not running | Ensure nodes are launched and workspace is sourced |
 | Service not found | Service not available | Use `services list` to see available services |

@@ -299,10 +299,17 @@ try:
     from action_msgs.msg import GoalInfo
     from builtin_interfaces.msg import Time as BuiltinTime
     from unique_identifier_msgs.msg import UUID as UniqueUUID
+except ImportError as e:
+    print(json.dumps({"error": f"Missing ROS 2 dependency: {e}. Source ROS 2 setup.bash or install the missing package."}))
+    sys.exit(1)
+
+# rosidl_runtime_py is optional: used only as a fallback for message-type
+# resolution and for 'interface' commands.  The primary importlib path works
+# without it, so we degrade gracefully if the package is absent.
+try:
     from rosidl_runtime_py import import_message
 except ImportError:
-    print(json.dumps({"error": "rclpy not installed. Run: pip install rclpy (or source ROS 2)"}))
-    sys.exit(1)
+    import_message = None
 
 
 def get_msg_type(type_str):
@@ -334,16 +341,18 @@ def get_msg_type(type_str):
         pass
 
     # Fallback: rosidl import_message with slash format
-    try:
-        return import_message(f"{pkg}/msg/{msg_name}")
-    except Exception:
-        pass
+    if import_message is not None:
+        try:
+            return import_message(f"{pkg}/msg/{msg_name}")
+        except Exception:
+            pass
 
     # Last resort: rosidl import_message with dot format
-    try:
-        return import_message(f"{pkg}.msg.{msg_name}")
-    except Exception:
-        pass
+    if import_message is not None:
+        try:
+            return import_message(f"{pkg}.msg.{msg_name}")
+        except Exception:
+            pass
 
     return None
 
@@ -369,10 +378,11 @@ def get_action_type(type_str):
         pass
 
     # Fallback: import_message with slash format
-    try:
-        return import_message(f"{pkg}/action/{action_name}")
-    except Exception:
-        pass
+    if import_message is not None:
+        try:
+            return import_message(f"{pkg}/action/{action_name}")
+        except Exception:
+            pass
 
     return None
 
@@ -398,10 +408,11 @@ def get_srv_type(type_str):
         pass
 
     # Fallback: import_message with slash format
-    try:
-        return import_message(f"{pkg}/srv/{srv_name}")
-    except Exception:
-        pass
+    if import_message is not None:
+        try:
+            return import_message(f"{pkg}/srv/{srv_name}")
+        except Exception:
+            pass
 
     return None
 
