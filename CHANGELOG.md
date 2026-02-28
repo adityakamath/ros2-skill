@@ -2,12 +2,49 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.2] - 2026-02-27
+## [1.0.2] - 2026-02-28
 
 ### Fixed
-- Fixed `get_msg_type()` failing for all message type formats (`geometry_msgs/msg/Twist`, `geometry_msgs/Twist`, etc.)
-- Root cause: `import_message` was called with dot-separated format but expects slash format; the `__import__` fallback only loaded the top-level package, making subpackage attribute lookups always fail
-- Replaced broken `__import__` fallback with `importlib.import_module`, which correctly loads subpackages and works for any ROS 2 message package whenever the environment is sourced
+- **`get_msg_type()` failing for all type formats**: `import_message` was called with dot-separated format but expects slash format; `__import__` fallback only loaded the top-level package making subpackage lookups always fail; replaced with `importlib.import_module`
+- **Four rclpy API bugs**: `get_node_names_and_types()` → `get_node_names_and_namespaces()`; `get_*_by_node()` wrong arg count and return parsing; `topics details` used undefined `args.node`; `executor.wait_once()` → `executor.spin_once()`
+- **`topics publish` / `topics publish-sequence` wrong message type**: now always query the ROS graph for the topic's actual type before publishing, overriding `--msg-type` when the topic is visible (e.g. correctly uses `TwistStamped` instead of `Twist`)
+- **`services call` "module object is not callable"**: `rsplit('/', 1)` on `std_srvs/srv/SetBool` produced `pkg="std_srvs/srv"`, causing a garbage import path; added `get_srv_type()` using `importlib.import_module(f"{pkg}.srv")`
+- **`services details` broken request/response fields**: tried `get_msg_fields("pkg/srv/NameRequest")`; now loads service class via `get_srv_type()` and introspects `.Request()` / `.Response()` directly
+- **`VELOCITY_TYPES` never matching**: list lacked `/msg/`-format strings; ROS 2 graph returns `geometry_msgs/msg/Twist` not `geometry_msgs/Twist`; added `/msg/` variants
+- **`estop --topic` ignored**: `cmd_estop` always called `find_velocity_topic()` regardless of `--topic`; now detects type from graph for the specified topic
+- **`actions list` wrong topic name extraction**: used ROS 1-style `/goal`, `/cancel` suffixes; ROS 2 action topics use `/_action/` infix; replaced with `name.split('/_action/')[0]`
+- **`actions details` wrong topic search and type extraction**: searched `action_name + "/goal"` (ROS 1); now uses `action_name + "/_action/feedback"`, strips `_FeedbackMessage` suffix to recover action type, and loads Goal/Result/Feedback via action class
+- **`actions send` doubled import path**: `import_message(f"{action_type}/action/{...}")` built `pkg/action/Name/action/Name`; replaced with new `get_action_type()` using `importlib.import_module(f"{pkg}.action")`
+- **`cmd_estop` no `try/except`**: unhandled exceptions left `rclpy` initialized and printed raw tracebacks; wrapped in `try/except` to match all other commands
+- **`estop --topic` silent wrong-type fallback**: when a custom topic was not visible in the graph, code silently fell back to trying all `VELOCITY_TYPES` and published the wrong type; now returns a clear error instead
+- **`msg_to_dict` crashes on binary fields**: `bytes`/`bytearray` fields (e.g. `sensor_msgs/Image.data`) caused `json.dumps` to raise `TypeError`; added explicit branch to convert to list of ints
+- **`cmd_params_get` reports `exists: False` for empty-string parameters**: `bool(value_str)` returns `False` for `""`; replaced with explicit `exists = True` flag set whenever the parameter type is known (1–9)
+- **`json.loads(None)` crashes in `topics publish`, `topics publish-sequence`, `actions send`**: positional args are `nargs="?"` so they can be `None`; `json.loads(None)` raises `TypeError` which is not a `JSONDecodeError` subclass and escapes both `try` blocks, crashing with a raw traceback; broadened exception catches to `(json.JSONDecodeError, TypeError, ValueError)`
+- **`TopicPublisher.pub` / `TopicSubscriber.sub` not initialized to `None`**: both `__init__` methods only set `self.pub`/`self.sub` inside `if msg_class:`; if `get_msg_type` returned `None`, accessing `publisher.pub` raised `AttributeError` instead of evaluating to `None`; added `self.pub = None` / `self.sub = None` before the conditional
+- **`topics subscribe` silent timeout on bad message type**: after creating `TopicSubscriber`, there was no check that the subscription was actually created; a wrong `--msg-type` would spin to timeout with "Timeout waiting for message" instead of a type error; added `if subscriber.sub is None:` guard
+- **`params set` sets boolean values as strings**: `"true"`/`"false"` fell through int parsing and were stored as type 4 (string); nodes owning a boolean parameter reject this; added explicit `args.value.lower() in ('true', 'false')` check that sets type 1 with `bool_value`
+- **`services call` and `actions send` hardcoded 5s timeout with no CLI override**: code already read `args.timeout` but `--timeout` was never added to either parser; long-running services or actions always failed after 5s; added `--timeout` to both (default 5s for services, 30s for actions)
+- **`cmd_version` creates an unused `ROS2CLI` node**: `rclpy.utilities.get_domain_id()` only reads `ROS_DOMAIN_ID` from the environment and needs no node; removed the redundant `node = ROS2CLI()` call
+- **`cmd_params_get` sends empty `names=[]` when no colon in argument**: with format `/turtlesim` (no `:param`), `param_name` was `None`, the `GetParameters` call used `names=[]` (which returns all parameters), and `values[0]` returned an arbitrary first parameter; now errors early with a format hint
+- **`cmd_params_set` crashes at the ROS level when no colon in argument**: `param.name = None` raises a type error inside rclpy; now errors early with the same format hint
+- **`cmd_services_call` `wait_for_service` ignores `--timeout`**: `wait_for_service(timeout_sec=5.0)` was hardcoded; now uses `args.timeout` so the full timeout applies to both service discovery and the call itself
+- **`cmd_actions_send` `wait_for_server` ignores `--timeout`**: same hardcoded 5s; now uses `args.timeout`
+- **`cmd_params_set` always reports success regardless of node response**: `SetParameters` returns a `results` array with `successful: bool` and `reason: str` per parameter; the code only checked `future.done()` and returned `success: True` unconditionally; now inspects `results[0].successful` and surfaces the rejection reason on failure
+- **`topics subscribe/publish/publish-sequence` emit confusing `"topic: None"` error**: all three accept `topic` as `nargs="?"` so omitting it gave `"Could not detect message type for topic: None"`; added an early guard that returns `"topic argument is required"`
+- **`dict_to_msg` silently sets list-of-nested-message fields as plain Python dicts**: if a JSON field value was a list of dicts (e.g. `MarkerArray.markers`), `setattr` stored Python dicts instead of ROS message instances, causing publish to fail; now parses the field type string (`sequence<pkg/msg/Type>` or `pkg/msg/Type[N]`) and recursively converts each element via `dict_to_msg`
+- **`rcl_interfaces` / `rosidl_runtime_py` imports outside `try/except ImportError`**: if these secondary ROS packages were unavailable (partial install), the script crashed with a raw unhandled `ImportError` instead of the clean JSON error; moved both import groups inside the rclpy `try/except` block
+- **`topics subscribe` hardcoded 5 s single-message timeout**: code already read `args.timeout` via `hasattr` but `--timeout` was never added to the `subscribe` parser so the branch always fell back to 5.0 s; added `--timeout` (default 5 s) to the subscribe subparser
+- **`params get` and `params set` accept empty param name (e.g. `/turtlesim:`)**: colon present but nothing after it — `param_name` is `""` (falsy), so `GetParameters` was called with `names=[]` (returns all params) and `values[0]` silently returned the first arbitrary parameter; early-return guard now also rejects an empty param name
+- **`topics publish` gives confusing error when `msg` is omitted**: `msg` is `nargs="?"` so it defaults to `None`; `json.loads(None)` raised `TypeError` → "Invalid JSON message: … NoneType" instead of a clear "msg argument is required"; added explicit `None` guard before JSON parsing
+- **`topics publish-sequence` gives confusing errors when `messages` or `durations` are omitted**: same `nargs="?"` + `None` issue; added explicit guards for both arguments
+- **`estop --topic` with unloadable type silently falls back to `VELOCITY_TYPES`**: when a custom `--topic` was specified and the type was visible in the graph but its Python class could not be imported, the code tried all `VELOCITY_TYPES` as fallbacks and could publish the wrong message type; the VELOCITY_TYPES fallback now only applies to the auto-detect path; custom `--topic` reports a clear error with a workspace-sourcing hint
+- **`args.timeout if hasattr(args, 'timeout') else 5.0` dead-code branches**: `--timeout` was added to the `subscribe` and `actions send` parsers in a previous fix, making the `hasattr` fallback permanently unreachable; replaced with direct `args.timeout` access in both `cmd_topics_subscribe` and `cmd_actions_send`
+- **`rclpy.shutdown()` never called when an exception escapes a command handler**: every command's `except Exception` block only called `output({"error": ...})` with no shutdown, leaving rclpy initialized if a bug or `KeyboardInterrupt` escaped the inner handler; added a `try/finally` around the handler dispatch in `main()` so `rclpy.shutdown()` is guaranteed on all exit paths
+- **`params list/get/set` hardcoded 5 s timeout with no CLI override**: `wait_for_service(timeout_sec=5.0)` and the response-wait loop both used a hardcoded 5 s; inconsistent with `services call` and `actions send` which already had `--timeout`; added `--timeout` (default 5 s) to all three params subparsers and replaced every hardcoded `5.0` with `args.timeout`
+
+### Added
+- `get_srv_type()`: loads ROS 2 service classes via `importlib`, mirrors `get_msg_type()`
+- `get_action_type()`: loads ROS 2 action classes via `importlib`, mirrors `get_msg_type()`
 
 ---
 
