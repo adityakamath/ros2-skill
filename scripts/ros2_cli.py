@@ -2746,6 +2746,10 @@ def build_parser():
     p.add_argument("topic")
     p = tsub.add_parser("message", help="Get message structure")
     p.add_argument("message_type")
+    p = tsub.add_parser("message-structure", help="Alias for message")
+    p.add_argument("message_type")
+    p = tsub.add_parser("message-struct", help="Alias for message")
+    p.add_argument("message_type")
     _add_subscribe_args(tsub.add_parser("subscribe", help="Subscribe to a topic"))
     _add_subscribe_args(tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)"))
     _add_subscribe_args(tsub.add_parser("sub", help="Alias for subscribe"))
@@ -2939,6 +2943,8 @@ DISPATCH = {
     ("topics", "type"): cmd_topics_type,
     ("topics", "details"): cmd_topics_details,
     ("topics", "message"): cmd_topics_message,
+    ("topics", "message-structure"): cmd_topics_message,
+    ("topics", "message-struct"): cmd_topics_message,
     ("topics", "subscribe"): cmd_topics_subscribe,
     ("topics", "publish"): cmd_topics_publish,
     ("topics", "publish-sequence"): cmd_topics_publish_sequence,
