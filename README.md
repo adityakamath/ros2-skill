@@ -24,7 +24,7 @@ Use `ros2_cli.py` directly from the command line.
 source /opt/ros/${ROS_DISTRO}/setup.bash
 
 # Install dependencies
-pip install rclpy rosidl-runtime-py
+pip install rclpy
 
 # Run commands
 python3 scripts/ros2_cli.py version
@@ -58,7 +58,7 @@ See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 | Nodes | `list`, `details`, `info` |
 | Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
 | Actions | `list`, `details`, `info`, `type`, `send`, `send-goal`, `cancel` |
-| Interface | `show`, `proto`, `list`, `packages`, `package` |
+| Interface | `show`, `proto` |
 
 All commands output JSON. See `SKILL.md` for quick reference and `references/COMMANDS.md` for full details with output examples.
 

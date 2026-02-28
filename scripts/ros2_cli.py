@@ -240,17 +240,6 @@ Commands:
     $ python3 ros2_cli.py interface show geometry_msgs/Twist
     $ python3 ros2_cli.py interface proto std_srvs/SetBool
 
-  interface list
-    List all available ROS 2 interfaces (messages, services, actions).
-    $ python3 ros2_cli.py interface list
-
-  interface packages
-    List all packages that contain at least one ROS 2 interface.
-    $ python3 ros2_cli.py interface packages
-
-  interface package [<package>]
-    List all interfaces (messages, services, actions) in a package.
-    $ python3 ros2_cli.py interface package geometry_msgs
 
 Output:
     All commands output JSON to stdout.
@@ -299,10 +288,10 @@ try:
     from action_msgs.msg import GoalInfo
     from builtin_interfaces.msg import Time as BuiltinTime
     from unique_identifier_msgs.msg import UUID as UniqueUUID
-    from rosidl_runtime_py import import_message
-except ImportError:
-    print(json.dumps({"error": "rclpy not installed. Run: pip install rclpy (or source ROS 2)"}))
+except ImportError as e:
+    print(json.dumps({"error": f"Missing ROS 2 dependency: {e}. Source ROS 2 setup.bash or install the missing package."}))
     sys.exit(1)
+
 
 
 def get_msg_type(type_str):
@@ -333,18 +322,6 @@ def get_msg_type(type_str):
     except Exception:
         pass
 
-    # Fallback: rosidl import_message with slash format
-    try:
-        return import_message(f"{pkg}/msg/{msg_name}")
-    except Exception:
-        pass
-
-    # Last resort: rosidl import_message with dot format
-    try:
-        return import_message(f"{pkg}.msg.{msg_name}")
-    except Exception:
-        pass
-
     return None
 
 
@@ -368,12 +345,6 @@ def get_action_type(type_str):
     except Exception:
         pass
 
-    # Fallback: import_message with slash format
-    try:
-        return import_message(f"{pkg}/action/{action_name}")
-    except Exception:
-        pass
-
     return None
 
 
@@ -394,12 +365,6 @@ def get_srv_type(type_str):
     try:
         module = importlib.import_module(f"{pkg}.srv")
         return getattr(module, srv_name)
-    except Exception:
-        pass
-
-    # Fallback: import_message with slash format
-    try:
-        return import_message(f"{pkg}/srv/{srv_name}")
     except Exception:
         pass
 
@@ -1957,65 +1922,6 @@ def cmd_services_find(args):
         output({"error": str(e)})
 
 
-def cmd_interface_list(args):
-    """List all available ROS 2 interfaces (messages, services, actions)."""
-    try:
-        import rosidl_runtime_py as _rpy
-        msgs, srvs, acts = [], [], []
-        for pkg in sorted(_rpy.get_message_packages()):
-            for name in sorted(_rpy.get_messages_in_package(pkg)):
-                msgs.append(f"{pkg}/msg/{name}")
-        for pkg in sorted(_rpy.get_service_packages()):
-            for name in sorted(_rpy.get_services_in_package(pkg)):
-                srvs.append(f"{pkg}/srv/{name}")
-        for pkg in sorted(_rpy.get_action_packages()):
-            for name in sorted(_rpy.get_actions_in_package(pkg)):
-                acts.append(f"{pkg}/action/{name}")
-        output({"messages": msgs, "services": srvs, "actions": acts,
-                "count": len(msgs) + len(srvs) + len(acts)})
-    except Exception as e:
-        output({"error": str(e)})
-
-
-def cmd_interface_packages(args):
-    """List all packages that expose ROS 2 interfaces."""
-    try:
-        import rosidl_runtime_py as _rpy
-        pkgs = sorted(set(
-            list(_rpy.get_message_packages()) +
-            list(_rpy.get_service_packages()) +
-            list(_rpy.get_action_packages())
-        ))
-        output({"packages": pkgs, "count": len(pkgs)})
-    except Exception as e:
-        output({"error": str(e)})
-
-
-def cmd_interface_package(args):
-    """List all interfaces (messages, services, actions) in a specific package."""
-    if not args.package:
-        return output({"error": "package argument is required"})
-    pkg = args.package
-    try:
-        import rosidl_runtime_py as _rpy
-        msgs, srvs, acts = [], [], []
-        try:
-            msgs = [f"{pkg}/msg/{n}" for n in sorted(_rpy.get_messages_in_package(pkg))]
-        except LookupError:
-            pass
-        try:
-            srvs = [f"{pkg}/srv/{n}" for n in sorted(_rpy.get_services_in_package(pkg))]
-        except LookupError:
-            pass
-        try:
-            acts = [f"{pkg}/action/{n}" for n in sorted(_rpy.get_actions_in_package(pkg))]
-        except LookupError:
-            pass
-        if not msgs and not srvs and not acts:
-            return output({"error": f"No interfaces found for package '{pkg}'"})
-        output({"package": pkg, "messages": msgs, "services": srvs, "actions": acts})
-    except Exception as e:
-        output({"error": str(e)})
 
 
 class BwMonitor(Node):
@@ -2737,10 +2643,6 @@ def build_parser():
     p.add_argument("message_type")
     p = isub.add_parser("proto", help="Show prototype JSON (alias for topics message)")
     p.add_argument("message_type")
-    isub.add_parser("list", help="List all available interfaces")
-    isub.add_parser("packages", help="List packages with interfaces")
-    p = isub.add_parser("package", help="List interfaces in a specific package")
-    p.add_argument("package", nargs="?")
 
     return parser
 
@@ -2808,9 +2710,6 @@ DISPATCH = {
     # interface — Phase 2
     ("interface", "show"): cmd_topics_message,
     ("interface", "proto"): cmd_topics_message,
-    ("interface", "list"): cmd_interface_list,
-    ("interface", "packages"): cmd_interface_packages,
-    ("interface", "package"): cmd_interface_package,
 }
 
 

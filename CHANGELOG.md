@@ -35,9 +35,6 @@ All notable changes to ros2-skill will be documented in this file.
 - **`actions cancel`**: cancel all in-flight goals on an action server by sending a `CancelGoal` request with zero UUID (`[0]*16`) and zero timestamp — per ROS 2 spec this cancels all goals; reports `return_code` and `cancelled_goals`
 - **`actions send --feedback`**: new `--feedback` flag on both `send` and `send-goal`; when set, passes a `feedback_callback` to `send_goal_async`; collected feedback messages are included in output as `feedback_msgs: [...]`
 - **`interface show <type>` / `interface proto <type>`**: aliases for `topics message`; same handler, same arguments
-- **`interface list`**: list all available ROS 2 interfaces (messages, services, actions) across all packages using `rosidl_runtime_py`; returns `messages`, `services`, `actions`, `count`
-- **`interface packages`**: list all packages that contain at least one interface; returns `packages`, `count`
-- **`interface package <pkg>`**: list all interfaces in a single package; returns `package`, `messages`, `services`, `actions`
 - **`BwMonitor(Node)`**: top-level subscriber class that accumulates `(timestamp, serialized_size)` tuples and sets `threading.Event` after `window` samples
 - **`DelayMonitor(Node)`**: top-level subscriber class that accumulates header-stamp latency samples; sets `header_missing` flag if the message has no `header.stamp`
 - **`_param_value_to_python(v)`**: converts a `ParameterValue` (types 1–9) to a native Python value; used by `cmd_params_dump`
@@ -45,6 +42,9 @@ All notable changes to ros2-skill will be documented in this file.
 - **Goal-Oriented Commands workflow** in `SKILL.md` (Workflow section 7): step-by-step discovery guide for constructing `publish-until` commands from natural language intent; includes `topics find` + `topics message` + `topics subscribe` introspection steps and a lookup table of common patterns (odometry position/orientation, joint states, laser scan, range, temperature, battery)
 - **Discovery note** in `COMMANDS.md` `publish-until` entry cross-referencing the new SKILL.md workflow
 - **Troubleshooting row** for `publish-until` hangs/no feedback
+
+### Removed
+- **`interface list`**, **`interface packages`**, **`interface package`**: removed all three commands that required `rosidl_runtime_py`; `rosidl_runtime_py` is no longer a dependency of ros2-skill; `interface show` and `interface proto` (aliases for `topics message`) remain and do not need this package
 
 ---
 
