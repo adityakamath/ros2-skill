@@ -153,13 +153,12 @@ try:
     from rclpy.node import Node
     from rclpy.action import ActionClient
     from rclpy.qos import qos_profile_system_default
+    from rcl_interfaces.msg import Parameter, ParameterValue
+    from rcl_interfaces.srv import GetParameters, SetParameters, ListParameters
+    from rosidl_runtime_py import import_message
 except ImportError:
     print(json.dumps({"error": "rclpy not installed. Run: pip install rclpy (or source ROS 2)"}))
     sys.exit(1)
-
-from rcl_interfaces.msg import Parameter, ParameterValue
-from rcl_interfaces.srv import GetParameters, SetParameters, ListParameters
-from rosidl_runtime_py import import_message
 
 
 def get_msg_type(type_str):
@@ -454,11 +453,20 @@ def cmd_estop(args):
 
         msg_class = get_msg_type(msg_type)
         if not msg_class:
-            for t in VELOCITY_TYPES:
-                msg_class = get_msg_type(t)
-                if msg_class:
-                    msg_type = t
-                    break
+            if args.topic:
+                # Custom topic — do not guess a different type; report the failure clearly.
+                rclpy.shutdown()
+                return output({
+                    "error": f"Could not load message type '{msg_type}' for topic '{topic}'",
+                    "hint": "Ensure the ROS workspace is built and sourced: cd ~/ros2_ws && colcon build && source install/setup.bash"
+                })
+            else:
+                # Auto-detected velocity topic — try known types as fallback.
+                for t in VELOCITY_TYPES:
+                    msg_class = get_msg_type(t)
+                    if msg_class:
+                        msg_type = t
+                        break
 
         if not msg_class:
             rclpy.shutdown()
@@ -668,6 +676,8 @@ class TopicPublisher(Node):
 def cmd_topics_publish(args):
     if not args.topic:
         return output({"error": "topic argument is required"})
+    if args.msg is None:
+        return output({"error": "msg argument is required"})
 
     try:
         msg_data = json.loads(args.msg)
@@ -733,6 +743,10 @@ def cmd_topics_publish(args):
 def cmd_topics_publish_sequence(args):
     if not args.topic:
         return output({"error": "topic argument is required"})
+    if args.messages is None:
+        return output({"error": "messages argument is required"})
+    if args.durations is None:
+        return output({"error": "durations argument is required"})
 
     try:
         messages = json.loads(args.messages)
@@ -997,7 +1011,7 @@ def cmd_params_list(args):
 
 
 def cmd_params_get(args):
-    if ':' not in args.name:
+    if ':' not in args.name or not args.name.split(':', 1)[1]:
         return output({"error": "Use format /node_name:param_name (e.g. /turtlesim:background_r)"})
 
     try:
@@ -1059,7 +1073,7 @@ def cmd_params_get(args):
 
 
 def cmd_params_set(args):
-    if ':' not in args.name:
+    if ':' not in args.name or not args.name.split(':', 1)[1]:
         return output({"error": "Use format /node_name:param_name (e.g. /turtlesim:background_r)"})
 
     try:
@@ -1300,6 +1314,7 @@ def build_parser():
     p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
     p.add_argument("--duration", type=float, default=None, help="Subscribe for duration (seconds)")
     p.add_argument("--max-messages", type=int, default=100, help="Max messages to collect")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout (seconds) when waiting for a single message (default: 5)")
     p = tsub.add_parser("publish", help="Publish a message")
     p.add_argument("topic", nargs="?")
     p.add_argument("msg", nargs="?", help="JSON message")
