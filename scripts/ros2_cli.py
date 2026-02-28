@@ -2456,20 +2456,32 @@ def cmd_params_delete(args):
     param_names = [param_name] + (list(args.extra_names) if getattr(args, 'extra_names', None) else [])
 
     try:
-        from rcl_interfaces.srv import DeleteParameters
+        from rcl_interfaces.srv import SetParameters
+        from rcl_interfaces.msg import Parameter, ParameterValue
         rclpy.init()
         node = ROS2CLI()
 
-        service_name = f"{node_name}/delete_parameters"
-        client = node.create_client(DeleteParameters, service_name)
+        service_name = f"{node_name}/set_parameters"
+        client = node.create_client(SetParameters, service_name)
         if not client.wait_for_service(timeout_sec=args.timeout):
             rclpy.shutdown()
-            return output({"error": f"Delete-parameters service not available for {node_name}"})
+            return output({"error": f"Parameter service not available for {node_name}"})
 
-        request = DeleteParameters.Request()
-        request.names = param_names
+        # ROS 2 has no DeleteParameters service in rcl_interfaces.
+        # The standard way to undeclare a parameter is SetParameters with
+        # ParameterType.PARAMETER_NOT_SET (type=0).  If the node was launched
+        # with allow_undeclare_parameters=False (the default) or the parameter
+        # is read-only, the node rejects it and returns a reason in the result.
+        request = SetParameters.Request()
+        params = []
+        for pname in param_names:
+            p = Parameter()
+            p.name = pname
+            p.value = ParameterValue()  # type=0 == PARAMETER_NOT_SET
+            params.append(p)
+        request.parameters = params
+
         future = client.call_async(request)
-
         end_time = time.time() + args.timeout
         while time.time() < end_time and not future.done():
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -2478,7 +2490,14 @@ def cmd_params_delete(args):
         if not future.done():
             return output({"error": "Timeout deleting parameters"})
 
-        output({"node": node_name, "deleted": param_names, "count": len(param_names)})
+        results_raw = future.result().results or []
+        results = []
+        for pname, r in zip(param_names, results_raw):
+            entry = {"name": pname, "success": r.successful}
+            if not r.successful:
+                entry["error"] = r.reason or "Node rejected deletion (parameter may be read-only or undeclaring is not allowed)"
+            results.append(entry)
+        output({"node": node_name, "results": results, "count": len(param_names)})
     except Exception as e:
         output({"error": str(e)})
 
