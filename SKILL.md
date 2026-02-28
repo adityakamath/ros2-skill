@@ -62,6 +62,9 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics subscribe <topic>` | Subscribe and receive messages |
 | Topics | `topics publish <topic> <json>` | Publish a message to a topic |
 | Topics | `topics publish-sequence <topic> <msgs> <durs>` | Publish message sequence |
+| Topics | `topics echo <topic>` | Alias for `topics subscribe` |
+| Topics | `topics publish-until <topic> <json>` | Publish while monitoring; stop on condition |
+| Topics | `topics publish-continuous <topic> <json>` | Publish at rate for bounded duration |
 | Services | `services list` | List all available services |
 | Services | `services type <service>` | Get service type |
 | Services | `services details <service>` | Get service request/response fields |
@@ -140,6 +143,47 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
 
 Options: `--rate HZ` (default 10)
 
+### topics echo
+
+Alias for `topics subscribe`. Same arguments, same behaviour.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics echo /turtle1/pose
+python3 {baseDir}/scripts/ros2_cli.py topics echo /odom --duration 10 --max-msgs 50
+```
+
+### topics publish-until
+
+Publish to a topic at a fixed rate while monitoring a second topic. Stops when a condition on the monitored field is satisfied, or after the safety timeout.
+
+```bash
+# Move forward until odometry x position increases by 1.0 m
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+
+# Stop when lidar range at index 0 drops below 0.5 m
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor /scan --field ranges.0 --below 0.5 --timeout 60
+```
+
+Required: `--monitor <topic>`, `--field <dot.path>`, and exactly one of `--delta N`, `--above N`, `--below N`, `--equals V`
+
+Options: `--rate HZ` (default 10), `--timeout SECONDS` (default 60), `--msg-type TYPE`, `--monitor-msg-type TYPE`
+
+### topics publish-continuous
+
+Publish at a fixed rate for a mandatory bounded duration. Stops early on `Ctrl+C`.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-continuous /cmd_vel \
+  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --timeout 5
+```
+
+Options: `--timeout SECONDS` (**required**), `--rate HZ` (default 10), `--msg-type TYPE`
+
 ### services list / type / details
 
 ```bash
@@ -165,12 +209,14 @@ python3 {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
 
 ### params list / get / set
 
-Uses `node:param_name` format.
+Uses `node:param_name` format or space-separated `node param_name` format.
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
 python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+python3 {baseDir}/scripts/ros2_cli.py params get /base_controller base_frame_id
 python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
+python3 {baseDir}/scripts/ros2_cli.py params set /base_controller base_frame_id base_link_new
 ```
 
 ### actions list / details / send
@@ -253,6 +299,8 @@ python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_b 0
 
 **Destructive commands** (can move the robot or change state):
 - `topics publish` / `topics publish-sequence` — sends movement or control commands
+- `topics publish-until` — publishes continuously until a condition or timeout; always specify a conservative `--timeout`
+- `topics publish-continuous` — publishes for a fixed duration; `--timeout` is required
 - `services call` — can reset, spawn, kill, or change robot state
 - `params set` — modifies runtime parameters
 - `actions send` — triggers robot actions (rotation, navigation, etc.)

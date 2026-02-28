@@ -135,7 +135,7 @@ Output:
 
 ## topics subscribe `<topic>` [options]
 
-Subscribe to a topic and receive messages.
+Subscribe to a topic and receive messages. Also available as `topics echo` (identical alias).
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -144,7 +144,8 @@ Subscribe to a topic and receive messages.
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--duration SECONDS` | _(none)_ | Collect messages for this duration. Without this, returns first message only |
-| `--max-messages N` | `100` | Maximum number of messages to collect (only with `--duration`) |
+| `--max-messages N` / `--max-msgs N` | `100` | Maximum number of messages to collect (only with `--duration`) |
+| `--timeout SECONDS` | `5` | Timeout waiting for first message |
 
 **Single message (default):**
 ```bash
@@ -256,6 +257,103 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
   '[{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":0},"angular":{"z":0}}]' \
   '[1,1,1,1,1,1,1,1,0.5]'
 ```
+
+---
+
+## topics publish-until `<topic>` `<json_message>` [options]
+
+Publish a message at a fixed rate while simultaneously monitoring a second topic. Stops as soon as a structured condition on the monitored field is satisfied, or after a safety timeout. Use this to move a robot until it reaches a target pose, until a sensor threshold is crossed, etc.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `topic` | Yes | Topic to publish to |
+| `json_message` | Yes | JSON string of the message payload |
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--monitor TOPIC` | Yes | — | Topic to watch for the stop condition |
+| `--field DOT.PATH` | Yes | — | Dot-separated field path in monitor messages (e.g. `pose.pose.position.x`, `ranges.0`) |
+| `--delta N` | One of these | — | Stop when field changes by ±N from its value at start |
+| `--above N` | One of these | — | Stop when field > N |
+| `--below N` | One of these | — | Stop when field < N |
+| `--equals V` | One of these | — | Stop when field == V (numeric: epsilon 1e-9; fallback: string comparison) |
+| `--rate HZ` | No | `10` | Publish rate in Hz |
+| `--timeout SECONDS` | No | `60` | Safety stop if condition is not met within this duration |
+| `--msg-type TYPE` | No | auto-detect | Override publish topic message type |
+| `--monitor-msg-type TYPE` | No | auto-detect | Override monitor topic message type |
+
+Exactly one of `--delta`, `--above`, `--below`, `--equals` is required.
+
+**Move forward until x-position increases by 1 m:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+```
+
+**Stop when front lidar range drops below 0.5 m:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor /scan --field ranges.0 --below 0.5 --timeout 60
+```
+
+Output — condition met:
+```json
+{
+  "success": true, "condition_met": true,
+  "topic": "/cmd_vel", "monitor_topic": "/odom",
+  "field": "pose.pose.position.x", "operator": "delta", "threshold": 1.0,
+  "start_value": 0.12, "end_value": 1.15,
+  "duration": 4.2, "published_count": 42,
+  "start_msg": {}, "end_msg": {}
+}
+```
+
+Output — timeout (condition not met):
+```json
+{
+  "success": false, "condition_met": false,
+  "error": "Timeout after 30s: condition not met",
+  "start_value": 0.12, "end_value": 0.43,
+  "duration": 30.0, "published_count": 298
+}
+```
+
+---
+
+## topics publish-continuous `<topic>` `<json_message>` [options]
+
+Publish a message at a fixed rate for a mandatory bounded duration. Stops early on `Ctrl+C` (local use). `--timeout` is required — indefinite publishing is disabled for safety because AI agents running over Discord, Telegram, etc. cannot send `Ctrl+C`.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `topic` | Yes | Topic to publish to |
+| `json_message` | Yes | JSON string of the message payload |
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--timeout SECONDS` | **Yes** | — | Maximum publish duration in seconds |
+| `--rate HZ` | No | `10` | Publish rate in Hz |
+| `--msg-type TYPE` | No | auto-detect | Override message type |
+
+**Publish velocity for 5 seconds:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-continuous /cmd_vel \
+  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --timeout 5
+```
+
+Output:
+```json
+{
+  "success": true, "topic": "/cmd_vel",
+  "published_count": 50, "duration": 5.0,
+  "rate": 10.0, "stopped_by": "timeout"
+}
+```
+
+`stopped_by` is `"timeout"` when the duration elapsed normally, or `"keyboard_interrupt"` when stopped with `Ctrl+C`.
 
 ---
 
@@ -418,16 +516,21 @@ Output:
 
 ---
 
-## params get `<node:param_name>`
+## params get `<node:param_name>` or `<node> <param_name>`
 
-Get a parameter value.
+Get a parameter value. Accepts either colon-separated or space-separated format.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `name` | Yes | Parameter in `/node:param` format |
+| `name` | Yes | Node name with optional `:param_name` suffix, or node name alone |
+| `param_name` | No | Parameter name (when using space-separated format) |
 
 ```bash
+# Colon format
 python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+
+# Space-separated format (equivalent)
+python3 {baseDir}/scripts/ros2_cli.py params get /base_controller base_frame_id
 ```
 
 Output:
@@ -437,22 +540,33 @@ Output:
 
 ---
 
-## params set `<node:param_name>` `<value>`
+## params set `<node:param_name>` `<value>` or `<node> <param_name> <value>`
 
-Set a parameter value.
+Set a parameter value. Accepts either colon-separated or space-separated format.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `name` | Yes | Parameter in `/node:param` format |
-| `value` | Yes | New value to set |
+| `name` | Yes | Node name with optional `:param_name` suffix, or node name alone |
+| `value` | Yes | New value to set (when using colon format) |
+| `param_name` | No | Parameter name (when using space-separated format) |
+| `extra_value` | No | Value to set (when using space-separated format) |
 
 ```bash
+# Colon format
 python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
+
+# Space-separated format (equivalent)
+python3 {baseDir}/scripts/ros2_cli.py params set /base_controller base_frame_id base_link_new
 ```
 
 Output:
 ```json
 {"name": "/turtlesim:background_r", "value": "255", "success": true}
+```
+
+If the parameter is read-only:
+```json
+{"name": "/base_controller:base_frame_id", "value": "base_link_new", "success": false, "error": "Parameter is read-only and cannot be changed at runtime", "read_only": true}
 ```
 
 ---

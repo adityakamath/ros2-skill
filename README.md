@@ -53,7 +53,7 @@ See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 | Category | Commands |
 | -------- | -------- |
 | Connection | `version` |
-| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence` |
+| Topics | `list`, `type`, `details`, `message`, `subscribe`, `echo`, `publish`, `publish-sequence`, `publish-until`, `publish-continuous` |
 | Services | `list`, `type`, `details`, `call` |
 | Nodes | `list`, `details` |
 | Parameters | `list`, `get`, `set` |

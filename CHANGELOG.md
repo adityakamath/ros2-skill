@@ -2,15 +2,18 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.3] - 2026-02-28
+## [1.0.2] - 2026-02-28
 
 ### Added
 - **`topics publish-until`**: publish to a topic at a fixed rate while simultaneously monitoring a second topic; stops as soon as a structured condition on the monitored field is satisfied or a safety timeout (default 60 s) elapses; supports four operators: `--delta ±N` (field changes from start), `--above N`, `--below N`, `--equals V`; field path is dot-separated and supports list indexing (`ranges.0`); output includes `start_value`, `end_value`, `start_msg`, `end_msg`, `published_count`, `duration`, and a `condition_met` flag
-- **`topics publish-continuous`**: publish indefinitely at a fixed rate until `Ctrl+C` or an optional `--timeout`; reports `published_count`, `duration`, and `stopped_by` (`"keyboard_interrupt"` or `"timeout"`)
+- **`topics publish-continuous`**: publish at a fixed rate for a mandatory `--timeout` duration; stops early on `Ctrl+C`; reports `published_count`, `duration`, and `stopped_by` (`"timeout"` or `"keyboard_interrupt"`)
 - **`resolve_field(d, path)`**: shared helper that walks a nested dict/list using a dot-separated path; integer segments index into lists
 - **`ConditionMonitor(Node)`**: subscriber node that evaluates the stop condition on every message and sets a `threading.Event`; runs alongside `TopicPublisher` in a `MultiThreadedExecutor` on a background thread
-
-## [1.0.2] - 2026-02-28
+- `get_srv_type()`: loads ROS 2 service classes via `importlib`, mirrors `get_msg_type()`
+- `get_action_type()`: loads ROS 2 action classes via `importlib`, mirrors `get_msg_type()`
+- `topics echo`: alias for `topics subscribe` — same arguments, same behaviour
+- `--max-msgs`: short alias for `--max-messages` on `topics subscribe` and `topics echo`
+- `_json_default()`: fallback JSON encoder used by `output()` as defence-in-depth for any non-serializable type
 
 ### Fixed
 - **`get_msg_type()` failing for all type formats**: `import_message` was called with dot-separated format but expects slash format; `__import__` fallback only loaded the top-level package making subpackage lookups always fail; replaced with `importlib.import_module`
@@ -50,17 +53,10 @@ All notable changes to ros2-skill will be documented in this file.
 - **`rclpy.shutdown()` never called when an exception escapes a command handler**: every command's `except Exception` block only called `output({"error": ...})` with no shutdown, leaving rclpy initialized if a bug or `KeyboardInterrupt` escaped the inner handler; added a `try/finally` around the handler dispatch in `main()` so `rclpy.shutdown()` is guaranteed on all exit paths
 - **`params list/get/set` hardcoded 5 s timeout with no CLI override**: `wait_for_service(timeout_sec=5.0)` and the response-wait loop both used a hardcoded 5 s; inconsistent with `services call` and `actions send` which already had `--timeout`; added `--timeout` (default 5 s) to all three params subparsers and replaced every hardcoded `5.0` with `args.timeout`
 - **`topics subscribe` crashes with `Object of type ndarray is not JSON serializable`**: rclpy stores fixed-size array fields (e.g. `nav_msgs/msg/Odometry.pose.covariance[36]`) as `numpy.ndarray`, not Python lists; `isinstance(value, (list, tuple))` does not match numpy arrays so they fell through to `else: result[field] = value`; `json.dumps` then raises `TypeError`; added `elif hasattr(value, 'tolist'):` branch to convert numpy arrays and scalars to native Python via `.tolist()`; also added `.tolist()` handling inside the list comprehension for numpy elements inside variable-length lists; added `_json_default` fallback encoder to `output()` as a final safety net
-
 - **`cmd_version` crashes with `AttributeError: module 'rclpy.utilities' has no attribute 'get_domain_id'`**: `rclpy.utilities.get_domain_id()` does not exist in any version of rclpy; `ROS_DOMAIN_ID` is a plain environment variable; replaced the `rclpy.init()` / `rclpy.utilities.get_domain_id()` / `rclpy.shutdown()` block with a direct `int(os.environ.get('ROS_DOMAIN_ID', 0))` read; no rclpy calls needed
 - **`params get` / `params set` reject space-separated node+param syntax**: parsers only accepted the colon format (`/node:param`); `params get /base_controller base_frame_id` gave "unrecognized arguments: base_frame_id"; added optional `param_name` positional to `params get` and optional `extra_value` positional to `params set`; both commands now accept either `/node:param` or `/node param_name` (and `/node param value` for set)
 - **`services call` rejects old positional service-type format**: previous fix added `--service-type` flag but users still pass `services call /svc pkg/srv/Type '{"data":true}'` (3-positional old format); added optional `extra_request` positional; handler now detects which format was used and shifts service type / JSON accordingly; both old positional and new flag forms are accepted
-
-### Added
-- `get_srv_type()`: loads ROS 2 service classes via `importlib`, mirrors `get_msg_type()`
-- `get_action_type()`: loads ROS 2 action classes via `importlib`, mirrors `get_msg_type()`
-- `topics echo`: alias for `topics subscribe` — same arguments, same behaviour
-- `--max-msgs`: short alias for `--max-messages` on `topics subscribe` and `topics echo`
-- `_json_default()`: fallback JSON encoder used by `output()` as defence-in-depth for any non-serializable type
+- **`topics publish-continuous` allowed indefinite publishing**: `--timeout` was optional with no default, enabling permanent publishing; unsafe for robots controlled by AI agents where `Ctrl+C` is unavailable (e.g. Discord, Telegram); changed to `required=True`; loop changed from `while True:` with conditional break to `while (time.time() - start_time) < timeout:`; `stopped_by` defaults to `"timeout"`
 
 ---
 
