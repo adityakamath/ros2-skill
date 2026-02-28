@@ -1179,9 +1179,15 @@ def cmd_params_set(args):
             if result.results and result.results[0].successful:
                 output({"name": full_name, "value": value_str, "success": True})
             else:
-                reason = result.results[0].reason if result.results else "unknown"
-                output({"name": full_name, "value": value_str, "success": False,
-                        "error": reason or "Parameter rejected by node"})
+                reason = result.results[0].reason if result.results else ""
+                reason_lc = reason.lower()
+                if 'read' in reason_lc and ('only' in reason_lc or 'readonly' in reason_lc):
+                    output({"name": full_name, "value": value_str, "success": False,
+                            "error": "Parameter is read-only and cannot be changed at runtime",
+                            "read_only": True})
+                else:
+                    output({"name": full_name, "value": value_str, "success": False,
+                            "error": reason or "Parameter rejected by node"})
         else:
             output({"error": "Timeout setting parameter"})
     except Exception as e:
