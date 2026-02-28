@@ -80,12 +80,13 @@ Commands:
         '{"linear":{"x":0.3},"angular":{"z":0}}' \
         --monitor /odom --field pose.pose.position.x --delta 1.0
 
-  topics publish-continuous <topic> <json_msg> [--rate HZ] [--timeout SEC]
-    Publish indefinitely at --rate Hz until Ctrl+C or the optional --timeout elapses.
+  topics publish-continuous <topic> <json_msg> --timeout SEC [--rate HZ]
+    Publish at --rate Hz for exactly --timeout seconds (required).
+    --timeout is mandatory — never publish to a robot without a hard time limit.
     --rate HZ         Publish rate (default: 10 Hz)
-    --timeout SEC     Optional hard stop in seconds (default: none)
+    --timeout SEC     Hard stop after this many seconds (required)
     $ python3 ros2_cli.py topics publish-continuous /cmd_vel \
-        '{"linear":{"x":0.3},"angular":{"z":0}}' --rate 10
+        '{"linear":{"x":0.3},"angular":{"z":0}}' --timeout 5 --rate 10
 
   services list
     List all available services.
@@ -1097,7 +1098,12 @@ def cmd_topics_publish_until(args):
 
 
 def cmd_topics_publish_continuous(args):
-    """Publish to a topic indefinitely until Ctrl+C or an optional timeout."""
+    """Publish to a topic at a fixed rate until --timeout elapses (required).
+
+    --timeout is mandatory: never publish to a robot topic without a hard
+    time limit, especially when invoked from an AI agent that cannot send
+    Ctrl+C.
+    """
     if not args.topic:
         return output({"error": "topic argument is required"})
     if args.msg is None:
@@ -1137,17 +1143,14 @@ def cmd_topics_publish_continuous(args):
         msg = dict_to_msg(msg_class, msg_data)
 
         rate = args.rate or 10.0
-        timeout = getattr(args, 'timeout', None)
+        timeout = args.timeout  # required by parser — always set
         interval = 1.0 / rate
         start_time = time.time()
         published_count = 0
-        stopped_by = "keyboard_interrupt"
+        stopped_by = "timeout"
 
         try:
-            while True:
-                if timeout and (time.time() - start_time) >= timeout:
-                    stopped_by = "timeout"
-                    break
+            while (time.time() - start_time) < timeout:
                 publisher.pub.publish(msg)
                 published_count += 1
                 time.sleep(interval)
@@ -1747,11 +1750,12 @@ def build_parser():
     p.add_argument("--timeout", type=float, default=60.0, help="Safety timeout in seconds (default: 60)")
     p.add_argument("--msg-type", dest="msg_type", default=None, help="Publish topic message type (auto-detected)")
     p.add_argument("--monitor-msg-type", dest="monitor_msg_type", default=None, help="Monitor topic message type (auto-detected)")
-    p = tsub.add_parser("publish-continuous", help="Publish continuously until Ctrl+C or optional timeout")
+    p = tsub.add_parser("publish-continuous", help="Publish at a fixed rate for a required duration (--timeout)")
     p.add_argument("topic", nargs="?")
     p.add_argument("msg", nargs="?", help="JSON message to publish")
     p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
-    p.add_argument("--timeout", type=float, default=None, help="Optional hard stop in seconds (default: none, runs until Ctrl+C)")
+    p.add_argument("--timeout", type=float, required=True,
+                   help="Hard stop after this many seconds (required — never publish without a time limit)")
     p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
 
     services = sub.add_parser("services", help="Service operations")
