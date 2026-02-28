@@ -441,7 +441,7 @@ def cmd_estop(args):
                 rclpy.shutdown()
                 return output({
                     "error": f"Could not detect message type for topic '{topic}'",
-                    "hint": "Ensure the topic is active and visible in the ROS graph, or specify --msg-type explicitly."
+                    "hint": "Ensure the topic is active and visible in the ROS graph. Use 'topics type <topic>' to inspect it."
                 })
         else:
             topic, msg_type = find_velocity_topic(node)
@@ -911,7 +911,7 @@ def cmd_services_call(args):
         request = dict_to_msg(srv_class.Request, request_data)
         future = client.call_async(request)
 
-        timeout = args.timeout if hasattr(args, 'timeout') else 5.0
+        timeout = args.timeout
         end_time = time.time() + timeout
 
         while time.time() < end_time and not future.done():
