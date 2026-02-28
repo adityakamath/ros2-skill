@@ -67,7 +67,7 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics pub <topic> <json>` | Alias for `topics publish` |
 | Topics | `topics publish-sequence <topic> <msgs> <durs>` | Publish message sequence |
 | Topics | `topics pub-seq <topic> <msgs> <durs>` | Alias for `topics publish-sequence` |
-| Topics | `topics publish-until <topic> <json>` | Publish while monitoring; stop on condition |
+| Topics | `topics publish-until <topic> <json>` | Publish while monitoring; stop on condition (supports `--euclidean` for N-D distance) |
 | Topics | `topics publish-continuous <topic> <json>` | Alias for `topics publish` |
 | Topics | `topics hz <topic>` | Measure topic publish rate |
 | Topics | `topics find <msg_type>` | Find topics by message type |
@@ -177,10 +177,17 @@ Options: `--rate HZ` (default 10)
 Publish to a topic at a fixed rate while monitoring a second topic. Stops when a condition on the monitored field is satisfied, or after the safety timeout.
 
 ```bash
-# Move forward until odometry x position increases by 1.0 m
+# Single-field: move forward until odometry x increases by 1.0 m
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
   --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+
+# Euclidean: move until 2 m traveled in XY plane (true path distance)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.3}}' \
+  --monitor /odom \
+  --field pose.pose.position.x pose.pose.position.y \
+  --euclidean --delta 2.0 --timeout 60
 
 # Stop when lidar range at index 0 drops below 0.5 m
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
@@ -188,7 +195,9 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   --monitor /scan --field ranges.0 --below 0.5 --timeout 60
 ```
 
-Required: `--monitor <topic>`, `--field <dot.path>`, and exactly one of `--delta N`, `--above N`, `--below N`, `--equals V`
+Required: `--monitor <topic>`, `--field <path> [<path2>...]`, and exactly one of `--delta N`, `--above N`, `--below N`, `--equals V`
+
+`--euclidean`: compute Euclidean distance across all `--field` paths; requires `--delta` (threshold = distance from start). Works for any number of numeric fields (2D XY, 3D XYZ, joint-space, etc.)
 
 Options: `--rate HZ` (default 10), `--timeout SECONDS` (default 60), `--msg-type TYPE`, `--monitor-msg-type TYPE`
 
@@ -463,27 +472,37 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 
 
 #### Common patterns
 
-| User intent | Monitor topic | Field | Condition |
-|-------------|--------------|-------|-----------|
+| User intent | Monitor topic | Field(s) | Condition |
+|-------------|--------------|----------|-----------|
 | Move forward N m (straight) | `/odom` | `pose.pose.position.x` | `--delta N` |
 | Move backward N m | `/odom` | `pose.pose.position.x` | `--delta -N` |
 | Move sideways N m | `/odom` | `pose.pose.position.y` | `--delta N` |
+| Move N m (any direction, 2D) | `/odom` | `pose.pose.position.x` `pose.pose.position.y` | `--euclidean --delta N` |
+| Move N m (any direction, 3D) | `/odom` | `pose.pose.position.x` `pose.pose.position.y` `pose.pose.position.z` | `--euclidean --delta N` |
 | Rotate N rad | `/odom` | `pose.pose.orientation.z` | `--delta N` |
 | Joint reach angle | `/joint_states` | `position.0` (index of joint) | `--equals A` or `--delta D` |
+| Multi-joint Euclidean distance | `/joint_states` | `position.0` `position.1` | `--euclidean --delta D` |
 | Stop near obstacle | `/scan` | `ranges.0` (front index) | `--below 0.5` |
 | Stop at range | `/range` | `range` | `--below D` |
 | Stop at temperature | `/temperature` | `temperature` | `--above T` |
 | Stop at battery level | `/battery` | `percentage` | `--below P` |
 
-For **diagonal movement or Euclidean distance**, monitor the axis with the dominant displacement (`position.x` or `position.y`), or use a conservative `--delta` on total time instead and verify final position after.
+**`--euclidean`** takes any number of numeric fields, computes `sqrt(Σ(current_i - start_i)²)`, and stops when that distance ≥ the `--delta` threshold. Use it whenever the robot's path is not axis-aligned.
 
 #### Examples
 
 ```bash
-# "Drive forward 1 meter" — discovered /odom is nav_msgs/Odometry
+# "Drive forward 1 meter" — straight path, single axis
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
   --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+
+# "Drive 2 meters in any direction" — curved/diagonal path, Euclidean XY
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.3}}' \
+  --monitor /odom \
+  --field pose.pose.position.x pose.pose.position.y \
+  --euclidean --delta 2.0 --timeout 60
 
 # "Move arm until joint_3 reaches 1.5 rad" — joint index 2 (0-based)
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /arm/cmd \

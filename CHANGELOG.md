@@ -4,6 +4,10 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.3] - 2026-02-28
 
+### Added
+- **`topics publish-until --euclidean`**: N-dimensional Euclidean distance monitoring; `--field` now accepts one or more dot-separated paths; when `--euclidean` is set, `ConditionMonitor` resolves all field paths on each message, computes `sqrt(Σ(current_i − start_i)²)`, and stops when that distance ≥ the `--delta` threshold; output gains `fields` (list), `start_values` (list), `end_values` (list), `euclidean_distance`; single-field behaviour and output format are fully backward-compatible; validated: multiple fields require `--euclidean`, `--euclidean` requires `--delta`
+- **`topics ls` / `services ls`** aliases: `topics ls` → `topics list`, `services ls` → `services list` (parser + DISPATCH entries were missing)
+
 ### Fixed
 - **`topics publish-until` executor compatibility**: replaced `MultiThreadedExecutor` + background `spin_thread` + `executor.shutdown(wait=False)` with `SingleThreadedExecutor` + `spin_once(timeout_sec=interval)` in the main loop — eliminates `TypeError: shutdown() got an unexpected keyword argument 'wait'` on rclpy versions prior to Humble where the `wait` keyword did not exist; matches the `SingleThreadedExecutor` + `spin_once` pattern already used by every other executor in the file
 - **`nodes ls` / `params ls` / `actions ls`** aliases added — all three are now registered aliases for their respective `list` subcommands (parsers + DISPATCH); `params ls <node>` passes the required node argument through as-is

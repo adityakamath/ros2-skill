@@ -293,11 +293,12 @@ See the _Goal-Oriented Commands_ workflow section in `SKILL.md` for a full looku
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `--monitor TOPIC` | Yes | — | Topic to watch for the stop condition |
-| `--field DOT.PATH` | Yes | — | Dot-separated field path in monitor messages (e.g. `pose.pose.position.x`, `ranges.0`) |
-| `--delta N` | One of these | — | Stop when field changes by ±N from its value at start |
-| `--above N` | One of these | — | Stop when field > N |
-| `--below N` | One of these | — | Stop when field < N |
-| `--equals V` | One of these | — | Stop when field == V (numeric: epsilon 1e-9; fallback: string comparison) |
+| `--field PATH [PATH...]` | Yes | — | One or more dot-separated field paths (e.g. `pose.pose.position.x`). Provide multiple for `--euclidean` mode. |
+| `--euclidean` | No | off | Compute Euclidean distance across all `--field` paths; requires `--delta` |
+| `--delta N` | One of these | — | Stop when field changes by ±N from start; or Euclidean distance ≥ N with `--euclidean` |
+| `--above N` | One of these | — | Stop when field > N (single-field only) |
+| `--below N` | One of these | — | Stop when field < N (single-field only) |
+| `--equals V` | One of these | — | Stop when field == V (single-field only) |
 | `--rate HZ` | No | `10` | Publish rate in Hz |
 | `--timeout SECONDS` | No | `60` | Safety stop if condition is not met within this duration |
 | `--msg-type TYPE` | No | auto-detect | Override publish topic message type |
@@ -305,11 +306,20 @@ See the _Goal-Oriented Commands_ workflow section in `SKILL.md` for a full looku
 
 Exactly one of `--delta`, `--above`, `--below`, `--equals` is required.
 
-**Move forward until x-position increases by 1 m:**
+**Move forward until x-position increases by 1 m (single-field):**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
   --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+```
+
+**Move until 2 m Euclidean distance traveled in XY plane:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.3}}' \
+  --monitor /odom \
+  --field pose.pose.position.x pose.pose.position.y \
+  --euclidean --delta 2.0 --timeout 60
 ```
 
 **Stop when front lidar range drops below 0.5 m:**
@@ -319,7 +329,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   --monitor /scan --field ranges.0 --below 0.5 --timeout 60
 ```
 
-Output — condition met:
+Output — single-field condition met:
 ```json
 {
   "success": true, "condition_met": true,
@@ -327,6 +337,20 @@ Output — condition met:
   "field": "pose.pose.position.x", "operator": "delta", "threshold": 1.0,
   "start_value": 0.12, "end_value": 1.15,
   "duration": 4.2, "published_count": 42,
+  "start_msg": {}, "end_msg": {}
+}
+```
+
+Output — Euclidean condition met:
+```json
+{
+  "success": true, "condition_met": true,
+  "topic": "/cmd_vel", "monitor_topic": "/odom",
+  "fields": ["pose.pose.position.x", "pose.pose.position.y"],
+  "operator": "euclidean_delta", "threshold": 2.0,
+  "start_values": [0.0, 0.0], "end_values": [1.42, 1.41],
+  "euclidean_distance": 2.003,
+  "duration": 9.8, "published_count": 98,
   "start_msg": {}, "end_msg": {}
 }
 ```

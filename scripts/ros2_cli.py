@@ -74,20 +74,24 @@ Commands:
         '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
         '[3.0, 0.5]'
 
-  topics publish-until <topic> <json_msg> --monitor <topic> --field <path> (--delta|--above|--below|--equals) <value>
+  topics publish-until <topic> <json_msg> --monitor <topic> --field <path> [<path2> ...] (--delta|--above|--below|--equals) <value> [--euclidean]
     Publish a message at --rate Hz while monitoring a second topic. Stops as soon as the
     condition on the monitored field is satisfied, or after --timeout seconds (default: 60).
-    --monitor TOPIC   Topic to monitor for the stop condition
-    --field PATH      Dot-separated field path (e.g. pose.pose.position.x, ranges.0)
-    --delta N         Stop when field changes by ±N from its value at start
-    --above N         Stop when field > N (absolute threshold)
-    --below N         Stop when field < N (absolute threshold)
-    --equals V        Stop when field == V (numeric or string)
-    --rate HZ         Publish rate (default: 10 Hz)
-    --timeout SEC     Safety timeout (default: 60 s)
+    --monitor TOPIC        Topic to monitor for the stop condition
+    --field PATH [PATH...] One or more dot-separated field paths (e.g. pose.pose.position.x)
+    --euclidean            Compute Euclidean distance across all --field paths; requires --delta
+    --delta N              Stop when field changes by ±N (or Euclidean distance >= N)
+    --above N              Stop when field > N (absolute threshold; single field only)
+    --below N              Stop when field < N (absolute threshold; single field only)
+    --equals V             Stop when field == V (single field only)
+    --rate HZ              Publish rate (default: 10 Hz)
+    --timeout SEC          Safety timeout (default: 60 s)
     $ python3 ros2_cli.py topics publish-until /cmd_vel \
         '{"linear":{"x":0.3},"angular":{"z":0}}' \
         --monitor /odom --field pose.pose.position.x --delta 1.0
+    $ python3 ros2_cli.py topics publish-until /cmd_vel \
+        '{"linear":{"x":0.2},"angular":{"z":0.1}}' \
+        --monitor /odom --field pose.pose.position.x pose.pose.position.y --euclidean --delta 2.0
 
   topics hz <topic> [--window N] [--timeout SEC]
     Measure the publish rate of a topic. Collects --window inter-message intervals
@@ -262,6 +266,7 @@ Examples:
 import argparse
 import importlib
 import json
+import math
 import os
 import re
 import sys
@@ -802,23 +807,44 @@ class ConditionMonitor(Node):
     Sets *stop_event* as soon as the condition fires.  The main publish loop
     polls *stop_event* and exits when it is set.
 
-    Attributes (read after stop_event is set):
+    Single-field mode (euclidean=False):
         start_value   -- field value from the very first message
         current_value -- field value from the most recent message
-        start_msg     -- full msg dict from the first message
-        end_msg       -- full msg dict from the message that triggered the stop
-        field_error   -- non-None string when the field path could not be resolved
+
+    Euclidean mode (euclidean=True):
+        start_values      -- list of field values from the very first message
+        current_values    -- list of field values from the most recent message
+        euclidean_distance -- Euclidean distance from start_values to current_values
+
+    Common attributes:
+        start_msg  -- full msg dict from the first message
+        end_msg    -- full msg dict from the message that triggered the stop
+        field_error -- non-None string when a field path could not be resolved
     """
 
-    def __init__(self, topic, msg_type, field, operator, threshold, stop_event):
+    def __init__(self, topic, msg_type, field, operator, threshold, stop_event,
+                 euclidean=False):
         super().__init__('condition_monitor')
-        self.field = field
+        self.euclidean = euclidean
+        # field may be a single string or a list of strings.
+        if isinstance(field, list):
+            self.fields = field
+            self.field = field[0]
+        else:
+            self.fields = [field]
+            self.field = field
         self.operator = operator      # 'delta' | 'above' | 'below' | 'equals'
         self.threshold = threshold
         self.stop_event = stop_event
 
+        # Single-field attributes (backward compat)
         self.start_value = None
         self.current_value = None
+        # Euclidean-mode attributes
+        self.start_values = None
+        self.current_values = None
+        self.euclidean_distance = None
+
         self.start_msg = None
         self.end_msg = None
         self.field_error = None
@@ -838,55 +864,87 @@ class ConditionMonitor(Node):
 
             msg_dict = msg_to_dict(msg)
 
-            # Resolve the field path; report error and stop on first failure.
-            try:
-                value = resolve_field(msg_dict, self.field)
-            except (KeyError, IndexError, TypeError, ValueError) as e:
-                self.field_error = f"Field '{self.field}' not found in monitor message: {e}"
-                self.stop_event.set()
-                return
-
-            # Try to coerce to float for numeric comparisons.
-            try:
-                numeric_value = float(value)
-            except (TypeError, ValueError):
-                numeric_value = None
-
-            # Capture start state on the very first message.
-            if self.start_value is None:
-                self.start_value = value
-                self.start_msg = msg_dict
-
-            self.current_value = value
-
-            # Evaluate condition.
-            condition_met = False
-            if self.operator == 'delta':
-                if numeric_value is not None and self.start_value is not None:
+            if self.euclidean:
+                # ---- Euclidean N-dimensional distance mode ----
+                # Resolve every field path and coerce to float.
+                values = []
+                for fp in self.fields:
                     try:
-                        delta = numeric_value - float(self.start_value)
-                        thr = float(self.threshold)
-                        condition_met = delta >= thr if thr >= 0 else delta <= thr
-                    except (TypeError, ValueError):
-                        pass
-            elif self.operator == 'above':
-                if numeric_value is not None:
-                    condition_met = numeric_value > float(self.threshold)
-            elif self.operator == 'below':
-                if numeric_value is not None:
-                    condition_met = numeric_value < float(self.threshold)
-            elif self.operator == 'equals':
-                if numeric_value is not None:
-                    try:
-                        condition_met = abs(numeric_value - float(self.threshold)) < 1e-9
-                    except (TypeError, ValueError):
+                        v = resolve_field(msg_dict, fp)
+                        values.append(float(v))
+                    except (KeyError, IndexError, TypeError, ValueError) as e:
+                        self.field_error = (
+                            f"Field '{fp}' not found or not numeric in monitor message: {e}"
+                        )
+                        self.stop_event.set()
+                        return
+
+                # Capture start state on the very first message.
+                if self.start_values is None:
+                    self.start_values = values[:]
+                    self.start_msg = msg_dict
+
+                self.current_values = values
+                dist = math.sqrt(
+                    sum((c - s) ** 2 for c, s in zip(values, self.start_values))
+                )
+                self.euclidean_distance = dist
+
+                # Euclidean mode always uses ">= threshold" (distance is non-negative).
+                if dist >= float(self.threshold):
+                    self.end_msg = msg_dict
+                    self.stop_event.set()
+
+            else:
+                # ---- Single-field mode (original behaviour) ----
+                try:
+                    value = resolve_field(msg_dict, self.field)
+                except (KeyError, IndexError, TypeError, ValueError) as e:
+                    self.field_error = f"Field '{self.field}' not found in monitor message: {e}"
+                    self.stop_event.set()
+                    return
+
+                # Try to coerce to float for numeric comparisons.
+                try:
+                    numeric_value = float(value)
+                except (TypeError, ValueError):
+                    numeric_value = None
+
+                # Capture start state on the very first message.
+                if self.start_value is None:
+                    self.start_value = value
+                    self.start_msg = msg_dict
+
+                self.current_value = value
+
+                # Evaluate condition.
+                condition_met = False
+                if self.operator == 'delta':
+                    if numeric_value is not None and self.start_value is not None:
+                        try:
+                            delta = numeric_value - float(self.start_value)
+                            thr = float(self.threshold)
+                            condition_met = delta >= thr if thr >= 0 else delta <= thr
+                        except (TypeError, ValueError):
+                            pass
+                elif self.operator == 'above':
+                    if numeric_value is not None:
+                        condition_met = numeric_value > float(self.threshold)
+                elif self.operator == 'below':
+                    if numeric_value is not None:
+                        condition_met = numeric_value < float(self.threshold)
+                elif self.operator == 'equals':
+                    if numeric_value is not None:
+                        try:
+                            condition_met = abs(numeric_value - float(self.threshold)) < 1e-9
+                        except (TypeError, ValueError):
+                            condition_met = str(value) == str(self.threshold)
+                    else:
                         condition_met = str(value) == str(self.threshold)
-                else:
-                    condition_met = str(value) == str(self.threshold)
 
-            if condition_met:
-                self.end_msg = msg_dict
-                self.stop_event.set()
+                if condition_met:
+                    self.end_msg = msg_dict
+                    self.stop_event.set()
 
 
 class HzMonitor(Node):
@@ -1078,6 +1136,12 @@ def cmd_topics_publish_until(args):
     if not args.field:
         return output({"error": "--field argument is required"})
 
+    field_paths = args.field  # list (nargs="+")
+    euclidean = getattr(args, 'euclidean', False)
+
+    if len(field_paths) > 1 and not euclidean:
+        return output({"error": "Multiple --field paths require the --euclidean flag"})
+
     # Exactly one condition operator must be supplied.
     operator_map = {
         'delta': args.delta,
@@ -1088,6 +1152,9 @@ def cmd_topics_publish_until(args):
     active = {k: v for k, v in operator_map.items() if v is not None}
     if len(active) != 1:
         return output({"error": "Specify exactly one of --delta, --above, --below, --equals"})
+
+    if euclidean and next(iter(active)) != 'delta':
+        return output({"error": "--euclidean requires --delta (threshold is the Euclidean distance from start)"})
     operator, threshold = next(iter(active.items()))
 
     try:
@@ -1124,7 +1191,10 @@ def cmd_topics_publish_until(args):
         stop_event = threading.Event()
         publisher = TopicPublisher(args.topic, pub_msg_type)
         monitor = ConditionMonitor(
-            args.monitor, mon_msg_type, args.field, operator, threshold, stop_event
+            args.monitor, mon_msg_type,
+            field_paths if euclidean else field_paths[0],
+            operator, threshold, stop_event,
+            euclidean=euclidean,
         )
 
         if publisher.pub is None:
@@ -1170,17 +1240,31 @@ def cmd_topics_publish_until(args):
 
             condition_met = monitor.end_msg is not None
 
-            base = {
-                "topic": args.topic,
-                "monitor_topic": args.monitor,
-                "field": args.field,
-                "operator": operator,
-                "threshold": threshold,
-                "start_value": monitor.start_value,
-                "end_value": monitor.current_value,
-                "duration": elapsed,
-                "published_count": published_count,
-            }
+            if euclidean:
+                base = {
+                    "topic": args.topic,
+                    "monitor_topic": args.monitor,
+                    "fields": field_paths,
+                    "operator": "euclidean_delta",
+                    "threshold": threshold,
+                    "start_values": monitor.start_values,
+                    "end_values": monitor.current_values,
+                    "euclidean_distance": monitor.euclidean_distance,
+                    "duration": elapsed,
+                    "published_count": published_count,
+                }
+            else:
+                base = {
+                    "topic": args.topic,
+                    "monitor_topic": args.monitor,
+                    "field": field_paths[0],
+                    "operator": operator,
+                    "threshold": threshold,
+                    "start_value": monitor.start_value,
+                    "end_value": monitor.current_value,
+                    "duration": elapsed,
+                    "published_count": published_count,
+                }
 
             if condition_met:
                 output({**base,
@@ -2527,8 +2611,14 @@ def build_parser():
     p.add_argument("topic", nargs="?")
     p.add_argument("msg", nargs="?", help="JSON message to publish")
     p.add_argument("--monitor", default=None, help="Topic to monitor for the stop condition (required)")
-    p.add_argument("--field", default=None, help="Dot-separated field path in monitor message (e.g. pose.pose.position.x)")
-    p.add_argument("--delta", type=float, default=None, help="Stop when field changes by ±N from its value at start")
+    p.add_argument("--field", nargs="+", default=None,
+                   help="One or more dot-separated field paths in the monitor message "
+                        "(e.g. pose.pose.position.x). Provide multiple paths with --euclidean "
+                        "for N-dimensional Euclidean distance monitoring.")
+    p.add_argument("--euclidean", action="store_true", default=False,
+                   help="Compute Euclidean distance across all --field paths; "
+                        "requires --delta as the distance threshold.")
+    p.add_argument("--delta", type=float, default=None, help="Stop when field changes by ±N from its value at start (or Euclidean distance >= N with --euclidean)")
     p.add_argument("--above", type=float, default=None, help="Stop when field > N (absolute threshold)")
     p.add_argument("--below", type=float, default=None, help="Stop when field < N (absolute threshold)")
     p.add_argument("--equals", default=None, help="Stop when field == value (numeric or string)")
