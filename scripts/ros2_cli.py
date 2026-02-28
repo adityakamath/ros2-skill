@@ -99,14 +99,16 @@ Commands:
     $ python3 ros2_cli.py params list /turtlesim
 
   params get <node:param_name>
-    Get a parameter value. Format: /node_name:parameter_name
+  params get <node> <param_name>
+    Get a parameter value. Both formats are accepted.
     $ python3 ros2_cli.py params get /turtlesim:background_r
-    $ python3 ros2_cli.py params get /turtlesim:background_b
+    $ python3 ros2_cli.py params get /turtlesim background_r
 
   params set <node:param_name> <value>
-    Set a parameter value. Format: /node_name:parameter_name
+  params set <node> <param_name> <value>
+    Set a parameter value. Both formats are accepted.
     $ python3 ros2_cli.py params set /turtlesim:background_r 255
-    $ python3 ros2_cli.py params set /turtlesim:background_g 0
+    $ python3 ros2_cli.py params set /turtlesim background_r 255
 
   actions list
     List all available action servers.
@@ -402,15 +404,10 @@ def parse_node_param(name):
 
 
 def cmd_version(args):
-    try:
-        rclpy.init()
-        version = rclpy.utilities.get_domain_id()
-        distro = os.environ.get('ROS_DISTRO', 'unknown')
-        result = {"version": "2", "distro": distro, "domain_id": version}
-        rclpy.shutdown()
-        output(result)
-    except Exception as e:
-        output({"error": str(e)})
+    # ROS_DOMAIN_ID is a plain env var; rclpy.utilities has no get_domain_id() API.
+    domain_id = int(os.environ.get('ROS_DOMAIN_ID', 0))
+    distro = os.environ.get('ROS_DISTRO', 'unknown')
+    output({"version": "2", "distro": distro, "domain_id": domain_id})
 
 
 VELOCITY_TOPICS = ["/cmd_vel", "/cmd_vel_nav", "/cmd_vel_raw", "/mobile_base/commands/velocity"]
@@ -900,16 +897,26 @@ def cmd_services_details(args):
 
 
 def cmd_services_call(args):
+    # Support both:
+    #   services call /svc '{"data":true}' --service-type pkg/srv/Type  (new)
+    #   services call /svc pkg/srv/Type '{"data":true}'                 (old positional)
+    if getattr(args, 'extra_request', None) is not None:
+        service_type_override = args.request
+        request_json = args.extra_request
+    else:
+        service_type_override = None
+        request_json = args.request
+
     try:
-        request_data = json.loads(args.request)
-    except json.JSONDecodeError as e:
+        request_data = json.loads(request_json)
+    except (json.JSONDecodeError, TypeError) as e:
         return output({"error": f"Invalid JSON request: {e}"})
-    
+
     try:
         rclpy.init()
         node = ROS2CLI()
-        
-        service_type = args.service_type
+
+        service_type = service_type_override or args.service_type
         if not service_type:
             services = node.get_service_names()
             for name, types in services:
@@ -1040,14 +1047,18 @@ def cmd_params_list(args):
 
 
 def cmd_params_get(args):
-    if ':' not in args.name or not args.name.split(':', 1)[1]:
-        return output({"error": "Use format /node_name:param_name (e.g. /turtlesim:background_r)"})
+    # Accept both /node:param and "/node param_name" (two space-separated args)
+    if getattr(args, 'param_name', None):
+        full_name = args.name.rstrip(':') + ':' + args.param_name
+    else:
+        full_name = args.name
+    if ':' not in full_name or not full_name.split(':', 1)[1]:
+        return output({"error": "Use format /node_name:param_name or /node_name param_name (e.g. /turtlesim background_r)"})
 
     try:
         rclpy.init()
         node = ROS2CLI()
 
-        full_name = args.name
         node_name, param_name = full_name.split(':', 1)
         
         if not node_name.startswith('/'):
@@ -1093,7 +1104,7 @@ def cmd_params_get(args):
                     value_str = str(v)
                     exists = True
             rclpy.shutdown()
-            output({"name": args.name, "value": value_str, "exists": exists})
+            output({"name": full_name, "value": value_str, "exists": exists})
         else:
             rclpy.shutdown()
             output({"error": "Timeout getting parameter"})
@@ -1102,54 +1113,60 @@ def cmd_params_get(args):
 
 
 def cmd_params_set(args):
-    if ':' not in args.name or not args.name.split(':', 1)[1]:
-        return output({"error": "Use format /node_name:param_name (e.g. /turtlesim:background_r)"})
+    # Accept both "/node:param value" and "/node param_name value" (three space-separated args)
+    if getattr(args, 'extra_value', None) is not None:
+        full_name = args.name.rstrip(':') + ':' + args.value
+        value_str = args.extra_value
+    else:
+        full_name = args.name
+        value_str = args.value
+    if ':' not in full_name or not full_name.split(':', 1)[1]:
+        return output({"error": "Use format /node_name:param_name value or /node_name param_name value (e.g. /turtlesim background_r 255)"})
 
     try:
         rclpy.init()
         node = ROS2CLI()
 
-        full_name = args.name
         node_name, param_name = full_name.split(':', 1)
-        
+
         if not node_name.startswith('/'):
             node_name = '/' + node_name
-        
+
         service_name = f"{node_name}/set_parameters"
-        
+
         client = node.create_client(SetParameters, service_name)
-        
+
         if not client.wait_for_service(timeout_sec=args.timeout):
             rclpy.shutdown()
             return output({"error": f"Parameter service not available for {node_name}"})
 
         request = SetParameters.Request()
-        
+
         param = Parameter()
         param.name = param_name
-        
+
         pv = ParameterValue()
         try:
-            if args.value.lower() in ('true', 'false'):
+            if value_str.lower() in ('true', 'false'):
                 pv.type = 1
-                pv.bool_value = args.value.lower() == 'true'
-            elif '.' in args.value:
+                pv.bool_value = value_str.lower() == 'true'
+            elif '.' in value_str:
                 pv.type = 3
-                pv.double_value = float(args.value)
+                pv.double_value = float(value_str)
             else:
                 try:
                     pv.type = 2
-                    pv.integer_value = int(args.value)
+                    pv.integer_value = int(value_str)
                 except Exception:
                     pv.type = 4
-                    pv.string_value = args.value
+                    pv.string_value = value_str
         except Exception:
             pv.type = 4
-            pv.string_value = args.value
-        
+            pv.string_value = value_str
+
         param.value = pv
         request.parameters = [param]
-        
+
         future = client.call_async(request)
 
         end_time = time.time() + args.timeout
@@ -1160,10 +1177,10 @@ def cmd_params_set(args):
         if future.done():
             result = future.result()
             if result.results and result.results[0].successful:
-                output({"name": args.name, "value": args.value, "success": True})
+                output({"name": full_name, "value": value_str, "success": True})
             else:
                 reason = result.results[0].reason if result.results else "unknown"
-                output({"name": args.name, "value": args.value, "success": False,
+                output({"name": full_name, "value": value_str, "success": False,
                         "error": reason or "Parameter rejected by node"})
         else:
             output({"error": "Timeout setting parameter"})
@@ -1372,7 +1389,9 @@ def build_parser():
     p.add_argument("service")
     p = ssub.add_parser("call", help="Call a service")
     p.add_argument("service")
-    p.add_argument("request", help="JSON request")
+    p.add_argument("request", help="JSON request, or service type when using positional service-type format")
+    p.add_argument("extra_request", nargs="?", default=None,
+                   help="JSON request when using /svc service_type json positional format")
     p.add_argument("--service-type", dest="service_type", default=None,
                    help="Service type (auto-detected if not provided, e.g. std_srvs/srv/SetBool)")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
@@ -1389,11 +1408,13 @@ def build_parser():
     p.add_argument("node")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
     p = psub.add_parser("get", help="Get parameter value")
-    p.add_argument("name")
+    p.add_argument("name", help="/node_name:param_name or just /node_name")
+    p.add_argument("param_name", nargs="?", default=None, help="Parameter name (alternative to colon format)")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
     p = psub.add_parser("set", help="Set parameter value")
-    p.add_argument("name")
-    p.add_argument("value")
+    p.add_argument("name", help="/node_name:param_name or just /node_name")
+    p.add_argument("value", help="Value to set, or parameter name when using /node param value format")
+    p.add_argument("extra_value", nargs="?", default=None, help="Value when using /node param value format")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
 
     actions = sub.add_parser("actions", help="Action operations")
