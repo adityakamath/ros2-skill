@@ -4,6 +4,10 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.3] - 2026-02-28
 
+### Added
+- **`topics publish-until --euclidean`**: N-dimensional Euclidean distance monitoring; `--field` now accepts one or more dot-separated paths; when `--euclidean` is set, `ConditionMonitor` resolves all field paths on each message, computes `sqrt(Σ(current_i − start_i)²)`, and stops when that distance ≥ the `--delta` threshold; output gains `fields` (list), `start_values` (list), `end_values` (list), `euclidean_distance`; single-field behaviour and output format are fully backward-compatible; validated: multiple fields require `--euclidean`, `--euclidean` requires `--delta`
+- **`topics ls` / `services ls`** aliases: `topics ls` → `topics list`, `services ls` → `services list` (parser + DISPATCH entries were missing)
+
 ### Fixed
 - **`topics publish-until` executor compatibility**: replaced `MultiThreadedExecutor` + background `spin_thread` + `executor.shutdown(wait=False)` with `SingleThreadedExecutor` + `spin_once(timeout_sec=interval)` in the main loop — eliminates `TypeError: shutdown() got an unexpected keyword argument 'wait'` on rclpy versions prior to Humble where the `wait` keyword did not exist; matches the `SingleThreadedExecutor` + `spin_once` pattern already used by every other executor in the file
 - **`nodes ls` / `params ls` / `actions ls`** aliases added — all three are now registered aliases for their respective `list` subcommands (parsers + DISPATCH); `params ls <node>` passes the required node argument through as-is
@@ -41,6 +45,10 @@ All notable changes to ros2-skill will be documented in this file.
 - **Goal-Oriented Commands workflow** in `SKILL.md` (Workflow section 7): step-by-step discovery guide for constructing `publish-until` commands from natural language intent; includes `topics find` + `topics message` + `topics subscribe` introspection steps and a lookup table of common patterns (odometry position/orientation, joint states, laser scan, range, temperature, battery)
 - **Discovery note** in `COMMANDS.md` `publish-until` entry cross-referencing the new SKILL.md workflow
 - **Troubleshooting row** for `publish-until` hangs/no feedback
+- **`topics message-structure` / `topics message-struct`** aliases: both map to `topics message` (`cmd_topics_message`); added parser entries and DISPATCH entries; all three forms are equivalent
+- **`services echo <service>`**: echo service request/response event pairs; subscribes to `<service>/_service_event` topic (requires service introspection enabled via `configure_introspection`); returns clear error with hint if introspection is not active; supports `--duration` (collect mode) and `--timeout` (single-event mode); `--max-messages` / `--max-events` limit collected events
+- **`actions echo <action>`**: echo live action feedback and status messages; subscribes to `<action>/_action/feedback` and `<action>/_action/status` without requiring any introspection configuration; supports `--duration`, `--max-messages` / `--max-msgs`, and `--timeout`; returns error if action server not found
+- **`actions find <action_type>`**: find all action servers offering a given action type; walks `/_action/feedback` topics, strips `_FeedbackMessage` suffix, normalises `/action/` prefix — accepts both `pkg/action/Name` and `pkg/Name` forms; returns `action_type`, `actions`, `count`
 
 ### Removed
 - **`interface list`**, **`interface packages`**, **`interface package`**: removed all three commands that required `rosidl_runtime_py`; `rosidl_runtime_py` is no longer a dependency of ros2-skill

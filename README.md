@@ -53,11 +53,12 @@ See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 | Category | Commands |
 | -------- | -------- |
 | Connection | `version` |
-| Topics | `list`, `type`, `details`, `info`, `message`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `find`, `bw`, `delay` |
-| Services | `list`, `type`, `details`, `info`, `call`, `find` |
-| Nodes | `list`, `details`, `info` |
-| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
-| Actions | `list`, `details`, `info`, `type`, `send`, `send-goal`, `cancel` |
+| Safety | `estop` |
+| Topics | `list`, `ls`, `type`, `details`, `info`, `message`, `message-structure`, `message-struct`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `find`, `bw`, `delay` |
+| Services | `list`, `ls`, `type`, `details`, `info`, `call`, `find`, `echo` |
+| Nodes | `list`, `ls`, `details`, `info` |
+| Parameters | `list`, `ls`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
+| Actions | `list`, `ls`, `details`, `info`, `type`, `send`, `send-goal`, `cancel`, `echo`, `find` |
 
 All commands output JSON. See `SKILL.md` for quick reference and `references/COMMANDS.md` for full details with output examples.
 
@@ -91,7 +92,7 @@ ros2-skill/
 
 - Python 3.10+
 - ROS 2 environment sourced
-- `rclpy` and `rosidl-runtime-py` packages
+- `rclpy` package
 
 ## Testing
 
