@@ -1186,12 +1186,11 @@ def cmd_topics_publish_until(args):
 
         msg = dict_to_msg(pub_msg_class, msg_data)
 
-        executor = rclpy.executors.MultiThreadedExecutor()
+        # Use SingleThreadedExecutor + spin_once — compatible with all rclpy
+        # versions (MultiThreadedExecutor.shutdown(wait=) was added in Humble).
+        executor = rclpy.executors.SingleThreadedExecutor()
         executor.add_node(publisher)
         executor.add_node(monitor)
-
-        spin_thread = threading.Thread(target=executor.spin, daemon=True)
-        spin_thread.start()
 
         rate = args.rate or 10.0
         timeout = args.timeout  # default 60 from parser
@@ -1207,11 +1206,10 @@ def cmd_topics_publish_until(args):
                     break
                 publisher.pub.publish(msg)
                 published_count += 1
-                time.sleep(interval)
+                # spin_once pumps monitor callbacks while throttling publish rate
+                executor.spin_once(timeout_sec=interval)
         finally:
             stop_event.set()  # unblock monitor if still waiting
-            executor.shutdown(wait=False)
-            spin_thread.join(timeout=2.0)
             rclpy.shutdown()
 
         elapsed = round(time.time() - start_time, 3)
