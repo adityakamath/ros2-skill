@@ -643,7 +643,7 @@ def cmd_topics_subscribe(args):
         else:
             executor = rclpy.executors.SingleThreadedExecutor()
             executor.add_node(subscriber)
-            timeout_sec = args.timeout if hasattr(args, 'timeout') else 5.0
+            timeout_sec = args.timeout
             end_time = time.time() + timeout_sec
             
             while time.time() < end_time:
@@ -986,17 +986,17 @@ def cmd_params_list(args):
         
         client = node.create_client(ListParameters, service_name)
         
-        if not client.wait_for_service(timeout_sec=5.0):
+        if not client.wait_for_service(timeout_sec=args.timeout):
             rclpy.shutdown()
             return output({"error": f"Parameter service not available for {node_name}"})
-        
+
         request = ListParameters.Request()
         future = client.call_async(request)
-        
-        end_time = time.time() + 5.0
+
+        end_time = time.time() + args.timeout
         while time.time() < end_time and not future.done():
             rclpy.spin_once(node, timeout_sec=0.1)
-        
+
         if future.done():
             result = future.result()
             names = result.result.names if result.result else []
@@ -1028,16 +1028,16 @@ def cmd_params_get(args):
         
         client = node.create_client(GetParameters, service_name)
         
-        if not client.wait_for_service(timeout_sec=5.0):
+        if not client.wait_for_service(timeout_sec=args.timeout):
             rclpy.shutdown()
             return output({"error": f"Parameter service not available for {node_name}"})
-        
+
         request = GetParameters.Request()
         request.names = [param_name] if param_name else []
-        
+
         future = client.call_async(request)
-        
-        end_time = time.time() + 5.0
+
+        end_time = time.time() + args.timeout
         while time.time() < end_time and not future.done():
             rclpy.spin_once(node, timeout_sec=0.1)
         
@@ -1090,10 +1090,10 @@ def cmd_params_set(args):
         
         client = node.create_client(SetParameters, service_name)
         
-        if not client.wait_for_service(timeout_sec=5.0):
+        if not client.wait_for_service(timeout_sec=args.timeout):
             rclpy.shutdown()
             return output({"error": f"Parameter service not available for {node_name}"})
-        
+
         request = SetParameters.Request()
         
         param = Parameter()
@@ -1122,11 +1122,11 @@ def cmd_params_set(args):
         request.parameters = [param]
         
         future = client.call_async(request)
-        
-        end_time = time.time() + 5.0
+
+        end_time = time.time() + args.timeout
         while time.time() < end_time and not future.done():
             rclpy.spin_once(node, timeout_sec=0.1)
-        
+
         rclpy.shutdown()
         if future.done():
             result = future.result()
@@ -1253,8 +1253,8 @@ def cmd_actions_send(args):
         goal_id = f"goal_{int(time.time() * 1000)}"
         
         future = client.send_goal_async(goal_msg)
-        
-        timeout = args.timeout if hasattr(args, 'timeout') else 5.0
+
+        timeout = args.timeout
         end_time = time.time() + timeout
         
         while time.time() < end_time and not future.done():
@@ -1350,11 +1350,14 @@ def build_parser():
     psub = params.add_subparsers(dest="subcommand")
     p = psub.add_parser("list", help="List parameters for a node")
     p.add_argument("node")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
     p = psub.add_parser("get", help="Get parameter value")
     p.add_argument("name")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
     p = psub.add_parser("set", help="Set parameter value")
     p.add_argument("name")
     p.add_argument("value")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
 
     actions = sub.add_parser("actions", help="Action operations")
     asub = actions.add_subparsers(dest="subcommand")
@@ -1405,7 +1408,15 @@ def main():
     key = (args.command, getattr(args, "subcommand", None))
     handler = DISPATCH.get(key)
     if handler:
-        handler(args)
+        try:
+            handler(args)
+        finally:
+            # Guarantee rclpy is shut down even if an exception escapes the
+            # handler's own try/except (e.g. a bug or a KeyboardInterrupt).
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass
     else:
         parser.print_help()
         sys.exit(1)
