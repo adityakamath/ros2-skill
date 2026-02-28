@@ -23,6 +23,8 @@ All notable changes to ros2-skill will be documented in this file.
 - **`TopicPublisher.pub` / `TopicSubscriber.sub` not initialized to `None`**: both `__init__` methods only set `self.pub`/`self.sub` inside `if msg_class:`; if `get_msg_type` returned `None`, accessing `publisher.pub` raised `AttributeError` instead of evaluating to `None`; added `self.pub = None` / `self.sub = None` before the conditional
 - **`topics subscribe` silent timeout on bad message type**: after creating `TopicSubscriber`, there was no check that the subscription was actually created; a wrong `--msg-type` would spin to timeout with "Timeout waiting for message" instead of a type error; added `if subscriber.sub is None:` guard
 - **`params set` sets boolean values as strings**: `"true"`/`"false"` fell through int parsing and were stored as type 4 (string); nodes owning a boolean parameter reject this; added explicit `args.value.lower() in ('true', 'false')` check that sets type 1 with `bool_value`
+- **`services call` and `actions send` hardcoded 5s timeout with no CLI override**: code already read `args.timeout` but `--timeout` was never added to either parser; long-running services or actions always failed after 5s; added `--timeout` to both (default 5s for services, 30s for actions)
+- **`dict_to_msg` silently sets list-of-nested-message fields as plain Python dicts**: if a JSON field value was a list of dicts (e.g. `MarkerArray.markers`), `setattr` stored Python dicts instead of ROS message instances, causing publish to fail; now parses the field type string (`sequence<pkg/msg/Type>` or `pkg/msg/Type[N]`) and recursively converts each element via `dict_to_msg`
 
 ### Added
 - `get_srv_type()`: loads ROS 2 service classes via `importlib`, mirrors `get_msg_type()`

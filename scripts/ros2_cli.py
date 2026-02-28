@@ -320,12 +320,27 @@ def msg_to_dict(msg):
 
 def dict_to_msg(msg_type, data):
     msg = msg_type()
+    field_types = msg.get_fields_and_field_types()
     for key, value in data.items():
-        if hasattr(msg, key):
-            if isinstance(value, dict):
-                setattr(msg, key, dict_to_msg(getattr(msg, key).__class__, value))
+        if not hasattr(msg, key):
+            continue
+        if isinstance(value, dict):
+            setattr(msg, key, dict_to_msg(getattr(msg, key).__class__, value))
+        elif isinstance(value, list) and value and isinstance(value[0], dict):
+            # Array of nested messages — resolve element type from field type string.
+            # rclpy reports these as "sequence<pkg/msg/Type>" or "pkg/msg/Type[N]".
+            field_type_str = field_types.get(key, '')
+            m = re.search(r'sequence<(.+?)>', field_type_str) or re.search(r'^(.+?)\[\d*\]$', field_type_str)
+            if m:
+                elem_class = get_msg_type(m.group(1).strip())
+                if elem_class:
+                    setattr(msg, key, [dict_to_msg(elem_class, v) for v in value])
+                else:
+                    setattr(msg, key, value)
             else:
                 setattr(msg, key, value)
+        else:
+            setattr(msg, key, value)
     return msg
 
 
@@ -1296,6 +1311,7 @@ def build_parser():
     p = ssub.add_parser("call", help="Call a service")
     p.add_argument("service")
     p.add_argument("request", help="JSON request")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
 
     nodes = sub.add_parser("nodes", help="Node operations")
     nsub = nodes.add_subparsers(dest="subcommand")
@@ -1321,6 +1337,7 @@ def build_parser():
     p = asub.add_parser("send", help="Send action goal")
     p.add_argument("action")
     p.add_argument("goal", help="JSON goal")
+    p.add_argument("--timeout", type=float, default=30.0, help="Timeout in seconds (default: 30)")
 
     return parser
 
