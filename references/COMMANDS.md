@@ -178,9 +178,11 @@ Output:
 
 ---
 
-## topics publish `<topic>` `<json_message>` [options] / topics pub
+## topics publish `<topic>` `<json_message>` [options] / topics pub / topics publish-continuous
 
-Publish a message to a topic. Without `--duration`, sends once. With `--duration`, publishes repeatedly at `--rate` Hz — required for velocity commands since most robot controllers stop if they don't receive continuous commands.
+Publish a message to a topic. `pub` and `publish-continuous` are aliases for `publish` — all three share the same handler.
+
+Without `--duration` / `--timeout`, sends once (single-shot). With either flag, publishes repeatedly at `--rate` Hz for the specified seconds, then stops. `--duration` and `--timeout` are interchangeable — use whichever is more natural. Output for the repeated path includes `stopped_by: "timeout" | "keyboard_interrupt"`.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -189,14 +191,20 @@ Publish a message to a topic. Without `--duration`, sends once. With `--duration
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--msg-type TYPE` | `std_msgs/msg/String` | Message type |
-| `--duration SECONDS` | _(none)_ | Publish repeatedly for this duration |
-| `--rate HZ` | `10` | Publish rate in Hz (used with `--duration`) |
+| `--msg-type TYPE` | auto-detect | Message type override |
+| `--duration SECONDS` | _(none)_ | Publish repeatedly for this duration (`--timeout` is an identical alias) |
+| `--timeout SECONDS` | _(none)_ | Alias for `--duration` |
+| `--rate HZ` | `10` | Publish rate in Hz |
 
 **Single-shot (trigger, one-time command):**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics publish /turtle1/cmd_vel \
   '{"linear":{"x":2.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
+```
+
+Output (single-shot):
+```json
+{"success": true, "topic": "/turtle1/cmd_vel", "msg_type": "geometry_msgs/Twist"}
 ```
 
 **Move forward for 3 seconds (recommended for velocity):**
@@ -205,9 +213,15 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
 ```
 
-Output:
+Output (repeated):
 ```json
-{"success": true, "topic": "/cmd_vel", "msg_type": "geometry_msgs/Twist", "duration": 3.0, "rate": 10.0, "published_count": 30}
+{"success": true, "topic": "/cmd_vel", "msg_type": "geometry_msgs/Twist", "duration": 3.002, "rate": 10.0, "published_count": 30, "stopped_by": "timeout"}
+```
+
+**Equivalent using `--timeout`:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --timeout 5
 ```
 
 **Rotate left for 2 seconds:**
@@ -322,38 +336,17 @@ Output — timeout (condition not met):
 
 ---
 
-## topics publish-continuous `<topic>` `<json_message>` [options]
+## topics publish-continuous
 
-Publish a message at a fixed rate for a mandatory bounded duration. Stops early on `Ctrl+C` (local use). `--timeout` is required — indefinite publishing is disabled for safety because AI agents running over Discord, Telegram, etc. cannot send `Ctrl+C`.
+**Alias for `topics publish`.** See [topics publish](#topics-publish-topic-json_message-options--topics-pub--topics-publish-continuous) for full documentation.
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic to publish to |
-| `json_message` | Yes | JSON string of the message payload |
+`--timeout` and `--duration` are interchangeable on this alias. Example:
 
-| Option | Required | Default | Description |
-|--------|----------|---------|-------------|
-| `--timeout SECONDS` | **Yes** | — | Maximum publish duration in seconds |
-| `--rate HZ` | No | `10` | Publish rate in Hz |
-| `--msg-type TYPE` | No | auto-detect | Override message type |
-
-**Publish velocity for 5 seconds:**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics publish-continuous /cmd_vel \
   '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
   --timeout 5
 ```
-
-Output:
-```json
-{
-  "success": true, "topic": "/cmd_vel",
-  "published_count": 50, "duration": 5.0,
-  "rate": 10.0, "stopped_by": "timeout"
-}
-```
-
-`stopped_by` is `"timeout"` when the duration elapsed normally, or `"keyboard_interrupt"` when stopped with `Ctrl+C`.
 
 ---
 

@@ -4,6 +4,11 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.3] - 2026-02-28
 
+### Fixed
+- **`nodes ls` / `params ls` / `actions ls`** aliases added — all three are now registered aliases for their respective `list` subcommands (parsers + DISPATCH); `params ls <node>` passes the required node argument through as-is
+- **`topics publish` / `topics pub` / `topics publish-continuous` consolidated**: `publish-continuous` is now an alias for `publish`; `cmd_topics_publish_continuous` has been removed; `cmd_topics_publish` now accepts both `--duration` and `--timeout` (they are fully equivalent — `--timeout` is registered as an alternative option string with `dest="duration"`); output for the repeated-publish path now always includes `stopped_by: "timeout" | "keyboard_interrupt"` and reports actual elapsed duration; `KeyboardInterrupt` is caught so Ctrl+C reports cleanly rather than propagating
+- **`publish-continuous` parser `--timeout` no longer required**: the `required=True` constraint is removed now that `publish` and `publish-continuous` share a single handler; omitting `--duration`/`--timeout` on either command falls back to single-shot behaviour
+
 ### Added
 - **`topics hz`**: measure topic publish rate; collects `--window` inter-message intervals (default 10) using an inline `HzMonitor(Node)` subscriber; reports `rate`, `min_delta`, `max_delta`, `std_dev`, `samples`; spins with `SingleThreadedExecutor` on a daemon thread; errors if fewer than 2 messages arrive within `--timeout` (default 10 s)
 - **`topics find <msg_type>`**: find all topics publishing a given message type; normalises both `geometry_msgs/Twist` and `geometry_msgs/msg/Twist` forms for comparison; returns `message_type`, `topics`, `count`

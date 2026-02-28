@@ -68,7 +68,7 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics publish-sequence <topic> <msgs> <durs>` | Publish message sequence |
 | Topics | `topics pub-seq <topic> <msgs> <durs>` | Alias for `topics publish-sequence` |
 | Topics | `topics publish-until <topic> <json>` | Publish while monitoring; stop on condition |
-| Topics | `topics publish-continuous <topic> <json>` | Publish at rate for bounded duration |
+| Topics | `topics publish-continuous <topic> <json>` | Alias for `topics publish` |
 | Topics | `topics hz <topic>` | Measure topic publish rate |
 | Topics | `topics find <msg_type>` | Find topics by message type |
 | Topics | `topics bw <topic>` | Measure topic bandwidth (bytes/s) |
@@ -80,9 +80,11 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Services | `services call <service> <json>` | Call a service |
 | Services | `services find <service_type>` | Find services by service type |
 | Nodes | `nodes list` | List all active nodes |
+| Nodes | `nodes ls` | Alias for `nodes list` |
 | Nodes | `nodes details <node>` | Get node topics/services/actions |
 | Nodes | `nodes info <node>` | Alias for `nodes details` |
 | Params | `params list <node>` | List node parameters |
+| Params | `params ls <node>` | Alias for `params list` |
 | Params | `params get <node:param>` | Get parameter value |
 | Params | `params set <node:param> <value>` | Set parameter value |
 | Params | `params describe <node:param>` | Describe parameter type and constraints |
@@ -90,6 +92,7 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Params | `params load <node> <json>` | Bulk-set parameters from JSON |
 | Params | `params delete <node> <param>` | Delete a parameter |
 | Actions | `actions list` | List action servers |
+| Actions | `actions ls` | Alias for `actions list` |
 | Actions | `actions details <action>` | Get action goal/result/feedback fields |
 | Actions | `actions info <action>` | Alias for `actions details` |
 | Actions | `actions type <action>` | Get action server type |
@@ -131,24 +134,30 @@ python3 {baseDir}/scripts/ros2_cli.py topics echo /odom
 python3 {baseDir}/scripts/ros2_cli.py topics sub /odom --duration 10 --max-messages 50
 ```
 
-### topics publish / pub
+### topics publish / pub / publish-continuous
 
-`pub` is an alias for `publish`. Without `--duration`: single-shot. With `--duration`: publishes repeatedly at `--rate` Hz. **Use `--duration` for velocity commands** — most robot controllers stop if they don't receive continuous `cmd_vel` messages.
+`pub` and `publish-continuous` are aliases for `publish`. Without `--duration` / `--timeout`: single-shot. With `--duration` or `--timeout` (equivalent): publishes repeatedly at `--rate` Hz for the specified seconds, then stops. **Use `--duration` for velocity commands** — most robot controllers stop if they don't receive continuous `cmd_vel` messages.
 
 ```bash
 # Single-shot
 python3 {baseDir}/scripts/ros2_cli.py topics publish /trigger '{"data": ""}'
 
-# Move forward 3 seconds (velocity — use --duration)
+# Move forward 3 seconds (velocity — use --duration or --timeout)
 python3 {baseDir}/scripts/ros2_cli.py topics pub /cmd_vel \
   '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
+
+# Equivalent with --timeout
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --timeout 5
 
 # Stop
 python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
   '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
 ```
 
-Options: `--duration SECONDS`, `--rate HZ` (default 10)
+Options: `--duration SECONDS` (or `--timeout SECONDS` — identical), `--rate HZ` (default 10)
+
+Output when `--duration`/`--timeout` is used includes `stopped_by: "timeout" | "keyboard_interrupt"`.
 
 ### topics publish-sequence / pub-seq
 
@@ -190,15 +199,17 @@ Options: `--rate HZ` (default 10), `--timeout SECONDS` (default 60), `--msg-type
 
 ### topics publish-continuous
 
-Publish at a fixed rate for a mandatory bounded duration. Stops early on `Ctrl+C`.
+Alias for `topics publish`. Use `topics publish --timeout SECONDS` instead.
 
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-continuous /cmd_vel \
-  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
-  --timeout 5
-```
+# Preferred
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --timeout 5
 
-Options: `--timeout SECONDS` (**required**), `--rate HZ` (default 10), `--msg-type TYPE`
+# Also works (identical behaviour)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-continuous /cmd_vel \
+  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --timeout 5
+```
 
 ### topics hz
 
