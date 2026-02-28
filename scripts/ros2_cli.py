@@ -1971,7 +1971,10 @@ def cmd_services_find(args):
 def cmd_interface_list(args):
     """List all available ROS 2 interfaces (messages, services, actions)."""
     try:
-        import rosidl_runtime_py as _rpy
+        try:
+            import rosidl_runtime_py as _rpy
+        except ImportError:
+            return output({"error": "interface list requires rosidl_runtime_py: sudo apt install ros-${ROS_DISTRO}-rosidl-runtime-py"})
         msgs, srvs, acts = [], [], []
         for pkg in sorted(_rpy.get_message_packages()):
             for name in sorted(_rpy.get_messages_in_package(pkg)):
@@ -1991,7 +1994,10 @@ def cmd_interface_list(args):
 def cmd_interface_packages(args):
     """List all packages that expose ROS 2 interfaces."""
     try:
-        import rosidl_runtime_py as _rpy
+        try:
+            import rosidl_runtime_py as _rpy
+        except ImportError:
+            return output({"error": "interface packages requires rosidl_runtime_py: sudo apt install ros-${ROS_DISTRO}-rosidl-runtime-py"})
         pkgs = sorted(set(
             list(_rpy.get_message_packages()) +
             list(_rpy.get_service_packages()) +
@@ -2008,7 +2014,10 @@ def cmd_interface_package(args):
         return output({"error": "package argument is required"})
     pkg = args.package
     try:
-        import rosidl_runtime_py as _rpy
+        try:
+            import rosidl_runtime_py as _rpy
+        except ImportError:
+            return output({"error": "interface package requires rosidl_runtime_py: sudo apt install ros-${ROS_DISTRO}-rosidl-runtime-py"})
         msgs, srvs, acts = [], [], []
         try:
             msgs = [f"{pkg}/msg/{n}" for n in sorted(_rpy.get_messages_in_package(pkg))]
