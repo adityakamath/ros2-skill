@@ -327,9 +327,11 @@ def dict_to_msg(msg_type, data):
             setattr(msg, key, dict_to_msg(getattr(msg, key).__class__, value))
         elif isinstance(value, list) and value and isinstance(value[0], dict):
             # Array of nested messages — resolve element type from field type string.
-            # rclpy reports these as "sequence<pkg/msg/Type>" or "pkg/msg/Type[N]".
+            # rclpy reports these as "sequence<pkg/msg/Type>", "sequence<pkg/msg/Type, N>"
+            # (bounded sequence where N is the max size), or "pkg/msg/Type[N]".
+            # Use [^,>]+ so bounded sequences don't include ", N" in the captured type.
             field_type_str = field_types.get(key, '')
-            m = re.search(r'sequence<(.+?)>', field_type_str) or re.search(r'^(.+?)\[\d*\]$', field_type_str)
+            m = re.search(r'sequence<([^,>]+)(?:,\s*\d+\s*)?>', field_type_str) or re.search(r'^(.+?)\[\d*\]$', field_type_str)
             if m:
                 elem_class = get_msg_type(m.group(1).strip())
                 if elem_class:
