@@ -4,13 +4,62 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.3] - 2026-02-28
 
+### Fixed
+- **`topics publish-until` executor compatibility**: replaced `MultiThreadedExecutor` + background `spin_thread` + `executor.shutdown(wait=False)` with `SingleThreadedExecutor` + `spin_once(timeout_sec=interval)` in the main loop — eliminates `TypeError: shutdown() got an unexpected keyword argument 'wait'` on rclpy versions prior to Humble where the `wait` keyword did not exist; matches the `SingleThreadedExecutor` + `spin_once` pattern already used by every other executor in the file
+- **`nodes ls` / `params ls` / `actions ls`** aliases added — all three are now registered aliases for their respective `list` subcommands (parsers + DISPATCH); `params ls <node>` passes the required node argument through as-is
+- **`topics publish` / `topics pub` / `topics publish-continuous` consolidated**: `publish-continuous` is now an alias for `publish`; `cmd_topics_publish_continuous` has been removed; `cmd_topics_publish` now accepts both `--duration` and `--timeout` (they are fully equivalent — `--timeout` is registered as an alternative option string with `dest="duration"`); output for the repeated-publish path now always includes `stopped_by: "timeout" | "keyboard_interrupt"` and reports actual elapsed duration; `KeyboardInterrupt` is caught so Ctrl+C reports cleanly rather than propagating
+- **`publish-continuous` parser `--timeout` no longer required**: the `required=True` constraint is removed now that `publish` and `publish-continuous` share a single handler; omitting `--duration`/`--timeout` on either command falls back to single-shot behaviour
+
 ### Added
-- **`topics publish-until`**: publish to a topic at a fixed rate while simultaneously monitoring a second topic; stops as soon as a structured condition on the monitored field is satisfied or a safety timeout (default 60 s) elapses; supports four operators: `--delta ±N` (field changes from start), `--above N`, `--below N`, `--equals V`; field path is dot-separated and supports list indexing (`ranges.0`); output includes `start_value`, `end_value`, `start_msg`, `end_msg`, `published_count`, `duration`, and a `condition_met` flag
-- **`topics publish-continuous`**: publish indefinitely at a fixed rate until `Ctrl+C` or an optional `--timeout`; reports `published_count`, `duration`, and `stopped_by` (`"keyboard_interrupt"` or `"timeout"`)
-- **`resolve_field(d, path)`**: shared helper that walks a nested dict/list using a dot-separated path; integer segments index into lists
-- **`ConditionMonitor(Node)`**: subscriber node that evaluates the stop condition on every message and sets a `threading.Event`; runs alongside `TopicPublisher` in a `MultiThreadedExecutor` on a background thread
+- **`topics hz`**: measure topic publish rate; collects `--window` inter-message intervals (default 10) using an inline `HzMonitor(Node)` subscriber; reports `rate`, `min_delta`, `max_delta`, `std_dev`, `samples`; spins with `SingleThreadedExecutor` on a daemon thread; errors if fewer than 2 messages arrive within `--timeout` (default 10 s)
+- **`topics find <msg_type>`**: find all topics publishing a given message type; normalises both `geometry_msgs/Twist` and `geometry_msgs/msg/Twist` forms for comparison; returns `message_type`, `topics`, `count`
+- **`actions type <action>`**: look up the type of an action server by finding the `/_action/feedback` topic and stripping the `_FeedbackMessage` suffix; returns `action`, `type`
+- **`services find <service_type>`**: find all services of a given type; same normalisation approach as `topics find` (strips `/srv/` for comparison); returns `service_type`, `services`, `count`
+- **`nodes details` / `nodes info`** enhanced: now also queries `get_action_server_names_and_types_by_node()` and `get_action_client_names_and_types_by_node()` (wrapped in `try/except AttributeError` for rclpy versions that predate these APIs); output gains `action_servers` and `action_clients` arrays
+- **`HzMonitor(Node)`**: top-level subscriber class (mirrors `ConditionMonitor`) that accumulates message timestamps in a thread-safe list and sets a `threading.Event` when `window + 1` samples are collected
+- **Command aliases** — all dispatch to the same handler as the canonical command:
+  - `topics sub` → `topics subscribe`
+  - `topics pub` → `topics publish`
+  - `topics pub-seq` → `topics publish-sequence`
+  - `topics info` → `topics details`
+  - `services info` → `services details`
+  - `nodes info` → `nodes details`
+  - `actions info` → `actions details`
+  - `actions send-goal` → `actions send`
+- **`topics bw`**: measure topic bandwidth; serialises each message with `rclpy.serialization.serialize_message` to count bytes; collects `--window` samples (default 10); reports `bw` (bytes/s), `bytes_per_msg`, `rate` (Hz), `samples`; uses `BwMonitor(Node)` following the same `SingleThreadedExecutor`/`threading.Event` pattern as `HzMonitor`
+- **`topics delay`**: measure end-to-end latency between `header.stamp` and wall clock; errors if the message has no `header.stamp`; reports `mean_delay`, `min_delay`, `max_delay`, `std_dev`, `samples`; uses `DelayMonitor(Node)` with the same threading model
+- **`params describe`**: describe a single parameter via `DescribeParameters` service; reports `name`, `type`, `description`, `read_only`, `dynamic_typing`, `additional_constraints`
+- **`params dump`**: bulk-export all parameters for a node; calls `list_parameters` then `GetParameters`; returns `{"node": ..., "parameters": {name: value, ...}}`
+- **`params load`**: bulk-set parameters from a JSON string or a file path; accepts `{"param": value}` flat dict; converts each value via `_infer_param_value` and calls `SetParameters`; reports per-parameter success/failure
+- **`params delete`**: delete one or more parameters via `DeleteParameters` service; accepts multiple parameter names; reports `deleted`, `count`
+- **`actions cancel`**: cancel all in-flight goals on an action server by sending a `CancelGoal` request with zero UUID (`[0]*16`) and zero timestamp — per ROS 2 spec this cancels all goals; reports `return_code` and `cancelled_goals`
+- **`actions send --feedback`**: new `--feedback` flag on both `send` and `send-goal`; when set, passes a `feedback_callback` to `send_goal_async`; collected feedback messages are included in output as `feedback_msgs: [...]`
+- **`interface show <type>` / `interface proto <type>`**: aliases for `topics message`; same handler, same arguments
+- **`interface list`**: list all available ROS 2 interfaces (messages, services, actions) across all packages using `rosidl_runtime_py`; returns `messages`, `services`, `actions`, `count`
+- **`interface packages`**: list all packages that contain at least one interface; returns `packages`, `count`
+- **`interface package <pkg>`**: list all interfaces in a single package; returns `package`, `messages`, `services`, `actions`
+- **`BwMonitor(Node)`**: top-level subscriber class that accumulates `(timestamp, serialized_size)` tuples and sets `threading.Event` after `window` samples
+- **`DelayMonitor(Node)`**: top-level subscriber class that accumulates header-stamp latency samples; sets `header_missing` flag if the message has no `header.stamp`
+- **`_param_value_to_python(v)`**: converts a `ParameterValue` (types 1–9) to a native Python value; used by `cmd_params_dump`
+- **`_infer_param_value(value)`**: infers a `ParameterValue` from a native Python value (bool→1, int→2, float→3, str→4, lists→6–9); used by `cmd_params_load`
+- **Goal-Oriented Commands workflow** in `SKILL.md` (Workflow section 7): step-by-step discovery guide for constructing `publish-until` commands from natural language intent; includes `topics find` + `topics message` + `topics subscribe` introspection steps and a lookup table of common patterns (odometry position/orientation, joint states, laser scan, range, temperature, battery)
+- **Discovery note** in `COMMANDS.md` `publish-until` entry cross-referencing the new SKILL.md workflow
+- **Troubleshooting row** for `publish-until` hangs/no feedback
+
+---
 
 ## [1.0.2] - 2026-02-28
+
+### Added
+- **`topics publish-until`**: publish to a topic at a fixed rate while simultaneously monitoring a second topic; stops as soon as a structured condition on the monitored field is satisfied or a safety timeout (default 60 s) elapses; supports four operators: `--delta ±N` (field changes from start), `--above N`, `--below N`, `--equals V`; field path is dot-separated and supports list indexing (`ranges.0`); output includes `start_value`, `end_value`, `start_msg`, `end_msg`, `published_count`, `duration`, and a `condition_met` flag
+- **`topics publish-continuous`**: publish at a fixed rate for a mandatory `--timeout` duration; stops early on `Ctrl+C`; reports `published_count`, `duration`, and `stopped_by` (`"timeout"` or `"keyboard_interrupt"`)
+- **`resolve_field(d, path)`**: shared helper that walks a nested dict/list using a dot-separated path; integer segments index into lists
+- **`ConditionMonitor(Node)`**: subscriber node that evaluates the stop condition on every message and sets a `threading.Event`; runs alongside `TopicPublisher` in a `MultiThreadedExecutor` on a background thread
+- `get_srv_type()`: loads ROS 2 service classes via `importlib`, mirrors `get_msg_type()`
+- `get_action_type()`: loads ROS 2 action classes via `importlib`, mirrors `get_msg_type()`
+- `topics echo`: alias for `topics subscribe` — same arguments, same behaviour
+- `--max-msgs`: short alias for `--max-messages` on `topics subscribe` and `topics echo`
+- `_json_default()`: fallback JSON encoder used by `output()` as defence-in-depth for any non-serializable type
 
 ### Fixed
 - **`get_msg_type()` failing for all type formats**: `import_message` was called with dot-separated format but expects slash format; `__import__` fallback only loaded the top-level package making subpackage lookups always fail; replaced with `importlib.import_module`
@@ -50,17 +99,10 @@ All notable changes to ros2-skill will be documented in this file.
 - **`rclpy.shutdown()` never called when an exception escapes a command handler**: every command's `except Exception` block only called `output({"error": ...})` with no shutdown, leaving rclpy initialized if a bug or `KeyboardInterrupt` escaped the inner handler; added a `try/finally` around the handler dispatch in `main()` so `rclpy.shutdown()` is guaranteed on all exit paths
 - **`params list/get/set` hardcoded 5 s timeout with no CLI override**: `wait_for_service(timeout_sec=5.0)` and the response-wait loop both used a hardcoded 5 s; inconsistent with `services call` and `actions send` which already had `--timeout`; added `--timeout` (default 5 s) to all three params subparsers and replaced every hardcoded `5.0` with `args.timeout`
 - **`topics subscribe` crashes with `Object of type ndarray is not JSON serializable`**: rclpy stores fixed-size array fields (e.g. `nav_msgs/msg/Odometry.pose.covariance[36]`) as `numpy.ndarray`, not Python lists; `isinstance(value, (list, tuple))` does not match numpy arrays so they fell through to `else: result[field] = value`; `json.dumps` then raises `TypeError`; added `elif hasattr(value, 'tolist'):` branch to convert numpy arrays and scalars to native Python via `.tolist()`; also added `.tolist()` handling inside the list comprehension for numpy elements inside variable-length lists; added `_json_default` fallback encoder to `output()` as a final safety net
-
 - **`cmd_version` crashes with `AttributeError: module 'rclpy.utilities' has no attribute 'get_domain_id'`**: `rclpy.utilities.get_domain_id()` does not exist in any version of rclpy; `ROS_DOMAIN_ID` is a plain environment variable; replaced the `rclpy.init()` / `rclpy.utilities.get_domain_id()` / `rclpy.shutdown()` block with a direct `int(os.environ.get('ROS_DOMAIN_ID', 0))` read; no rclpy calls needed
 - **`params get` / `params set` reject space-separated node+param syntax**: parsers only accepted the colon format (`/node:param`); `params get /base_controller base_frame_id` gave "unrecognized arguments: base_frame_id"; added optional `param_name` positional to `params get` and optional `extra_value` positional to `params set`; both commands now accept either `/node:param` or `/node param_name` (and `/node param value` for set)
 - **`services call` rejects old positional service-type format**: previous fix added `--service-type` flag but users still pass `services call /svc pkg/srv/Type '{"data":true}'` (3-positional old format); added optional `extra_request` positional; handler now detects which format was used and shifts service type / JSON accordingly; both old positional and new flag forms are accepted
-
-### Added
-- `get_srv_type()`: loads ROS 2 service classes via `importlib`, mirrors `get_msg_type()`
-- `get_action_type()`: loads ROS 2 action classes via `importlib`, mirrors `get_msg_type()`
-- `topics echo`: alias for `topics subscribe` — same arguments, same behaviour
-- `--max-msgs`: short alias for `--max-messages` on `topics subscribe` and `topics echo`
-- `_json_default()`: fallback JSON encoder used by `output()` as defence-in-depth for any non-serializable type
+- **`topics publish-continuous` allowed indefinite publishing**: `--timeout` was optional with no default, enabling permanent publishing; unsafe for robots controlled by AI agents where `Ctrl+C` is unavailable (e.g. Discord, Telegram); changed to `required=True`; loop changed from `while True:` with conditional break to `while (time.time() - start_time) < timeout:`; `stopped_by` defaults to `"timeout"`
 
 ---
 
