@@ -65,6 +65,29 @@ Commands:
         '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
         '[3.0, 0.5]'
 
+  topics publish-until <topic> <json_msg> --monitor <topic> --field <path> (--delta|--above|--below|--equals) <value>
+    Publish a message at --rate Hz while monitoring a second topic. Stops as soon as the
+    condition on the monitored field is satisfied, or after --timeout seconds (default: 60).
+    --monitor TOPIC   Topic to monitor for the stop condition
+    --field PATH      Dot-separated field path (e.g. pose.pose.position.x, ranges.0)
+    --delta N         Stop when field changes by ±N from its value at start
+    --above N         Stop when field > N (absolute threshold)
+    --below N         Stop when field < N (absolute threshold)
+    --equals V        Stop when field == V (numeric or string)
+    --rate HZ         Publish rate (default: 10 Hz)
+    --timeout SEC     Safety timeout (default: 60 s)
+    $ python3 ros2_cli.py topics publish-until /cmd_vel \
+        '{"linear":{"x":0.3},"angular":{"z":0}}' \
+        --monitor /odom --field pose.pose.position.x --delta 1.0
+
+  topics publish-continuous <topic> <json_msg> --timeout SEC [--rate HZ]
+    Publish at --rate Hz for exactly --timeout seconds (required).
+    --timeout is mandatory — never publish to a robot without a hard time limit.
+    --rate HZ         Publish rate (default: 10 Hz)
+    --timeout SEC     Hard stop after this many seconds (required)
+    $ python3 ros2_cli.py topics publish-continuous /cmd_vel \
+        '{"linear":{"x":0.3},"angular":{"z":0}}' --timeout 5 --rate 10
+
   services list
     List all available services.
     $ python3 ros2_cli.py services list
@@ -361,6 +384,22 @@ def dict_to_msg(msg_type, data):
         else:
             setattr(msg, key, value)
     return msg
+
+
+def resolve_field(d, path):
+    """Resolve a dot-separated field path into a nested dict/list structure.
+
+    Integer path segments index into lists, so 'ranges.0' resolves to
+    d['ranges'][0].  Raises KeyError, IndexError, or TypeError when any
+    segment does not exist.
+    """
+    current = d
+    for part in path.split('.'):
+        if isinstance(current, list):
+            current = current[int(part)]
+        else:
+            current = current[part]
+    return current
 
 
 def _json_default(obj):
@@ -695,6 +734,99 @@ class TopicPublisher(Node):
             self.pub = self.create_publisher(msg_class, topic, qos_profile_system_default)
 
 
+class ConditionMonitor(Node):
+    """Subscriber that evaluates a stop condition on every incoming message.
+
+    Sets *stop_event* as soon as the condition fires.  The main publish loop
+    polls *stop_event* and exits when it is set.
+
+    Attributes (read after stop_event is set):
+        start_value   -- field value from the very first message
+        current_value -- field value from the most recent message
+        start_msg     -- full msg dict from the first message
+        end_msg       -- full msg dict from the message that triggered the stop
+        field_error   -- non-None string when the field path could not be resolved
+    """
+
+    def __init__(self, topic, msg_type, field, operator, threshold, stop_event):
+        super().__init__('condition_monitor')
+        self.field = field
+        self.operator = operator      # 'delta' | 'above' | 'below' | 'equals'
+        self.threshold = threshold
+        self.stop_event = stop_event
+
+        self.start_value = None
+        self.current_value = None
+        self.start_msg = None
+        self.end_msg = None
+        self.field_error = None
+        self.lock = threading.Lock()
+        self.sub = None
+
+        msg_class = get_msg_type(msg_type)
+        if msg_class:
+            self.sub = self.create_subscription(
+                msg_class, topic, self.callback, qos_profile_system_default
+            )
+
+    def callback(self, msg):
+        with self.lock:
+            if self.stop_event.is_set():
+                return
+
+            msg_dict = msg_to_dict(msg)
+
+            # Resolve the field path; report error and stop on first failure.
+            try:
+                value = resolve_field(msg_dict, self.field)
+            except (KeyError, IndexError, TypeError, ValueError) as e:
+                self.field_error = f"Field '{self.field}' not found in monitor message: {e}"
+                self.stop_event.set()
+                return
+
+            # Try to coerce to float for numeric comparisons.
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                numeric_value = None
+
+            # Capture start state on the very first message.
+            if self.start_value is None:
+                self.start_value = value
+                self.start_msg = msg_dict
+
+            self.current_value = value
+
+            # Evaluate condition.
+            condition_met = False
+            if self.operator == 'delta':
+                if numeric_value is not None and self.start_value is not None:
+                    try:
+                        delta = numeric_value - float(self.start_value)
+                        thr = float(self.threshold)
+                        condition_met = delta >= thr if thr >= 0 else delta <= thr
+                    except (TypeError, ValueError):
+                        pass
+            elif self.operator == 'above':
+                if numeric_value is not None:
+                    condition_met = numeric_value > float(self.threshold)
+            elif self.operator == 'below':
+                if numeric_value is not None:
+                    condition_met = numeric_value < float(self.threshold)
+            elif self.operator == 'equals':
+                if numeric_value is not None:
+                    try:
+                        condition_met = abs(numeric_value - float(self.threshold)) < 1e-9
+                    except (TypeError, ValueError):
+                        condition_met = str(value) == str(self.threshold)
+                else:
+                    condition_met = str(value) == str(self.threshold)
+
+            if condition_met:
+                self.end_msg = msg_dict
+                self.stop_event.set()
+
+
 def cmd_topics_publish(args):
     if not args.topic:
         return output({"error": "topic argument is required"})
@@ -828,6 +960,215 @@ def cmd_topics_publish_sequence(args):
         rclpy.shutdown()
         output({"success": True, "published_count": total_published, "topic": topic,
                 "rate": rate})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_topics_publish_until(args):
+    """Publish to a topic until a condition on a monitor topic is met."""
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+    if args.msg is None:
+        return output({"error": "msg argument is required"})
+    if not args.monitor:
+        return output({"error": "--monitor argument is required"})
+    if not args.field:
+        return output({"error": "--field argument is required"})
+
+    # Exactly one condition operator must be supplied.
+    operator_map = {
+        'delta': args.delta,
+        'above': args.above,
+        'below': args.below,
+        'equals': args.equals,
+    }
+    active = {k: v for k, v in operator_map.items() if v is not None}
+    if len(active) != 1:
+        return output({"error": "Specify exactly one of --delta, --above, --below, --equals"})
+    operator, threshold = next(iter(active.items()))
+
+    try:
+        msg_data = json.loads(args.msg)
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        return output({"error": f"Invalid JSON message: {e}"})
+
+    try:
+        rclpy.init()
+
+        pub_msg_type = args.msg_type
+        mon_msg_type = args.monitor_msg_type
+
+        # Resolve both topic types from the graph in one pass.
+        temp_node = ROS2CLI("temp")
+        for name, types in temp_node.get_topic_names():
+            if name == args.topic and types and not pub_msg_type:
+                pub_msg_type = types[0]
+            if name == args.monitor and types and not mon_msg_type:
+                mon_msg_type = types[0]
+
+        if not pub_msg_type:
+            rclpy.shutdown()
+            return output({"error": f"Could not detect message type for topic: {args.topic}. Use --msg-type."})
+        if not mon_msg_type:
+            rclpy.shutdown()
+            return output({"error": f"Could not detect message type for monitor topic: {args.monitor}. Use --monitor-msg-type."})
+
+        pub_msg_class = get_msg_type(pub_msg_type)
+        if not pub_msg_class:
+            rclpy.shutdown()
+            return output(get_msg_error(pub_msg_type))
+
+        stop_event = threading.Event()
+        publisher = TopicPublisher(args.topic, pub_msg_type)
+        monitor = ConditionMonitor(
+            args.monitor, mon_msg_type, args.field, operator, threshold, stop_event
+        )
+
+        if publisher.pub is None:
+            rclpy.shutdown()
+            return output({"error": f"Failed to create publisher for {pub_msg_type}"})
+        if monitor.sub is None:
+            rclpy.shutdown()
+            return output({"error": f"Could not load monitor message type: {mon_msg_type}"})
+
+        msg = dict_to_msg(pub_msg_class, msg_data)
+
+        executor = rclpy.executors.MultiThreadedExecutor()
+        executor.add_node(publisher)
+        executor.add_node(monitor)
+
+        spin_thread = threading.Thread(target=executor.spin, daemon=True)
+        spin_thread.start()
+
+        rate = args.rate or 10.0
+        timeout = args.timeout  # default 60 from parser
+        interval = 1.0 / rate
+        start_time = time.time()
+        published_count = 0
+
+        try:
+            while not stop_event.is_set():
+                if timeout and (time.time() - start_time) >= timeout:
+                    # Timeout reached — break WITHOUT setting stop_event so we
+                    # can distinguish timeout from condition-met after the loop.
+                    break
+                publisher.pub.publish(msg)
+                published_count += 1
+                time.sleep(interval)
+        finally:
+            stop_event.set()  # unblock monitor if still waiting
+            executor.shutdown(wait=False)
+            spin_thread.join(timeout=2.0)
+            rclpy.shutdown()
+
+        elapsed = round(time.time() - start_time, 3)
+
+        with monitor.lock:
+            if monitor.field_error:
+                return output({"error": monitor.field_error})
+
+            condition_met = monitor.end_msg is not None
+
+            base = {
+                "topic": args.topic,
+                "monitor_topic": args.monitor,
+                "field": args.field,
+                "operator": operator,
+                "threshold": threshold,
+                "start_value": monitor.start_value,
+                "end_value": monitor.current_value,
+                "duration": elapsed,
+                "published_count": published_count,
+            }
+
+            if condition_met:
+                output({**base,
+                        "success": True,
+                        "condition_met": True,
+                        "start_msg": monitor.start_msg,
+                        "end_msg": monitor.end_msg})
+            else:
+                output({**base,
+                        "success": False,
+                        "condition_met": False,
+                        "error": f"Timeout after {timeout}s: condition not met"})
+
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_topics_publish_continuous(args):
+    """Publish to a topic at a fixed rate until --timeout elapses (required).
+
+    --timeout is mandatory: never publish to a robot topic without a hard
+    time limit, especially when invoked from an AI agent that cannot send
+    Ctrl+C.
+    """
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+    if args.msg is None:
+        return output({"error": "msg argument is required"})
+
+    try:
+        msg_data = json.loads(args.msg)
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        return output({"error": f"Invalid JSON message: {e}"})
+
+    try:
+        rclpy.init()
+
+        msg_type = args.msg_type
+        topic = args.topic
+
+        temp_node = ROS2CLI("temp")
+        for name, types in temp_node.get_topic_names():
+            if name == topic and types:
+                msg_type = types[0]
+                break
+
+        if not msg_type:
+            rclpy.shutdown()
+            return output({"error": f"Could not detect message type for topic: {topic}. Use --msg-type."})
+
+        msg_class = get_msg_type(msg_type)
+        if not msg_class:
+            rclpy.shutdown()
+            return output(get_msg_error(msg_type))
+
+        publisher = TopicPublisher(topic, msg_type)
+        if publisher.pub is None:
+            rclpy.shutdown()
+            return output({"error": f"Failed to create publisher for {msg_type}"})
+
+        msg = dict_to_msg(msg_class, msg_data)
+
+        rate = args.rate or 10.0
+        timeout = args.timeout  # required by parser — always set
+        interval = 1.0 / rate
+        start_time = time.time()
+        published_count = 0
+        stopped_by = "timeout"
+
+        try:
+            while (time.time() - start_time) < timeout:
+                publisher.pub.publish(msg)
+                published_count += 1
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            stopped_by = "keyboard_interrupt"
+
+        elapsed = round(time.time() - start_time, 3)
+        rclpy.shutdown()
+        output({
+            "success": True,
+            "topic": topic,
+            "msg_type": msg_type,
+            "published_count": published_count,
+            "duration": elapsed,
+            "rate": rate,
+            "stopped_by": stopped_by,
+        })
+
     except Exception as e:
         output({"error": str(e)})
 
@@ -1396,6 +1737,26 @@ def build_parser():
     p.add_argument("durations", nargs="?", help="JSON array of durations in seconds (message is repeated during each)")
     p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
     p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
+    p = tsub.add_parser("publish-until", help="Publish until a monitor-topic condition is met")
+    p.add_argument("topic", nargs="?")
+    p.add_argument("msg", nargs="?", help="JSON message to publish")
+    p.add_argument("--monitor", default=None, help="Topic to monitor for the stop condition (required)")
+    p.add_argument("--field", default=None, help="Dot-separated field path in monitor message (e.g. pose.pose.position.x)")
+    p.add_argument("--delta", type=float, default=None, help="Stop when field changes by ±N from its value at start")
+    p.add_argument("--above", type=float, default=None, help="Stop when field > N (absolute threshold)")
+    p.add_argument("--below", type=float, default=None, help="Stop when field < N (absolute threshold)")
+    p.add_argument("--equals", default=None, help="Stop when field == value (numeric or string)")
+    p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
+    p.add_argument("--timeout", type=float, default=60.0, help="Safety timeout in seconds (default: 60)")
+    p.add_argument("--msg-type", dest="msg_type", default=None, help="Publish topic message type (auto-detected)")
+    p.add_argument("--monitor-msg-type", dest="monitor_msg_type", default=None, help="Monitor topic message type (auto-detected)")
+    p = tsub.add_parser("publish-continuous", help="Publish at a fixed rate for a required duration (--timeout)")
+    p.add_argument("topic", nargs="?")
+    p.add_argument("msg", nargs="?", help="JSON message to publish")
+    p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
+    p.add_argument("--timeout", type=float, required=True,
+                   help="Hard stop after this many seconds (required — never publish without a time limit)")
+    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
 
     services = sub.add_parser("services", help="Service operations")
     ssub = services.add_subparsers(dest="subcommand")
@@ -1458,6 +1819,8 @@ DISPATCH = {
     ("topics", "echo"): cmd_topics_subscribe,
     ("topics", "publish"): cmd_topics_publish,
     ("topics", "publish-sequence"): cmd_topics_publish_sequence,
+    ("topics", "publish-until"): cmd_topics_publish_until,
+    ("topics", "publish-continuous"): cmd_topics_publish_continuous,
     ("services", "list"): cmd_services_list,
     ("services", "type"): cmd_services_type,
     ("services", "details"): cmd_services_details,

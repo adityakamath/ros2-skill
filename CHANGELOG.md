@@ -2,6 +2,14 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.3] - 2026-02-28
+
+### Added
+- **`topics publish-until`**: publish to a topic at a fixed rate while simultaneously monitoring a second topic; stops as soon as a structured condition on the monitored field is satisfied or a safety timeout (default 60 s) elapses; supports four operators: `--delta ±N` (field changes from start), `--above N`, `--below N`, `--equals V`; field path is dot-separated and supports list indexing (`ranges.0`); output includes `start_value`, `end_value`, `start_msg`, `end_msg`, `published_count`, `duration`, and a `condition_met` flag
+- **`topics publish-continuous`**: publish indefinitely at a fixed rate until `Ctrl+C` or an optional `--timeout`; reports `published_count`, `duration`, and `stopped_by` (`"keyboard_interrupt"` or `"timeout"`)
+- **`resolve_field(d, path)`**: shared helper that walks a nested dict/list using a dot-separated path; integer segments index into lists
+- **`ConditionMonitor(Node)`**: subscriber node that evaluates the stop condition on every message and sets a `threading.Event`; runs alongside `TopicPublisher` in a `MultiThreadedExecutor` on a background thread
+
 ## [1.0.2] - 2026-02-28
 
 ### Fixed
