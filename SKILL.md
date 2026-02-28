@@ -101,9 +101,6 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Actions | `actions cancel <action>` | Cancel all in-flight goals |
 | Interface | `interface show <type>` | Get interface field structure |
 | Interface | `interface proto <type>` | Alias for `interface show` |
-| Interface | `interface list` | List all interfaces across all packages |
-| Interface | `interface packages` | List packages with interfaces |
-| Interface | `interface package <pkg>` | List interfaces in a single package |
 
 ---
 
@@ -356,7 +353,7 @@ python3 {baseDir}/scripts/ros2_cli.py params load /turtlesim \
 python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r
 ```
 
-### interface show / proto / list / packages / package
+### interface show / proto
 
 Inspect ROS 2 interface definitions. `proto` is an alias for `show`.
 
@@ -364,15 +361,6 @@ Inspect ROS 2 interface definitions. `proto` is an alias for `show`.
 # Show field structure of a message, service, or action type
 python3 {baseDir}/scripts/ros2_cli.py interface show geometry_msgs/Twist
 python3 {baseDir}/scripts/ros2_cli.py interface proto std_srvs/SetBool
-
-# List all available interfaces
-python3 {baseDir}/scripts/ros2_cli.py interface list
-
-# List packages that contain interfaces
-python3 {baseDir}/scripts/ros2_cli.py interface packages
-
-# List interfaces in a specific package
-python3 {baseDir}/scripts/ros2_cli.py interface package geometry_msgs
 ```
 
 ---
