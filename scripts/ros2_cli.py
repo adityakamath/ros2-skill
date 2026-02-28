@@ -34,7 +34,8 @@ Commands:
 
   topics subscribe <topic> [--duration SEC] [--max-messages N]
   topics echo      <topic> [--duration SEC] [--max-messages N]
-    Subscribe to a topic (echo is an alias for subscribe).
+  topics sub       <topic> [--duration SEC] [--max-messages N]
+    Subscribe to a topic (echo and sub are aliases for subscribe).
     Without --duration, returns the first message and exits.
     With --duration, collects messages for the specified time.
     --duration SECONDS        Collect messages for this duration (default: single message)
@@ -42,22 +43,25 @@ Commands:
     --max-msgs N              Alias for --max-messages
     $ python3 ros2_cli.py topics subscribe /turtle1/pose
     $ python3 ros2_cli.py topics echo /odom
-    $ python3 ros2_cli.py topics subscribe /odom --duration 10 --max-msgs 50
+    $ python3 ros2_cli.py topics sub /odom --duration 10 --max-msgs 50
 
   topics publish <topic> <json_message> [--duration SEC] [--rate HZ]
-    Publish a message to a topic.
+  topics pub      <topic> <json_message> [--duration SEC] [--rate HZ]
+    Publish a message to a topic (pub is an alias for publish).
     Without --duration: sends once (single-shot).
     With --duration: publishes repeatedly at --rate Hz for the specified seconds.
     --duration SECONDS   Publish repeatedly for this duration
     --rate HZ            Publish rate (default: 10 Hz)
     $ python3 ros2_cli.py topics publish /turtle1/cmd_vel \
         '{"linear":{"x":2.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
-    $ python3 ros2_cli.py topics publish /cmd_vel \
+    $ python3 ros2_cli.py topics pub /cmd_vel \
         '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
 
   topics publish-sequence <topic> <json_messages> <json_durations> [--rate HZ]
-    Publish a sequence of messages. Each message is repeatedly published at --rate Hz
-    for its corresponding duration. This keeps velocity commands active for the full duration.
+  topics pub-seq          <topic> <json_messages> <json_durations> [--rate HZ]
+    Publish a sequence of messages (pub-seq is an alias for publish-sequence).
+    Each message is repeatedly published at --rate Hz for its corresponding duration.
+    This keeps velocity commands active for the full duration.
     <json_messages>   JSON array of messages to publish in order
     <json_durations>  JSON array of durations (seconds) for each message (must match length)
     --rate HZ         Publish rate (default: 10 Hz)
@@ -88,6 +92,24 @@ Commands:
     $ python3 ros2_cli.py topics publish-continuous /cmd_vel \
         '{"linear":{"x":0.3},"angular":{"z":0}}' --timeout 5 --rate 10
 
+  topics hz <topic> [--window N] [--timeout SEC]
+    Measure the publish rate of a topic. Collects --window inter-message intervals
+    and reports rate, min/max delta, and standard deviation.
+    --window N    Number of intervals to sample (default: 10)
+    --timeout SEC Max wait time in seconds (default: 10)
+    $ python3 ros2_cli.py topics hz /turtle1/pose
+    $ python3 ros2_cli.py topics hz /scan --window 20 --timeout 15
+
+  topics find <message_type>
+    Find all topics publishing a specific message type.
+    Accepts both /msg/ and non-/msg/ formats (normalised for comparison).
+    $ python3 ros2_cli.py topics find geometry_msgs/msg/Twist
+    $ python3 ros2_cli.py topics find geometry_msgs/Twist
+
+  topics info <topic>
+    Alias for topics details (ros2 topic info).
+    $ python3 ros2_cli.py topics info /cmd_vel
+
   services list
     List all available services.
     $ python3 ros2_cli.py services list
@@ -109,13 +131,26 @@ Commands:
     $ python3 ros2_cli.py services call /emergency_stop \
         '{"data": true}' --service-type std_srvs/srv/SetBool
 
+  services find <service_type>
+    Find all services of a specific type.
+    Accepts both /srv/ and non-/srv/ formats (normalised for comparison).
+    $ python3 ros2_cli.py services find std_srvs/srv/Empty
+    $ python3 ros2_cli.py services find std_srvs/Empty
+
+  services info <service>
+    Alias for services details (ros2 service info).
+    $ python3 ros2_cli.py services info /spawn
+
   nodes list
     List all active nodes.
     $ python3 ros2_cli.py nodes list
 
   nodes details <node>
-    Get node details including publishers, subscribers, and services.
+  nodes info     <node>
+    Get node details including publishers, subscribers, services, action servers,
+    and action clients. (info is an alias for details, ros2 node info)
     $ python3 ros2_cli.py nodes details /turtlesim
+    $ python3 ros2_cli.py nodes info /turtlesim
 
   params list <node>
     List all parameters for a node.
@@ -138,12 +173,22 @@ Commands:
     $ python3 ros2_cli.py actions list
 
   actions details <action>
+  actions info    <action>
     Get action details including goal, result, and feedback fields.
+    (info is an alias for details, ros2 action info)
     $ python3 ros2_cli.py actions details /turtle1/rotate_absolute
+    $ python3 ros2_cli.py actions info /turtle1/rotate_absolute
 
-  actions send <action> <json_goal>
+  actions type <action>
+    Get the type of an action server.
+    $ python3 ros2_cli.py actions type /turtle1/rotate_absolute
+
+  actions send      <action> <json_goal>
+  actions send-goal <action> <json_goal>
     Send an action goal and wait for the result.
+    (send-goal is an alias for send, ros2 action send_goal)
     $ python3 ros2_cli.py actions send /turtle1/rotate_absolute '{"theta":3.14}'
+    $ python3 ros2_cli.py actions send-goal /turtle1/rotate_absolute '{"theta":3.14}'
 
 Output:
     All commands output JSON to stdout.
@@ -827,6 +872,39 @@ class ConditionMonitor(Node):
                 self.stop_event.set()
 
 
+class HzMonitor(Node):
+    """Subscriber that measures the publish rate of a topic.
+
+    Collects message arrival timestamps until *window + 1* samples have been
+    received (so that *window* inter-message deltas are available), then sets
+    *done_event*.  All timestamps are stored in *timestamps* (protected by
+    *lock*) and are read by the main thread after *done_event* fires.
+    """
+
+    def __init__(self, topic, msg_type, window, done_event):
+        super().__init__('hz_monitor')
+        self.window = window
+        self.done_event = done_event
+        self.timestamps = []
+        self.lock = threading.Lock()
+        self.sub = None
+
+        msg_class = get_msg_type(msg_type)
+        if msg_class:
+            self.sub = self.create_subscription(
+                msg_class, topic, self._callback, qos_profile_system_default
+            )
+
+    def _callback(self, msg):
+        with self.lock:
+            if self.done_event.is_set():
+                return
+            self.timestamps.append(time.time())
+            # window+1 timestamps → window inter-message deltas
+            if len(self.timestamps) >= self.window + 1:
+                self.done_event.set()
+
+
 def cmd_topics_publish(args):
     if not args.topic:
         return output({"error": "topic argument is required"})
@@ -1352,6 +1430,21 @@ def cmd_nodes_details(args):
             "services": [svc for svc, _ in services],
         }
 
+        try:
+            action_servers = [
+                name for name, _ in
+                node.get_action_server_names_and_types_by_node(node_name, namespace)
+            ]
+            action_clients = [
+                name for name, _ in
+                node.get_action_client_names_and_types_by_node(node_name, namespace)
+            ]
+            result["action_servers"] = action_servers
+            result["action_clients"] = action_clients
+        except AttributeError:
+            result["action_servers"] = []
+            result["action_clients"] = []
+
         rclpy.shutdown()
         output(result)
     except Exception as e:
@@ -1692,6 +1785,169 @@ def cmd_actions_send(args):
         output({"error": str(e)})
 
 
+def cmd_topics_hz(args):
+    """Measure the publish rate of a topic."""
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+
+    topic = args.topic
+    window = args.window
+    timeout = args.timeout
+
+    try:
+        rclpy.init()
+        # Auto-detect message type from the ROS graph.
+        probe = ROS2CLI()
+        topic_types = dict(probe.get_topic_names_and_types())
+        rclpy.shutdown()
+
+        if topic not in topic_types:
+            return output({"error": f"Topic '{topic}' not found in the ROS graph"})
+        msg_type = topic_types[topic][0]
+
+        rclpy.init()
+        done_event = threading.Event()
+        monitor = HzMonitor(topic, msg_type, window, done_event)
+
+        if monitor.sub is None:
+            rclpy.shutdown()
+            return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
+
+        executor = rclpy.executors.SingleThreadedExecutor()
+        executor.add_node(monitor)
+
+        def _spin():
+            while not done_event.is_set():
+                executor.spin_once(timeout_sec=0.1)
+
+        spin_thread = threading.Thread(target=_spin, daemon=True)
+        spin_thread.start()
+
+        done_event.wait(timeout=timeout)
+        spin_thread.join(timeout=1.0)
+
+        with monitor.lock:
+            timestamps = list(monitor.timestamps)
+
+        rclpy.shutdown()
+
+        if len(timestamps) < 2:
+            return output({"error": f"Fewer than 2 messages received within {timeout}s on '{topic}'"})
+
+        deltas = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+        mean_delta = sum(deltas) / len(deltas)
+        rate = 1.0 / mean_delta if mean_delta > 0 else 0.0
+        min_delta = min(deltas)
+        max_delta = max(deltas)
+        variance = sum((d - mean_delta) ** 2 for d in deltas) / len(deltas)
+        std_dev = variance ** 0.5
+
+        output({
+            "topic": topic,
+            "rate": round(rate, 4),
+            "min_delta": round(min_delta, 6),
+            "max_delta": round(max_delta, 6),
+            "std_dev": round(std_dev, 6),
+            "samples": len(deltas),
+        })
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_topics_find(args):
+    """Find topics publishing a specific message type."""
+    if not args.msg_type:
+        return output({"error": "msg_type argument is required"})
+
+    target_raw = args.msg_type
+
+    # Normalise: geometry_msgs/Twist and geometry_msgs/msg/Twist are equivalent.
+    def _norm_msg(t):
+        return re.sub(r'/msg/', '/', t)
+
+    target_norm = _norm_msg(target_raw)
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+        all_topics = node.get_topic_names_and_types()
+        rclpy.shutdown()
+
+        matched = [
+            name for name, types in all_topics
+            if any(_norm_msg(t) == target_norm for t in types)
+        ]
+        output({
+            "message_type": target_raw,
+            "topics": matched,
+            "count": len(matched),
+        })
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_actions_type(args):
+    """Get the type of an action server."""
+    if not args.action:
+        return output({"error": "action argument is required"})
+
+    action = args.action.rstrip('/')
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+        all_topics = node.get_topic_names_and_types()
+        rclpy.shutdown()
+
+        feedback_topic = action + '/_action/feedback'
+        action_type = None
+        for name, types in all_topics:
+            if name == feedback_topic and types:
+                raw = types[0]
+                # e.g. turtlesim/action/RotateAbsolute_FeedbackMessage
+                action_type = re.sub(r'_FeedbackMessage$', '', raw)
+                break
+
+        if action_type is None:
+            return output({"error": f"Action '{action}' not found in the ROS graph"})
+
+        output({"action": action, "type": action_type})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_services_find(args):
+    """Find services of a specific service type."""
+    if not args.service_type:
+        return output({"error": "service_type argument is required"})
+
+    target_raw = args.service_type
+
+    # Normalise: std_srvs/Empty and std_srvs/srv/Empty are equivalent.
+    def _norm_srv(t):
+        return re.sub(r'/srv/', '/', t)
+
+    target_norm = _norm_srv(target_raw)
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+        all_services = node.get_service_names_and_types()
+        rclpy.shutdown()
+
+        matched = [
+            name for name, types in all_services
+            if any(_norm_srv(t) == target_norm for t in types)
+        ]
+        output({
+            "service_type": target_raw,
+            "services": matched,
+            "count": len(matched),
+        })
+    except Exception as e:
+        output({"error": str(e)})
+
+
 def _add_subscribe_args(p):
     """Add the shared arguments for the subscribe / echo subparsers."""
     p.add_argument("topic", nargs="?")
@@ -1725,18 +1981,39 @@ def build_parser():
     p.add_argument("message_type")
     _add_subscribe_args(tsub.add_parser("subscribe", help="Subscribe to a topic"))
     _add_subscribe_args(tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)"))
-    p = tsub.add_parser("publish", help="Publish a message")
+    _add_subscribe_args(tsub.add_parser("sub", help="Alias for subscribe"))
+    p = tsub.add_parser("info", help="Alias for details (ros2 topic info)")
+    p.add_argument("topic")
+    p = tsub.add_parser("hz", help="Measure topic publish rate")
     p.add_argument("topic", nargs="?")
-    p.add_argument("msg", nargs="?", help="JSON message")
-    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
-    p.add_argument("--duration", type=float, default=None, help="Publish repeatedly for duration (seconds)")
-    p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
-    p = tsub.add_parser("publish-sequence", help="Publish message sequence with delays")
-    p.add_argument("topic", nargs="?")
-    p.add_argument("messages", nargs="?", help="JSON array of messages")
-    p.add_argument("durations", nargs="?", help="JSON array of durations in seconds (message is repeated during each)")
-    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
-    p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
+    p.add_argument("--window", type=int, default=10,
+                   help="Number of inter-message intervals to sample (default: 10)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Max wait time in seconds (default: 10)")
+    p = tsub.add_parser("find", help="Find topics by message type")
+    p.add_argument("msg_type", nargs="?")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout in seconds (default: 5)")
+    for _pub_name in ("publish", "pub"):
+        p = tsub.add_parser(_pub_name, help="Publish a message" if _pub_name == "publish"
+                            else "Alias for publish")
+        p.add_argument("topic", nargs="?")
+        p.add_argument("msg", nargs="?", help="JSON message")
+        p.add_argument("--msg-type", dest="msg_type", default=None,
+                       help="Message type (auto-detected if not provided)")
+        p.add_argument("--duration", type=float, default=None,
+                       help="Publish repeatedly for duration (seconds)")
+        p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
+    for _seq_name in ("publish-sequence", "pub-seq"):
+        p = tsub.add_parser(_seq_name, help="Publish message sequence with delays"
+                            if _seq_name == "publish-sequence" else "Alias for publish-sequence")
+        p.add_argument("topic", nargs="?")
+        p.add_argument("messages", nargs="?", help="JSON array of messages")
+        p.add_argument("durations", nargs="?",
+                       help="JSON array of durations in seconds (message is repeated during each)")
+        p.add_argument("--msg-type", dest="msg_type", default=None,
+                       help="Message type (auto-detected if not provided)")
+        p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
     p = tsub.add_parser("publish-until", help="Publish until a monitor-topic condition is met")
     p.add_argument("topic", nargs="?")
     p.add_argument("msg", nargs="?", help="JSON message to publish")
@@ -1765,6 +2042,12 @@ def build_parser():
     p.add_argument("service")
     p = ssub.add_parser("details", help="Get service details")
     p.add_argument("service")
+    p = ssub.add_parser("info", help="Alias for details (ros2 service info)")
+    p.add_argument("service")
+    p = ssub.add_parser("find", help="Find services by service type")
+    p.add_argument("service_type", nargs="?")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout in seconds (default: 5)")
     p = ssub.add_parser("call", help="Call a service")
     p.add_argument("service")
     p.add_argument("request", help="JSON request, or service type when using positional service-type format")
@@ -1778,6 +2061,8 @@ def build_parser():
     nsub = nodes.add_subparsers(dest="subcommand")
     nsub.add_parser("list", help="List all nodes")
     p = nsub.add_parser("details", help="Get node details")
+    p.add_argument("node")
+    p = nsub.add_parser("info", help="Alias for details (ros2 node info)")
     p.add_argument("node")
 
     params = sub.add_parser("params", help="Parameter operations")
@@ -1800,7 +2085,17 @@ def build_parser():
     asub.add_parser("list", help="List all actions")
     p = asub.add_parser("details", help="Get action details")
     p.add_argument("action")
+    p = asub.add_parser("info", help="Alias for details (ros2 action info)")
+    p.add_argument("action")
+    p = asub.add_parser("type", help="Get action server type")
+    p.add_argument("action", nargs="?")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout in seconds (default: 5)")
     p = asub.add_parser("send", help="Send action goal")
+    p.add_argument("action")
+    p.add_argument("goal", help="JSON goal")
+    p.add_argument("--timeout", type=float, default=30.0, help="Timeout in seconds (default: 30)")
+    p = asub.add_parser("send-goal", help="Alias for send (ros2 action send_goal)")
     p.add_argument("action")
     p.add_argument("goal", help="JSON goal")
     p.add_argument("--timeout", type=float, default=30.0, help="Timeout in seconds (default: 30)")
@@ -1811,28 +2106,49 @@ def build_parser():
 DISPATCH = {
     ("version", None): cmd_version,
     ("estop", None): cmd_estop,
+    # topics — canonical
     ("topics", "list"): cmd_topics_list,
     ("topics", "type"): cmd_topics_type,
     ("topics", "details"): cmd_topics_details,
     ("topics", "message"): cmd_topics_message,
     ("topics", "subscribe"): cmd_topics_subscribe,
-    ("topics", "echo"): cmd_topics_subscribe,
     ("topics", "publish"): cmd_topics_publish,
     ("topics", "publish-sequence"): cmd_topics_publish_sequence,
     ("topics", "publish-until"): cmd_topics_publish_until,
     ("topics", "publish-continuous"): cmd_topics_publish_continuous,
+    ("topics", "hz"): cmd_topics_hz,
+    ("topics", "find"): cmd_topics_find,
+    # topics — aliases
+    ("topics", "echo"): cmd_topics_subscribe,
+    ("topics", "sub"): cmd_topics_subscribe,
+    ("topics", "pub"): cmd_topics_publish,
+    ("topics", "pub-seq"): cmd_topics_publish_sequence,
+    ("topics", "info"): cmd_topics_details,
+    # services — canonical
     ("services", "list"): cmd_services_list,
     ("services", "type"): cmd_services_type,
     ("services", "details"): cmd_services_details,
     ("services", "call"): cmd_services_call,
+    ("services", "find"): cmd_services_find,
+    # services — aliases
+    ("services", "info"): cmd_services_details,
+    # nodes — canonical
     ("nodes", "list"): cmd_nodes_list,
     ("nodes", "details"): cmd_nodes_details,
+    # nodes — aliases
+    ("nodes", "info"): cmd_nodes_details,
+    # params
     ("params", "list"): cmd_params_list,
     ("params", "get"): cmd_params_get,
     ("params", "set"): cmd_params_set,
+    # actions — canonical
     ("actions", "list"): cmd_actions_list,
     ("actions", "details"): cmd_actions_details,
     ("actions", "send"): cmd_actions_send,
+    ("actions", "type"): cmd_actions_type,
+    # actions — aliases
+    ("actions", "info"): cmd_actions_details,
+    ("actions", "send-goal"): cmd_actions_send,
 }
 
 
