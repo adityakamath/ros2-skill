@@ -2469,6 +2469,7 @@ def build_parser():
     topics = sub.add_parser("topics", help="Topic operations")
     tsub = topics.add_subparsers(dest="subcommand")
     tsub.add_parser("list", help="List all topics")
+    tsub.add_parser("ls", help="Alias for list")
     p = tsub.add_parser("type", help="Get topic message type")
     p.add_argument("topic")
     p = tsub.add_parser("details", help="Get topic details")
@@ -2547,6 +2548,7 @@ def build_parser():
     services = sub.add_parser("services", help="Service operations")
     ssub = services.add_subparsers(dest="subcommand")
     ssub.add_parser("list", help="List all services")
+    ssub.add_parser("ls", help="Alias for list")
     p = ssub.add_parser("type", help="Get service type")
     p.add_argument("service")
     p = ssub.add_parser("details", help="Get service details")
@@ -2655,6 +2657,7 @@ DISPATCH = {
     ("topics", "sub"): cmd_topics_subscribe,
     ("topics", "pub"): cmd_topics_publish,
     ("topics", "pub-seq"): cmd_topics_publish_sequence,
+    ("topics", "ls"): cmd_topics_list,
     ("topics", "info"): cmd_topics_details,
     # services — canonical
     ("services", "list"): cmd_services_list,
@@ -2663,6 +2666,7 @@ DISPATCH = {
     ("services", "call"): cmd_services_call,
     ("services", "find"): cmd_services_find,
     # services — aliases
+    ("services", "ls"): cmd_services_list,
     ("services", "info"): cmd_services_details,
     # nodes — canonical
     ("nodes", "list"): cmd_nodes_list,
