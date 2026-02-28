@@ -33,12 +33,16 @@ Commands:
     $ python3 ros2_cli.py topics message sensor_msgs/LaserScan
 
   topics subscribe <topic> [--duration SEC] [--max-messages N]
-    Subscribe to a topic. Without --duration, returns the first message and exits.
+  topics echo      <topic> [--duration SEC] [--max-messages N]
+    Subscribe to a topic (echo is an alias for subscribe).
+    Without --duration, returns the first message and exits.
     With --duration, collects messages for the specified time.
-    --duration SECONDS   Collect messages for this duration (default: single message)
-    --max-messages N     Max messages to collect during duration (default: 100)
+    --duration SECONDS        Collect messages for this duration (default: single message)
+    --max-messages N          Max messages to collect during duration (default: 100)
+    --max-msgs N              Alias for --max-messages
     $ python3 ros2_cli.py topics subscribe /turtle1/pose
-    $ python3 ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+    $ python3 ros2_cli.py topics echo /odom
+    $ python3 ros2_cli.py topics subscribe /odom --duration 10 --max-msgs 50
 
   topics publish <topic> <json_message> [--duration SEC] [--rate HZ]
     Publish a message to a topic.
@@ -73,11 +77,14 @@ Commands:
     Get service details including type, request fields, and response fields.
     $ python3 ros2_cli.py services details /spawn
 
-  services call <service> <json_request>
-    Call a service with a JSON request payload.
+  services call <service> <json_request> [--service-type TYPE]
+    Call a service with a JSON request payload. Service type is auto-detected
+    from the ROS graph; use --service-type when the service is not yet visible.
     $ python3 ros2_cli.py services call /reset '{}'
     $ python3 ros2_cli.py services call /spawn \
         '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
+    $ python3 ros2_cli.py services call /emergency_stop \
+        '{"data": true}' --service-type std_srvs/srv/SetBool
 
   nodes list
     List all active nodes.
@@ -92,14 +99,16 @@ Commands:
     $ python3 ros2_cli.py params list /turtlesim
 
   params get <node:param_name>
-    Get a parameter value. Format: /node_name:parameter_name
+  params get <node> <param_name>
+    Get a parameter value. Both formats are accepted.
     $ python3 ros2_cli.py params get /turtlesim:background_r
-    $ python3 ros2_cli.py params get /turtlesim:background_b
+    $ python3 ros2_cli.py params get /turtlesim background_r
 
   params set <node:param_name> <value>
-    Set a parameter value. Format: /node_name:parameter_name
+  params set <node> <param_name> <value>
+    Set a parameter value. Both formats are accepted.
     $ python3 ros2_cli.py params set /turtlesim:background_r 255
-    $ python3 ros2_cli.py params set /turtlesim:background_g 0
+    $ python3 ros2_cli.py params set /turtlesim background_r 255
 
   actions list
     List all available action servers.
@@ -311,7 +320,16 @@ def msg_to_dict(msg):
         elif isinstance(value, (bytes, bytearray)):
             result[field] = list(value)
         elif isinstance(value, (list, tuple)):
-            result[field] = [msg_to_dict(v) if hasattr(v, 'get_fields_and_field_types') else v for v in value]
+            result[field] = [
+                msg_to_dict(v) if hasattr(v, 'get_fields_and_field_types')
+                else v.tolist() if hasattr(v, 'tolist')
+                else v
+                for v in value
+            ]
+        elif hasattr(value, 'tolist'):
+            # numpy.ndarray (fixed-size array fields like Odometry.covariance[36]) and
+            # numpy scalar types — convert to native Python list / number so json.dumps works.
+            result[field] = value.tolist()
         else:
             result[field] = value
     return result
@@ -345,8 +363,15 @@ def dict_to_msg(msg_type, data):
     return msg
 
 
+def _json_default(obj):
+    """Fallback JSON encoder for types not handled by msg_to_dict (e.g. stray numpy scalars)."""
+    if hasattr(obj, 'tolist'):
+        return obj.tolist()
+    return str(obj)
+
+
 def output(data):
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=_json_default))
 
 
 class ROS2CLI(Node):
@@ -379,15 +404,10 @@ def parse_node_param(name):
 
 
 def cmd_version(args):
-    try:
-        rclpy.init()
-        version = rclpy.utilities.get_domain_id()
-        distro = os.environ.get('ROS_DISTRO', 'unknown')
-        result = {"version": "2", "distro": distro, "domain_id": version}
-        rclpy.shutdown()
-        output(result)
-    except Exception as e:
-        output({"error": str(e)})
+    # ROS_DOMAIN_ID is a plain env var; rclpy.utilities has no get_domain_id() API.
+    domain_id = int(os.environ.get('ROS_DOMAIN_ID', 0))
+    distro = os.environ.get('ROS_DISTRO', 'unknown')
+    output({"version": "2", "distro": distro, "domain_id": domain_id})
 
 
 VELOCITY_TOPICS = ["/cmd_vel", "/cmd_vel_nav", "/cmd_vel_raw", "/mobile_base/commands/velocity"]
@@ -877,25 +897,47 @@ def cmd_services_details(args):
 
 
 def cmd_services_call(args):
+    # Detect which of the two supported call formats was used:
+    #
+    #   New (flag) form:      services call /svc '{"data":true}' --service-type pkg/srv/T
+    #     args.extra_request is None  → request_json = args.request
+    #                                    service_type_override = None (fall through to --service-type flag)
+    #
+    #   Old (positional) form: services call /svc pkg/srv/T '{"data":true}'
+    #     args.extra_request is set  → args.request holds the service type string
+    #                                    args.extra_request holds the JSON payload
+    #                                    service_type_override = args.request
+    #                                    request_json = args.extra_request
+    if getattr(args, 'extra_request', None) is not None:
+        service_type_override = args.request
+        request_json = args.extra_request
+    else:
+        service_type_override = None
+        request_json = args.request
+
     try:
-        request_data = json.loads(args.request)
-    except json.JSONDecodeError as e:
+        request_data = json.loads(request_json)
+    except (json.JSONDecodeError, TypeError) as e:
         return output({"error": f"Invalid JSON request: {e}"})
-    
+
     try:
         rclpy.init()
         node = ROS2CLI()
-        
-        services = node.get_service_names()
-        service_type = None
-        for name, types in services:
-            if name == args.service:
-                service_type = types[0] if types else ""
-                break
-        
+
+        service_type = service_type_override or args.service_type
+        if not service_type:
+            services = node.get_service_names()
+            for name, types in services:
+                if name == args.service:
+                    service_type = types[0] if types else ""
+                    break
+
         if not service_type:
             rclpy.shutdown()
-            return output({"error": f"Service not found: {args.service}"})
+            return output({
+                "error": f"Service not found: {args.service}",
+                "hint": "Use --service-type to specify the type explicitly (e.g. --service-type std_srvs/srv/SetBool)"
+            })
         
         srv_class = get_srv_type(service_type)
         if not srv_class:
@@ -1013,14 +1055,18 @@ def cmd_params_list(args):
 
 
 def cmd_params_get(args):
-    if ':' not in args.name or not args.name.split(':', 1)[1]:
-        return output({"error": "Use format /node_name:param_name (e.g. /turtlesim:background_r)"})
+    # Accept both /node:param and "/node param_name" (two space-separated args)
+    if getattr(args, 'param_name', None):
+        full_name = args.name.rstrip(':') + ':' + args.param_name
+    else:
+        full_name = args.name
+    if ':' not in full_name or not full_name.split(':', 1)[1]:
+        return output({"error": "Use format /node_name:param_name or /node_name param_name (e.g. /turtlesim background_r)"})
 
     try:
         rclpy.init()
         node = ROS2CLI()
 
-        full_name = args.name
         node_name, param_name = full_name.split(':', 1)
         
         if not node_name.startswith('/'):
@@ -1066,7 +1112,7 @@ def cmd_params_get(args):
                     value_str = str(v)
                     exists = True
             rclpy.shutdown()
-            output({"name": args.name, "value": value_str, "exists": exists})
+            output({"name": full_name, "value": value_str, "exists": exists})
         else:
             rclpy.shutdown()
             output({"error": "Timeout getting parameter"})
@@ -1075,54 +1121,60 @@ def cmd_params_get(args):
 
 
 def cmd_params_set(args):
-    if ':' not in args.name or not args.name.split(':', 1)[1]:
-        return output({"error": "Use format /node_name:param_name (e.g. /turtlesim:background_r)"})
+    # Accept both "/node:param value" and "/node param_name value" (three space-separated args)
+    if getattr(args, 'extra_value', None) is not None:
+        full_name = args.name.rstrip(':') + ':' + args.value
+        value_str = args.extra_value
+    else:
+        full_name = args.name
+        value_str = args.value
+    if ':' not in full_name or not full_name.split(':', 1)[1]:
+        return output({"error": "Use format /node_name:param_name value or /node_name param_name value (e.g. /turtlesim background_r 255)"})
 
     try:
         rclpy.init()
         node = ROS2CLI()
 
-        full_name = args.name
         node_name, param_name = full_name.split(':', 1)
-        
+
         if not node_name.startswith('/'):
             node_name = '/' + node_name
-        
+
         service_name = f"{node_name}/set_parameters"
-        
+
         client = node.create_client(SetParameters, service_name)
-        
+
         if not client.wait_for_service(timeout_sec=args.timeout):
             rclpy.shutdown()
             return output({"error": f"Parameter service not available for {node_name}"})
 
         request = SetParameters.Request()
-        
+
         param = Parameter()
         param.name = param_name
-        
+
         pv = ParameterValue()
         try:
-            if args.value.lower() in ('true', 'false'):
+            if value_str.lower() in ('true', 'false'):
                 pv.type = 1
-                pv.bool_value = args.value.lower() == 'true'
-            elif '.' in args.value:
+                pv.bool_value = value_str.lower() == 'true'
+            elif '.' in value_str:
                 pv.type = 3
-                pv.double_value = float(args.value)
+                pv.double_value = float(value_str)
             else:
                 try:
                     pv.type = 2
-                    pv.integer_value = int(args.value)
+                    pv.integer_value = int(value_str)
                 except Exception:
                     pv.type = 4
-                    pv.string_value = args.value
+                    pv.string_value = value_str
         except Exception:
             pv.type = 4
-            pv.string_value = args.value
-        
+            pv.string_value = value_str
+
         param.value = pv
         request.parameters = [param]
-        
+
         future = client.call_async(request)
 
         end_time = time.time() + args.timeout
@@ -1133,11 +1185,17 @@ def cmd_params_set(args):
         if future.done():
             result = future.result()
             if result.results and result.results[0].successful:
-                output({"name": args.name, "value": args.value, "success": True})
+                output({"name": full_name, "value": value_str, "success": True})
             else:
-                reason = result.results[0].reason if result.results else "unknown"
-                output({"name": args.name, "value": args.value, "success": False,
-                        "error": reason or "Parameter rejected by node"})
+                reason = result.results[0].reason if result.results else ""
+                reason_lc = reason.lower()
+                if re.search(r'\b(read[- ]?only|readonly)\b', reason_lc):
+                    output({"name": full_name, "value": value_str, "success": False,
+                            "error": "Parameter is read-only and cannot be changed at runtime",
+                            "read_only": True})
+                else:
+                    output({"name": full_name, "value": value_str, "success": False,
+                            "error": reason or "Parameter rejected by node"})
         else:
             output({"error": "Timeout setting parameter"})
     except Exception as e:
@@ -1293,6 +1351,19 @@ def cmd_actions_send(args):
         output({"error": str(e)})
 
 
+def _add_subscribe_args(p):
+    """Add the shared arguments for the subscribe / echo subparsers."""
+    p.add_argument("topic", nargs="?")
+    p.add_argument("--msg-type", dest="msg_type", default=None,
+                   help="Message type (auto-detected if not provided)")
+    p.add_argument("--duration", type=float, default=None,
+                   help="Subscribe for duration (seconds)")
+    p.add_argument("--max-messages", "--max-msgs", dest="max_messages", type=int, default=100,
+                   help="Max messages to collect")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout (seconds) when waiting for a single message (default: 5)")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="ROS 2 Skill CLI - Control ROS 2 robots directly via rclpy")
     sub = parser.add_subparsers(dest="command")
@@ -1311,12 +1382,8 @@ def build_parser():
     p.add_argument("topic")
     p = tsub.add_parser("message", help="Get message structure")
     p.add_argument("message_type")
-    p = tsub.add_parser("subscribe", help="Subscribe to a topic")
-    p.add_argument("topic", nargs="?")
-    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
-    p.add_argument("--duration", type=float, default=None, help="Subscribe for duration (seconds)")
-    p.add_argument("--max-messages", type=int, default=100, help="Max messages to collect")
-    p.add_argument("--timeout", type=float, default=5.0, help="Timeout (seconds) when waiting for a single message (default: 5)")
+    _add_subscribe_args(tsub.add_parser("subscribe", help="Subscribe to a topic"))
+    _add_subscribe_args(tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)"))
     p = tsub.add_parser("publish", help="Publish a message")
     p.add_argument("topic", nargs="?")
     p.add_argument("msg", nargs="?", help="JSON message")
@@ -1339,7 +1406,11 @@ def build_parser():
     p.add_argument("service")
     p = ssub.add_parser("call", help="Call a service")
     p.add_argument("service")
-    p.add_argument("request", help="JSON request")
+    p.add_argument("request", help="JSON request, or service type when using positional service-type format")
+    p.add_argument("extra_request", nargs="?", default=None,
+                   help="JSON request when using /svc service_type json positional format")
+    p.add_argument("--service-type", dest="service_type", default=None,
+                   help="Service type (auto-detected if not provided, e.g. std_srvs/srv/SetBool)")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
 
     nodes = sub.add_parser("nodes", help="Node operations")
@@ -1354,11 +1425,13 @@ def build_parser():
     p.add_argument("node")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
     p = psub.add_parser("get", help="Get parameter value")
-    p.add_argument("name")
+    p.add_argument("name", help="/node_name:param_name or just /node_name")
+    p.add_argument("param_name", nargs="?", default=None, help="Parameter name (alternative to colon format)")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
     p = psub.add_parser("set", help="Set parameter value")
-    p.add_argument("name")
-    p.add_argument("value")
+    p.add_argument("name", help="/node_name:param_name or just /node_name")
+    p.add_argument("value", help="Value to set, or parameter name when using /node param value format")
+    p.add_argument("extra_value", nargs="?", default=None, help="Value when using /node param value format")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
 
     actions = sub.add_parser("actions", help="Action operations")
@@ -1382,6 +1455,7 @@ DISPATCH = {
     ("topics", "details"): cmd_topics_details,
     ("topics", "message"): cmd_topics_message,
     ("topics", "subscribe"): cmd_topics_subscribe,
+    ("topics", "echo"): cmd_topics_subscribe,
     ("topics", "publish"): cmd_topics_publish,
     ("topics", "publish-sequence"): cmd_topics_publish_sequence,
     ("services", "list"): cmd_services_list,
