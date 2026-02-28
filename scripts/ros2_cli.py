@@ -33,12 +33,16 @@ Commands:
     $ python3 ros2_cli.py topics message sensor_msgs/LaserScan
 
   topics subscribe <topic> [--duration SEC] [--max-messages N]
-    Subscribe to a topic. Without --duration, returns the first message and exits.
+  topics echo      <topic> [--duration SEC] [--max-messages N]
+    Subscribe to a topic (echo is an alias for subscribe).
+    Without --duration, returns the first message and exits.
     With --duration, collects messages for the specified time.
-    --duration SECONDS   Collect messages for this duration (default: single message)
-    --max-messages N     Max messages to collect during duration (default: 100)
+    --duration SECONDS        Collect messages for this duration (default: single message)
+    --max-messages N          Max messages to collect during duration (default: 100)
+    --max-msgs N              Alias for --max-messages
     $ python3 ros2_cli.py topics subscribe /turtle1/pose
-    $ python3 ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+    $ python3 ros2_cli.py topics echo /odom
+    $ python3 ros2_cli.py topics subscribe /odom --duration 10 --max-msgs 50
 
   topics publish <topic> <json_message> [--duration SEC] [--rate HZ]
     Publish a message to a topic.
@@ -314,7 +318,16 @@ def msg_to_dict(msg):
         elif isinstance(value, (bytes, bytearray)):
             result[field] = list(value)
         elif isinstance(value, (list, tuple)):
-            result[field] = [msg_to_dict(v) if hasattr(v, 'get_fields_and_field_types') else v for v in value]
+            result[field] = [
+                msg_to_dict(v) if hasattr(v, 'get_fields_and_field_types')
+                else v.tolist() if hasattr(v, 'tolist')
+                else v
+                for v in value
+            ]
+        elif hasattr(value, 'tolist'):
+            # numpy.ndarray (fixed-size array fields like Odometry.covariance[36]) and
+            # numpy scalar types — convert to native Python list / number so json.dumps works.
+            result[field] = value.tolist()
         else:
             result[field] = value
     return result
@@ -348,8 +361,15 @@ def dict_to_msg(msg_type, data):
     return msg
 
 
+def _json_default(obj):
+    """Fallback JSON encoder for types not handled by msg_to_dict (e.g. stray numpy scalars)."""
+    if hasattr(obj, 'tolist'):
+        return obj.tolist()
+    return str(obj)
+
+
 def output(data):
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=_json_default))
 
 
 class ROS2CLI(Node):
@@ -1322,7 +1342,13 @@ def build_parser():
     p.add_argument("topic", nargs="?")
     p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
     p.add_argument("--duration", type=float, default=None, help="Subscribe for duration (seconds)")
-    p.add_argument("--max-messages", type=int, default=100, help="Max messages to collect")
+    p.add_argument("--max-messages", "--max-msgs", dest="max_messages", type=int, default=100, help="Max messages to collect")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout (seconds) when waiting for a single message (default: 5)")
+    p = tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)")
+    p.add_argument("topic", nargs="?")
+    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
+    p.add_argument("--duration", type=float, default=None, help="Subscribe for duration (seconds)")
+    p.add_argument("--max-messages", "--max-msgs", dest="max_messages", type=int, default=100, help="Max messages to collect")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout (seconds) when waiting for a single message (default: 5)")
     p = tsub.add_parser("publish", help="Publish a message")
     p.add_argument("topic", nargs="?")
@@ -1391,6 +1417,7 @@ DISPATCH = {
     ("topics", "details"): cmd_topics_details,
     ("topics", "message"): cmd_topics_message,
     ("topics", "subscribe"): cmd_topics_subscribe,
+    ("topics", "echo"): cmd_topics_subscribe,
     ("topics", "publish"): cmd_topics_publish,
     ("topics", "publish-sequence"): cmd_topics_publish_sequence,
     ("services", "list"): cmd_services_list,
