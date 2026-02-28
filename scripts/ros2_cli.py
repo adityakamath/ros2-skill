@@ -183,12 +183,71 @@ Commands:
     Get the type of an action server.
     $ python3 ros2_cli.py actions type /turtle1/rotate_absolute
 
-  actions send      <action> <json_goal>
-  actions send-goal <action> <json_goal>
+  actions send      <action> <json_goal> [--feedback]
+  actions send-goal <action> <json_goal> [--feedback]
     Send an action goal and wait for the result.
+    --feedback    Collect feedback messages; included in output as feedback_msgs
     (send-goal is an alias for send, ros2 action send_goal)
     $ python3 ros2_cli.py actions send /turtle1/rotate_absolute '{"theta":3.14}'
     $ python3 ros2_cli.py actions send-goal /turtle1/rotate_absolute '{"theta":3.14}'
+    $ python3 ros2_cli.py actions send /turtle1/rotate_absolute '{"theta":3.14}' --feedback
+
+  actions cancel <action> [--timeout SEC]
+    Cancel all in-flight goals on an action server.
+    Uses zero UUID + zero timestamp per ROS 2 CancelGoal spec to cancel all goals.
+    $ python3 ros2_cli.py actions cancel /turtle1/rotate_absolute
+
+  topics bw <topic> [--window N] [--timeout SEC]
+    Measure the bandwidth of a topic in bytes/s.
+    --window N    Number of message samples (default: 10)
+    --timeout SEC Max wait time in seconds (default: 10)
+    $ python3 ros2_cli.py topics bw /camera/image_raw
+    $ python3 ros2_cli.py topics bw /scan --window 20
+
+  topics delay <topic> [--window N] [--timeout SEC]
+    Measure end-to-end latency between header.stamp and wall clock.
+    Errors if the message has no header.stamp field.
+    --window N    Number of latency samples (default: 10)
+    --timeout SEC Max wait time in seconds (default: 10)
+    $ python3 ros2_cli.py topics delay /odom
+    $ python3 ros2_cli.py topics delay /scan --window 20
+
+  params describe <node:param_name>
+  params describe <node> <param_name>
+    Describe a parameter: type, description, read_only, dynamic_typing, constraints.
+    $ python3 ros2_cli.py params describe /turtlesim:background_r
+
+  params dump <node> [--timeout SEC]
+    Export all parameters for a node as a JSON dict {name: value}.
+    $ python3 ros2_cli.py params dump /turtlesim
+
+  params load <node> <json_or_file> [--timeout SEC]
+    Bulk-set parameters from a JSON string or a file path.
+    JSON format: {"param_name": value, ...}
+    $ python3 ros2_cli.py params load /turtlesim '{"background_r":255}'
+
+  params delete <node> <param_name> [extra_param_names...] [--timeout SEC]
+    Delete one or more parameters from a node via DeleteParameters service.
+    $ python3 ros2_cli.py params delete /turtlesim background_r
+
+  interface show <message_type>
+  interface proto <message_type>
+    Get the field structure of a message, service, or action type.
+    (proto is an alias for show, ros2 interface show / proto)
+    $ python3 ros2_cli.py interface show geometry_msgs/Twist
+    $ python3 ros2_cli.py interface proto std_srvs/SetBool
+
+  interface list
+    List all available ROS 2 interfaces (messages, services, actions).
+    $ python3 ros2_cli.py interface list
+
+  interface packages
+    List all packages that contain at least one ROS 2 interface.
+    $ python3 ros2_cli.py interface packages
+
+  interface package [<package>]
+    List all interfaces (messages, services, actions) in a package.
+    $ python3 ros2_cli.py interface package geometry_msgs
 
 Output:
     All commands output JSON to stdout.
@@ -231,7 +290,12 @@ try:
     from rclpy.action import ActionClient
     from rclpy.qos import qos_profile_system_default
     from rcl_interfaces.msg import Parameter, ParameterValue
-    from rcl_interfaces.srv import GetParameters, SetParameters, ListParameters
+    from rcl_interfaces.srv import GetParameters, SetParameters, ListParameters, \
+        DescribeParameters, DeleteParameters
+    from action_msgs.srv import CancelGoal
+    from action_msgs.msg import GoalInfo
+    from builtin_interfaces.msg import Time as BuiltinTime
+    from unique_identifier_msgs.msg import UUID as UniqueUUID
     from rosidl_runtime_py import import_message
 except ImportError:
     print(json.dumps({"error": "rclpy not installed. Run: pip install rclpy (or source ROS 2)"}))
@@ -1743,41 +1807,53 @@ def cmd_actions_send(args):
             return output({"error": f"Action server not available: {args.action}"})
         
         goal_msg = dict_to_msg(action_class.Goal, goal_data)
-        
+
         goal_id = f"goal_{int(time.time() * 1000)}"
-        
-        future = client.send_goal_async(goal_msg)
+        collect_feedback = getattr(args, 'feedback', False)
+        feedback_msgs = []
+        feedback_lock = threading.Lock()
+
+        def _feedback_cb(fb_msg):
+            if collect_feedback:
+                with feedback_lock:
+                    feedback_msgs.append(msg_to_dict(fb_msg.feedback))
+
+        future = client.send_goal_async(goal_msg,
+                                        feedback_callback=_feedback_cb if collect_feedback else None)
 
         timeout = args.timeout
         end_time = time.time() + timeout
-        
+
         while time.time() < end_time and not future.done():
             rclpy.spin_once(node, timeout_sec=0.1)
-        
+
         if not future.done():
             rclpy.shutdown()
             output({"action": args.action, "success": False, "error": "Timeout waiting for goal acceptance"})
             return
-        
+
         goal_handle = future.result()
-        
+
         if not goal_handle.accepted:
             rclpy.shutdown()
             output({"action": args.action, "success": False, "error": "Goal rejected"})
             return
-        
+
         result_future = goal_handle.get_result_async()
-        
+
         end_time = time.time() + timeout
         while time.time() < end_time and not result_future.done():
             rclpy.spin_once(node, timeout_sec=0.1)
-        
+
         if result_future.done():
             result_msg = result_future.result().result
             result_dict = msg_to_dict(result_msg)
             rclpy.shutdown()
-            output({"action": args.action, "success": True,
-                    "goal_id": goal_id, "result": result_dict})
+            out = {"action": args.action, "success": True, "goal_id": goal_id, "result": result_dict}
+            if collect_feedback:
+                with feedback_lock:
+                    out["feedback_msgs"] = list(feedback_msgs)
+            output(out)
         else:
             rclpy.shutdown()
             output({"action": args.action, "success": False, "error": f"Timeout after {timeout}s"})
@@ -1948,6 +2024,592 @@ def cmd_services_find(args):
         output({"error": str(e)})
 
 
+def cmd_interface_list(args):
+    """List all available ROS 2 interfaces (messages, services, actions)."""
+    try:
+        import rosidl_runtime_py as _rpy
+        msgs, srvs, acts = [], [], []
+        for pkg in sorted(_rpy.get_message_packages()):
+            for name in sorted(_rpy.get_messages_in_package(pkg)):
+                msgs.append(f"{pkg}/msg/{name}")
+        for pkg in sorted(_rpy.get_service_packages()):
+            for name in sorted(_rpy.get_services_in_package(pkg)):
+                srvs.append(f"{pkg}/srv/{name}")
+        for pkg in sorted(_rpy.get_action_packages()):
+            for name in sorted(_rpy.get_actions_in_package(pkg)):
+                acts.append(f"{pkg}/action/{name}")
+        output({"messages": msgs, "services": srvs, "actions": acts,
+                "count": len(msgs) + len(srvs) + len(acts)})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_interface_packages(args):
+    """List all packages that expose ROS 2 interfaces."""
+    try:
+        import rosidl_runtime_py as _rpy
+        pkgs = sorted(set(
+            list(_rpy.get_message_packages()) +
+            list(_rpy.get_service_packages()) +
+            list(_rpy.get_action_packages())
+        ))
+        output({"packages": pkgs, "count": len(pkgs)})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_interface_package(args):
+    """List all interfaces (messages, services, actions) in a specific package."""
+    if not args.package:
+        return output({"error": "package argument is required"})
+    pkg = args.package
+    try:
+        import rosidl_runtime_py as _rpy
+        msgs, srvs, acts = [], [], []
+        try:
+            msgs = [f"{pkg}/msg/{n}" for n in sorted(_rpy.get_messages_in_package(pkg))]
+        except LookupError:
+            pass
+        try:
+            srvs = [f"{pkg}/srv/{n}" for n in sorted(_rpy.get_services_in_package(pkg))]
+        except LookupError:
+            pass
+        try:
+            acts = [f"{pkg}/action/{n}" for n in sorted(_rpy.get_actions_in_package(pkg))]
+        except LookupError:
+            pass
+        if not msgs and not srvs and not acts:
+            return output({"error": f"No interfaces found for package '{pkg}'"})
+        output({"package": pkg, "messages": msgs, "services": srvs, "actions": acts})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+class BwMonitor(Node):
+    """Subscriber that measures bandwidth by serializing each received message.
+
+    Stores (timestamp, size_bytes) tuples in *samples* until *window* messages
+    have been received, then sets *done_event*.
+    """
+
+    def __init__(self, topic, msg_type, window, done_event):
+        super().__init__('bw_monitor')
+        self.window = window
+        self.done_event = done_event
+        self.samples = []   # list of (timestamp_float, size_int)
+        self.lock = threading.Lock()
+        self.sub = None
+
+        msg_class = get_msg_type(msg_type)
+        if msg_class:
+            self.sub = self.create_subscription(
+                msg_class, topic, self._callback, qos_profile_system_default
+            )
+
+    def _callback(self, msg):
+        with self.lock:
+            if self.done_event.is_set():
+                return
+            try:
+                import rclpy.serialization
+                size = len(rclpy.serialization.serialize_message(msg))
+            except Exception:
+                size = 0
+            self.samples.append((time.time(), size))
+            if len(self.samples) >= self.window:
+                self.done_event.set()
+
+
+def cmd_topics_bw(args):
+    """Measure the bandwidth of a topic."""
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+
+    topic = args.topic
+    window = args.window
+    timeout = args.timeout
+
+    try:
+        rclpy.init()
+        probe = ROS2CLI()
+        topic_types = dict(probe.get_topic_names_and_types())
+        rclpy.shutdown()
+
+        if topic not in topic_types:
+            return output({"error": f"Topic '{topic}' not found in the ROS graph"})
+        msg_type = topic_types[topic][0]
+
+        rclpy.init()
+        done_event = threading.Event()
+        monitor = BwMonitor(topic, msg_type, window, done_event)
+
+        if monitor.sub is None:
+            rclpy.shutdown()
+            return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
+
+        executor = rclpy.executors.SingleThreadedExecutor()
+        executor.add_node(monitor)
+
+        def _spin():
+            while not done_event.is_set():
+                executor.spin_once(timeout_sec=0.1)
+
+        spin_thread = threading.Thread(target=_spin, daemon=True)
+        spin_thread.start()
+        done_event.wait(timeout=timeout)
+        spin_thread.join(timeout=1.0)
+
+        with monitor.lock:
+            samples = list(monitor.samples)
+        rclpy.shutdown()
+
+        if len(samples) < 2:
+            return output({"error": f"Fewer than 2 messages received within {timeout}s on '{topic}'"})
+
+        duration = samples[-1][0] - samples[0][0]
+        total_bytes = sum(s for _, s in samples)
+        bw = total_bytes / duration if duration > 0 else 0.0
+        bytes_per_msg = total_bytes / len(samples)
+        rate = len(samples) / duration if duration > 0 else 0.0
+
+        output({
+            "topic": topic,
+            "bw": round(bw, 4),
+            "bytes_per_msg": round(bytes_per_msg, 2),
+            "rate": round(rate, 4),
+            "samples": len(samples),
+        })
+    except Exception as e:
+        output({"error": str(e)})
+
+
+class DelayMonitor(Node):
+    """Subscriber that measures header.stamp → wall-clock latency.
+
+    Works only on messages with a header.stamp field.  Stores delay samples
+    in *delays* until *window* have been collected, then sets *done_event*.
+    Sets *header_missing* if the first message has no header.stamp.
+    """
+
+    def __init__(self, topic, msg_type, window, done_event):
+        super().__init__('delay_monitor')
+        self.window = window
+        self.done_event = done_event
+        self.delays = []
+        self.lock = threading.Lock()
+        self.header_missing = False
+        self.sub = None
+
+        msg_class = get_msg_type(msg_type)
+        if msg_class:
+            self.sub = self.create_subscription(
+                msg_class, topic, self._callback, qos_profile_system_default
+            )
+
+    def _callback(self, msg):
+        with self.lock:
+            if self.done_event.is_set():
+                return
+            wall = time.time()
+            if not (hasattr(msg, 'header') and hasattr(msg.header, 'stamp')):
+                self.header_missing = True
+                self.done_event.set()
+                return
+            stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+            self.delays.append(wall - stamp)
+            if len(self.delays) >= self.window:
+                self.done_event.set()
+
+
+def cmd_topics_delay(args):
+    """Measure header.stamp → wall-clock latency for a topic."""
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+
+    topic = args.topic
+    window = args.window
+    timeout = args.timeout
+
+    try:
+        rclpy.init()
+        probe = ROS2CLI()
+        topic_types = dict(probe.get_topic_names_and_types())
+        rclpy.shutdown()
+
+        if topic not in topic_types:
+            return output({"error": f"Topic '{topic}' not found in the ROS graph"})
+        msg_type = topic_types[topic][0]
+
+        rclpy.init()
+        done_event = threading.Event()
+        monitor = DelayMonitor(topic, msg_type, window, done_event)
+
+        if monitor.sub is None:
+            rclpy.shutdown()
+            return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
+
+        executor = rclpy.executors.SingleThreadedExecutor()
+        executor.add_node(monitor)
+
+        def _spin():
+            while not done_event.is_set():
+                executor.spin_once(timeout_sec=0.1)
+
+        spin_thread = threading.Thread(target=_spin, daemon=True)
+        spin_thread.start()
+        done_event.wait(timeout=timeout)
+        spin_thread.join(timeout=1.0)
+
+        with monitor.lock:
+            delays = list(monitor.delays)
+            header_missing = monitor.header_missing
+        rclpy.shutdown()
+
+        if header_missing:
+            return output({"error": f"Topic '{topic}' messages have no header.stamp field"})
+        if not delays:
+            return output({"error": f"No messages received within {timeout}s on '{topic}'"})
+
+        mean_delay = sum(delays) / len(delays)
+        variance = sum((d - mean_delay) ** 2 for d in delays) / len(delays)
+        output({
+            "topic": topic,
+            "mean_delay": round(mean_delay, 6),
+            "min_delay": round(min(delays), 6),
+            "max_delay": round(max(delays), 6),
+            "std_dev": round(variance ** 0.5, 6),
+            "samples": len(delays),
+        })
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def _param_value_to_python(v):
+    """Convert a rcl_interfaces ParameterValue to a native Python value."""
+    if v.type == 1:
+        return v.bool_value
+    elif v.type == 2:
+        return v.integer_value
+    elif v.type == 3:
+        return v.double_value
+    elif v.type == 4:
+        return v.string_value
+    elif v.type == 5:
+        return list(v.byte_array_value)
+    elif v.type == 6:
+        return list(v.bool_array_value)
+    elif v.type == 7:
+        return list(v.integer_array_value)
+    elif v.type == 8:
+        return list(v.double_array_value)
+    elif v.type == 9:
+        return list(v.string_array_value)
+    return None
+
+
+def cmd_params_describe(args):
+    """Get the descriptor of a parameter (type, description, read_only, constraints)."""
+    if getattr(args, 'param_name', None):
+        full_name = args.name.rstrip(':') + ':' + args.param_name
+    else:
+        full_name = args.name
+    if ':' not in full_name or not full_name.split(':', 1)[1]:
+        return output({"error": "Use format /node_name:param_name or /node_name param_name"})
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+
+        node_name, param_name = full_name.split(':', 1)
+        if not node_name.startswith('/'):
+            node_name = '/' + node_name
+
+        service_name = f"{node_name}/describe_parameters"
+        client = node.create_client(DescribeParameters, service_name)
+
+        if not client.wait_for_service(timeout_sec=args.timeout):
+            rclpy.shutdown()
+            return output({"error": f"Parameter service not available for {node_name}"})
+
+        request = DescribeParameters.Request()
+        request.names = [param_name]
+        future = client.call_async(request)
+
+        end_time = time.time() + args.timeout
+        while time.time() < end_time and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        rclpy.shutdown()
+        if not future.done():
+            return output({"error": "Timeout describing parameter"})
+
+        result = future.result()
+        if not result.descriptors:
+            return output({"error": f"Parameter '{param_name}' not found on {node_name}"})
+
+        d = result.descriptors[0]
+        out = {
+            "name": full_name,
+            "type": d.type,
+            "description": d.description,
+            "read_only": d.read_only,
+            "dynamic_typing": d.dynamic_typing,
+            "additional_constraints": d.additional_constraints,
+        }
+        if d.floating_point_range:
+            r = d.floating_point_range[0]
+            out["floating_point_range"] = {"from_value": r.from_value,
+                                           "to_value": r.to_value, "step": r.step}
+        if d.integer_range:
+            r = d.integer_range[0]
+            out["integer_range"] = {"from_value": r.from_value,
+                                    "to_value": r.to_value, "step": r.step}
+        output(out)
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_params_dump(args):
+    """Export all parameters of a node as a JSON dict."""
+    node_name = args.node
+    if not node_name.startswith('/'):
+        node_name = '/' + node_name
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+
+        # Step 1: list all parameter names.
+        list_client = node.create_client(ListParameters, f"{node_name}/list_parameters")
+        if not list_client.wait_for_service(timeout_sec=args.timeout):
+            rclpy.shutdown()
+            return output({"error": f"Parameter service not available for {node_name}"})
+
+        list_req = ListParameters.Request()
+        future = list_client.call_async(list_req)
+        end_time = time.time() + args.timeout
+        while time.time() < end_time and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        if not future.done():
+            rclpy.shutdown()
+            return output({"error": "Timeout listing parameters"})
+
+        names = future.result().result.names if future.result().result else []
+        if not names:
+            rclpy.shutdown()
+            return output({"node": node_name, "parameters": {}, "count": 0})
+
+        # Step 2: get all values in one call.
+        get_client = node.create_client(GetParameters, f"{node_name}/get_parameters")
+        if not get_client.wait_for_service(timeout_sec=args.timeout):
+            rclpy.shutdown()
+            return output({"error": f"GetParameters service not available for {node_name}"})
+
+        get_req = GetParameters.Request()
+        get_req.names = list(names)
+        future2 = get_client.call_async(get_req)
+        end_time2 = time.time() + args.timeout
+        while time.time() < end_time2 and not future2.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        rclpy.shutdown()
+        if not future2.done():
+            return output({"error": "Timeout getting parameters"})
+
+        values = future2.result().values or []
+        params_dict = {n: _param_value_to_python(v) for n, v in zip(names, values)}
+        output({"node": node_name, "parameters": params_dict, "count": len(params_dict)})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def _infer_param_value(value):
+    """Infer ParameterValue type from a native Python value."""
+    pv = ParameterValue()
+    if isinstance(value, bool):
+        pv.type = 1
+        pv.bool_value = value
+    elif isinstance(value, int):
+        pv.type = 2
+        pv.integer_value = value
+    elif isinstance(value, float):
+        pv.type = 3
+        pv.double_value = value
+    elif isinstance(value, str):
+        pv.type = 4
+        pv.string_value = value
+    elif isinstance(value, (list, tuple)) and value:
+        first = value[0]
+        if isinstance(first, bool):
+            pv.type = 6
+            pv.bool_array_value = list(value)
+        elif isinstance(first, int):
+            pv.type = 7
+            pv.integer_array_value = list(value)
+        elif isinstance(first, float):
+            pv.type = 8
+            pv.double_array_value = list(value)
+        elif isinstance(first, str):
+            pv.type = 9
+            pv.string_array_value = list(value)
+        else:
+            pv.type = 4
+            pv.string_value = str(value)
+    else:
+        pv.type = 4
+        pv.string_value = str(value)
+    return pv
+
+
+def cmd_params_load(args):
+    """Load parameters onto a node from a JSON string or file."""
+    node_name = args.node
+    if not node_name.startswith('/'):
+        node_name = '/' + node_name
+
+    raw = args.params
+    try:
+        import pathlib
+        if pathlib.Path(raw).exists():
+            with open(raw) as f:
+                data = json.load(f)
+        else:
+            data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError, OSError) as e:
+        return output({"error": f"Invalid JSON or file not found: {e}"})
+
+    if not isinstance(data, dict):
+        return output({"error": "JSON must be a flat object {param_name: value, ...}"})
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+
+        service_name = f"{node_name}/set_parameters"
+        client = node.create_client(SetParameters, service_name)
+        if not client.wait_for_service(timeout_sec=args.timeout):
+            rclpy.shutdown()
+            return output({"error": f"Parameter service not available for {node_name}"})
+
+        request = SetParameters.Request()
+        params = []
+        for pname, pvalue in data.items():
+            p = Parameter()
+            p.name = pname
+            p.value = _infer_param_value(pvalue)
+            params.append(p)
+        request.parameters = params
+
+        future = client.call_async(request)
+        end_time = time.time() + args.timeout
+        while time.time() < end_time and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        rclpy.shutdown()
+        if not future.done():
+            return output({"error": "Timeout loading parameters"})
+
+        results_raw = future.result().results or []
+        results = []
+        for pname, r in zip(data.keys(), results_raw):
+            entry = {"name": pname, "success": r.successful}
+            if not r.successful and r.reason:
+                entry["reason"] = r.reason
+            results.append(entry)
+        output({"node": node_name, "results": results})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_params_delete(args):
+    """Delete one or more parameters from a node."""
+    if getattr(args, 'param_name', None):
+        full_name = args.name.rstrip(':') + ':' + args.param_name
+    else:
+        full_name = args.name
+    if ':' not in full_name or not full_name.split(':', 1)[1]:
+        return output({"error": "Use format /node_name:param_name or /node_name param_name"})
+
+    node_name, param_name = full_name.split(':', 1)
+    if not node_name.startswith('/'):
+        node_name = '/' + node_name
+
+    # Collect additional param names from extra_names positional
+    param_names = [param_name] + (list(args.extra_names) if getattr(args, 'extra_names', None) else [])
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+
+        service_name = f"{node_name}/delete_parameters"
+        client = node.create_client(DeleteParameters, service_name)
+        if not client.wait_for_service(timeout_sec=args.timeout):
+            rclpy.shutdown()
+            return output({"error": f"Delete-parameters service not available for {node_name}"})
+
+        request = DeleteParameters.Request()
+        request.names = param_names
+        future = client.call_async(request)
+
+        end_time = time.time() + args.timeout
+        while time.time() < end_time and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        rclpy.shutdown()
+        if not future.done():
+            return output({"error": "Timeout deleting parameters"})
+
+        output({"node": node_name, "deleted": param_names, "count": len(param_names)})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_actions_cancel(args):
+    """Cancel all in-flight goals on an action server."""
+    if not args.action:
+        return output({"error": "action argument is required"})
+
+    action = args.action.rstrip('/')
+    timeout = args.timeout
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+
+        service_name = action + '/_action/cancel_goal'
+        client = node.create_client(CancelGoal, service_name)
+
+        if not client.wait_for_service(timeout_sec=timeout):
+            rclpy.shutdown()
+            return output({"error": f"Action server '{action}' not available"})
+
+        request = CancelGoal.Request()
+        # Zero UUID + zero timestamp = cancel ALL goals (per ROS 2 spec)
+        request.goal_info.goal_id.uuid = [0] * 16
+        request.goal_info.stamp = BuiltinTime(sec=0, nanosec=0)
+
+        future = client.call_async(request)
+        end_time = time.time() + timeout
+        while time.time() < end_time and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        rclpy.shutdown()
+        if not future.done():
+            return output({"error": f"Timeout cancelling goals on '{action}'"})
+
+        result = future.result()
+        # return_code: 0=OK, 1=rejected, 2=unknown_goal, 3=goal_terminated
+        cancelled = [str(bytes(g.goal_id.uuid)) for g in (result.goals_canceling or [])]
+        output({
+            "action": action,
+            "return_code": result.return_code,
+            "cancelled_goals": len(cancelled),
+        })
+    except Exception as e:
+        output({"error": str(e)})
+
+
 def _add_subscribe_args(p):
     """Add the shared arguments for the subscribe / echo subparsers."""
     p.add_argument("topic", nargs="?")
@@ -1994,6 +2656,18 @@ def build_parser():
     p.add_argument("msg_type", nargs="?")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p = tsub.add_parser("bw", help="Measure topic bandwidth")
+    p.add_argument("topic", nargs="?")
+    p.add_argument("--window", type=int, default=10,
+                   help="Number of messages to sample (default: 10)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Max wait time in seconds (default: 10)")
+    p = tsub.add_parser("delay", help="Measure header.stamp → wall-clock latency")
+    p.add_argument("topic", nargs="?")
+    p.add_argument("--window", type=int, default=10,
+                   help="Number of messages to sample (default: 10)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Max wait time in seconds (default: 10)")
     for _pub_name in ("publish", "pub"):
         p = tsub.add_parser(_pub_name, help="Publish a message" if _pub_name == "publish"
                             else "Alias for publish")
@@ -2079,6 +2753,22 @@ def build_parser():
     p.add_argument("value", help="Value to set, or parameter name when using /node param value format")
     p.add_argument("extra_value", nargs="?", default=None, help="Value when using /node param value format")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
+    p = psub.add_parser("describe", help="Get parameter descriptor")
+    p.add_argument("name", help="/node_name:param_name or just /node_name")
+    p.add_argument("param_name", nargs="?", default=None, help="Parameter name (alternative to colon format)")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
+    p = psub.add_parser("dump", help="Dump all parameters of a node as JSON")
+    p.add_argument("node", help="Node name (e.g. /turtlesim)")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
+    p = psub.add_parser("load", help="Load parameters onto a node from JSON string or file")
+    p.add_argument("node", help="Node name (e.g. /turtlesim)")
+    p.add_argument("params", help="JSON string or file path with parameters dict")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
+    p = psub.add_parser("delete", help="Delete a parameter from a node")
+    p.add_argument("name", help="/node_name:param_name or just /node_name")
+    p.add_argument("param_name", nargs="?", default=None, help="Parameter name (alternative to colon format)")
+    p.add_argument("extra_names", nargs="*", default=[], help="Additional parameter names to delete")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
 
     actions = sub.add_parser("actions", help="Action operations")
     asub = actions.add_subparsers(dest="subcommand")
@@ -2091,14 +2781,28 @@ def build_parser():
     p.add_argument("action", nargs="?")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
-    p = asub.add_parser("send", help="Send action goal")
-    p.add_argument("action")
-    p.add_argument("goal", help="JSON goal")
-    p.add_argument("--timeout", type=float, default=30.0, help="Timeout in seconds (default: 30)")
-    p = asub.add_parser("send-goal", help="Alias for send (ros2 action send_goal)")
-    p.add_argument("action")
-    p.add_argument("goal", help="JSON goal")
-    p.add_argument("--timeout", type=float, default=30.0, help="Timeout in seconds (default: 30)")
+    for _send_name in ("send", "send-goal"):
+        p = asub.add_parser(_send_name, help="Send action goal" if _send_name == "send"
+                            else "Alias for send (ros2 action send_goal)")
+        p.add_argument("action")
+        p.add_argument("goal", help="JSON goal")
+        p.add_argument("--timeout", type=float, default=30.0, help="Timeout in seconds (default: 30)")
+        p.add_argument("--feedback", action="store_true", default=False,
+                       help="Collect and return feedback messages alongside the result")
+    p = asub.add_parser("cancel", help="Cancel all in-flight goals on an action server")
+    p.add_argument("action", nargs="?")
+    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
+
+    interface = sub.add_parser("interface", help="Interface introspection")
+    isub = interface.add_subparsers(dest="subcommand")
+    p = isub.add_parser("show", help="Show message/service/action structure (alias for topics message)")
+    p.add_argument("message_type")
+    p = isub.add_parser("proto", help="Show prototype JSON (alias for topics message)")
+    p.add_argument("message_type")
+    isub.add_parser("list", help="List all available interfaces")
+    isub.add_parser("packages", help="List packages with interfaces")
+    p = isub.add_parser("package", help="List interfaces in a specific package")
+    p.add_argument("package", nargs="?")
 
     return parser
 
@@ -2149,6 +2853,22 @@ DISPATCH = {
     # actions — aliases
     ("actions", "info"): cmd_actions_details,
     ("actions", "send-goal"): cmd_actions_send,
+    # topics — Phase 2
+    ("topics", "bw"): cmd_topics_bw,
+    ("topics", "delay"): cmd_topics_delay,
+    # params — Phase 2
+    ("params", "describe"): cmd_params_describe,
+    ("params", "dump"): cmd_params_dump,
+    ("params", "load"): cmd_params_load,
+    ("params", "delete"): cmd_params_delete,
+    # actions — Phase 2
+    ("actions", "cancel"): cmd_actions_cancel,
+    # interface — Phase 2
+    ("interface", "show"): cmd_topics_message,
+    ("interface", "proto"): cmd_topics_message,
+    ("interface", "list"): cmd_interface_list,
+    ("interface", "packages"): cmd_interface_packages,
+    ("interface", "package"): cmd_interface_package,
 }
 
 
