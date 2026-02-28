@@ -1046,30 +1046,6 @@ Output:
 {"node": "/turtlesim", "deleted": ["background_r"], "count": 1}
 ```
 
----
 
-## interface show `<message_type>` / interface proto `<message_type>`
-
-Get the field structure of a message, service, or action type. `interface proto` is an alias for `interface show`. Both use the same handler as `topics message` — all three commands are interchangeable.
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `message_type` | Yes | Message/service/action type (e.g. `geometry_msgs/Twist`) |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py interface show geometry_msgs/Twist
-python3 {baseDir}/scripts/ros2_cli.py interface proto std_srvs/SetBool
-```
-
-Output:
-```json
-{
-  "message_type": "geometry_msgs/Twist",
-  "structure": {
-    "linear": {"x": 0.0, "y": 0.0, "z": 0.0},
-    "angular": {"x": 0.0, "y": 0.0, "z": 0.0}
-  }
-}
-```
 
 

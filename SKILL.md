@@ -99,8 +99,6 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Actions | `actions send <action> <json>` | Send action goal |
 | Actions | `actions send-goal <action> <json>` | Alias for `actions send` |
 | Actions | `actions cancel <action>` | Cancel all in-flight goals |
-| Interface | `interface show <type>` | Get interface field structure |
-| Interface | `interface proto <type>` | Alias for `interface show` |
 
 ---
 
@@ -351,16 +349,6 @@ python3 {baseDir}/scripts/ros2_cli.py params load /turtlesim \
 
 # Delete a parameter
 python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r
-```
-
-### interface show / proto
-
-Inspect ROS 2 interface definitions. `proto` is an alias for `show`.
-
-```bash
-# Show field structure of a message, service, or action type
-python3 {baseDir}/scripts/ros2_cli.py interface show geometry_msgs/Twist
-python3 {baseDir}/scripts/ros2_cli.py interface proto std_srvs/SetBool
 ```
 
 ---

@@ -58,7 +58,6 @@ See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 | Nodes | `list`, `details`, `info` |
 | Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
 | Actions | `list`, `details`, `info`, `type`, `send`, `send-goal`, `cancel` |
-| Interface | `show`, `proto` |
 
 All commands output JSON. See `SKILL.md` for quick reference and `references/COMMANDS.md` for full details with output examples.
 
