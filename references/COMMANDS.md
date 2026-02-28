@@ -278,6 +278,13 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
 
 Publish a message at a fixed rate while simultaneously monitoring a second topic. Stops as soon as a structured condition on the monitored field is satisfied, or after a safety timeout. Use this to move a robot until it reaches a target pose, until a sensor threshold is crossed, etc.
 
+**Discovery workflow** — before running, introspect the live robot:
+1. `topics find nav_msgs/msg/Odometry` — find odometry/feedback topic
+2. `topics message <type>` — inspect field paths
+3. `topics subscribe <monitor_topic> --duration 2` — read current value (baseline for `--delta`)
+
+See the _Goal-Oriented Commands_ workflow section in `SKILL.md` for a full lookup table and examples.
+
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `topic` | Yes | Topic to publish to |

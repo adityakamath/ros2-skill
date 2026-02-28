@@ -5,6 +5,7 @@ All notable changes to ros2-skill will be documented in this file.
 ## [1.0.3] - 2026-02-28
 
 ### Fixed
+- **`topics publish-until` executor compatibility**: replaced `MultiThreadedExecutor` + background `spin_thread` + `executor.shutdown(wait=False)` with `SingleThreadedExecutor` + `spin_once(timeout_sec=interval)` in the main loop — eliminates `TypeError: shutdown() got an unexpected keyword argument 'wait'` on rclpy versions prior to Humble where the `wait` keyword did not exist; matches the `SingleThreadedExecutor` + `spin_once` pattern already used by every other executor in the file
 - **`nodes ls` / `params ls` / `actions ls`** aliases added — all three are now registered aliases for their respective `list` subcommands (parsers + DISPATCH); `params ls <node>` passes the required node argument through as-is
 - **`topics publish` / `topics pub` / `topics publish-continuous` consolidated**: `publish-continuous` is now an alias for `publish`; `cmd_topics_publish_continuous` has been removed; `cmd_topics_publish` now accepts both `--duration` and `--timeout` (they are fully equivalent — `--timeout` is registered as an alternative option string with `dest="duration"`); output for the repeated-publish path now always includes `stopped_by: "timeout" | "keyboard_interrupt"` and reports actual elapsed duration; `KeyboardInterrupt` is caught so Ctrl+C reports cleanly rather than propagating
 - **`publish-continuous` parser `--timeout` no longer required**: the `required=True` constraint is removed now that `publish` and `publish-continuous` share a single handler; omitting `--duration`/`--timeout` on either command falls back to single-shot behaviour
@@ -41,6 +42,9 @@ All notable changes to ros2-skill will be documented in this file.
 - **`DelayMonitor(Node)`**: top-level subscriber class that accumulates header-stamp latency samples; sets `header_missing` flag if the message has no `header.stamp`
 - **`_param_value_to_python(v)`**: converts a `ParameterValue` (types 1–9) to a native Python value; used by `cmd_params_dump`
 - **`_infer_param_value(value)`**: infers a `ParameterValue` from a native Python value (bool→1, int→2, float→3, str→4, lists→6–9); used by `cmd_params_load`
+- **Goal-Oriented Commands workflow** in `SKILL.md` (Workflow section 7): step-by-step discovery guide for constructing `publish-until` commands from natural language intent; includes `topics find` + `topics message` + `topics subscribe` introspection steps and a lookup table of common patterns (odometry position/orientation, joint states, laser scan, range, temperature, battery)
+- **Discovery note** in `COMMANDS.md` `publish-until` entry cross-referencing the new SKILL.md workflow
+- **Troubleshooting row** for `publish-until` hangs/no feedback
 
 ---
 

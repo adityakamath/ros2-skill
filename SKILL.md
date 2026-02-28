@@ -440,6 +440,91 @@ python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_g 0
 python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_b 0
 ```
 
+### 7. Goal-Oriented Commands (publish-until)
+
+When the user wants the robot to **do something until a condition is met** — "drive forward 1 meter", "turn until joint reaches 1.5 rad", "stop when temperature exceeds 50°C" — use `publish-until`. Because the exact topic names, message types, and field paths vary by robot, **always introspect the live system first**.
+
+#### Discovery workflow
+
+**Step 1 — Find the command topic** (what to publish to)
+```bash
+# Find velocity/command topics
+python3 {baseDir}/scripts/ros2_cli.py topics list
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+```
+
+**Step 2 — Find the feedback/sensor topic** (what to monitor)
+```bash
+# For position/distance — look for odometry
+python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
+
+# For joint angles — look for joint states
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/JointState
+
+# For temperature — look for temperature topics
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Temperature
+
+# For proximity/obstacle — look for laser/range
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Range
+```
+
+**Step 3 — Inspect the message field structure**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics message nav_msgs/msg/Odometry
+python3 {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/msg/JointState
+python3 {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/msg/Temperature
+```
+
+**Step 4 — Read the current value** to establish a baseline (needed for `--delta`)
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 2
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 2
+```
+
+**Step 5 — Construct and run publish-until**
+
+#### Common patterns
+
+| User intent | Monitor topic | Field | Condition |
+|-------------|--------------|-------|-----------|
+| Move forward N m (straight) | `/odom` | `pose.pose.position.x` | `--delta N` |
+| Move backward N m | `/odom` | `pose.pose.position.x` | `--delta -N` |
+| Move sideways N m | `/odom` | `pose.pose.position.y` | `--delta N` |
+| Rotate N rad | `/odom` | `pose.pose.orientation.z` | `--delta N` |
+| Joint reach angle | `/joint_states` | `position.0` (index of joint) | `--equals A` or `--delta D` |
+| Stop near obstacle | `/scan` | `ranges.0` (front index) | `--below 0.5` |
+| Stop at range | `/range` | `range` | `--below D` |
+| Stop at temperature | `/temperature` | `temperature` | `--above T` |
+| Stop at battery level | `/battery` | `percentage` | `--below P` |
+
+For **diagonal movement or Euclidean distance**, monitor the axis with the dominant displacement (`position.x` or `position.y`), or use a conservative `--delta` on total time instead and verify final position after.
+
+#### Examples
+
+```bash
+# "Drive forward 1 meter" — discovered /odom is nav_msgs/Odometry
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+
+# "Move arm until joint_3 reaches 1.5 rad" — joint index 2 (0-based)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /arm/cmd \
+  '{"joint_3_velocity":0.2}' \
+  --monitor /joint_states --field position.2 --equals 1.5 --timeout 20
+
+# "Stop when obstacle within 0.4 m"
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor /scan --field ranges.0 --below 0.4 --timeout 60
+
+# "Stop when temperature exceeds 50°C"
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /heater/cmd \
+  '{"power":1.0}' \
+  --monitor /temperature --field temperature --above 50.0 --timeout 120
+```
+
 ---
 
 ## Safety Notes
@@ -474,3 +559,4 @@ python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_b 0
 | Invalid JSON error | Malformed message | Validate JSON before passing (watch for single vs double quotes) |
 | Subscribe timeout | No publisher on topic | Check `topics details` to verify publishers exist |
 | publish-sequence length error | Array mismatch | `messages` and `durations` arrays must have the same length |
+| publish-until hangs / no feedback | Wrong monitor topic or field | Use Step 2–4 of the Goal-Oriented workflow to verify topic and field |
