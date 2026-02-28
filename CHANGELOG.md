@@ -2,6 +2,27 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.3] - 2026-02-28
+
+### Added
+- **`topics hz`**: measure topic publish rate; collects `--window` inter-message intervals (default 10) using an inline `HzMonitor(Node)` subscriber; reports `rate`, `min_delta`, `max_delta`, `std_dev`, `samples`; spins with `SingleThreadedExecutor` on a daemon thread; errors if fewer than 2 messages arrive within `--timeout` (default 10 s)
+- **`topics find <msg_type>`**: find all topics publishing a given message type; normalises both `geometry_msgs/Twist` and `geometry_msgs/msg/Twist` forms for comparison; returns `message_type`, `topics`, `count`
+- **`actions type <action>`**: look up the type of an action server by finding the `/_action/feedback` topic and stripping the `_FeedbackMessage` suffix; returns `action`, `type`
+- **`services find <service_type>`**: find all services of a given type; same normalisation approach as `topics find` (strips `/srv/` for comparison); returns `service_type`, `services`, `count`
+- **`nodes details` / `nodes info`** enhanced: now also queries `get_action_server_names_and_types_by_node()` and `get_action_client_names_and_types_by_node()` (wrapped in `try/except AttributeError` for rclpy versions that predate these APIs); output gains `action_servers` and `action_clients` arrays
+- **`HzMonitor(Node)`**: top-level subscriber class (mirrors `ConditionMonitor`) that accumulates message timestamps in a thread-safe list and sets a `threading.Event` when `window + 1` samples are collected
+- **Command aliases** — all dispatch to the same handler as the canonical command:
+  - `topics sub` → `topics subscribe`
+  - `topics pub` → `topics publish`
+  - `topics pub-seq` → `topics publish-sequence`
+  - `topics info` → `topics details`
+  - `services info` → `services details`
+  - `nodes info` → `nodes details`
+  - `actions info` → `actions details`
+  - `actions send-goal` → `actions send`
+
+---
+
 ## [1.0.2] - 2026-02-28
 
 ### Added

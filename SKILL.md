@@ -58,25 +58,37 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics list` | List all active topics with types |
 | Topics | `topics type <topic>` | Get message type of a topic |
 | Topics | `topics details <topic>` | Get topic publishers/subscribers |
+| Topics | `topics info <topic>` | Alias for `topics details` |
 | Topics | `topics message <msg_type>` | Get message field structure |
 | Topics | `topics subscribe <topic>` | Subscribe and receive messages |
-| Topics | `topics publish <topic> <json>` | Publish a message to a topic |
-| Topics | `topics publish-sequence <topic> <msgs> <durs>` | Publish message sequence |
 | Topics | `topics echo <topic>` | Alias for `topics subscribe` |
+| Topics | `topics sub <topic>` | Alias for `topics subscribe` |
+| Topics | `topics publish <topic> <json>` | Publish a message to a topic |
+| Topics | `topics pub <topic> <json>` | Alias for `topics publish` |
+| Topics | `topics publish-sequence <topic> <msgs> <durs>` | Publish message sequence |
+| Topics | `topics pub-seq <topic> <msgs> <durs>` | Alias for `topics publish-sequence` |
 | Topics | `topics publish-until <topic> <json>` | Publish while monitoring; stop on condition |
 | Topics | `topics publish-continuous <topic> <json>` | Publish at rate for bounded duration |
+| Topics | `topics hz <topic>` | Measure topic publish rate |
+| Topics | `topics find <msg_type>` | Find topics by message type |
 | Services | `services list` | List all available services |
 | Services | `services type <service>` | Get service type |
 | Services | `services details <service>` | Get service request/response fields |
+| Services | `services info <service>` | Alias for `services details` |
 | Services | `services call <service> <json>` | Call a service |
+| Services | `services find <service_type>` | Find services by service type |
 | Nodes | `nodes list` | List all active nodes |
-| Nodes | `nodes details <node>` | Get node topics/services |
+| Nodes | `nodes details <node>` | Get node topics/services/actions |
+| Nodes | `nodes info <node>` | Alias for `nodes details` |
 | Params | `params list <node>` | List node parameters |
 | Params | `params get <node:param>` | Get parameter value |
 | Params | `params set <node:param> <value>` | Set parameter value |
 | Actions | `actions list` | List action servers |
 | Actions | `actions details <action>` | Get action goal/result/feedback fields |
+| Actions | `actions info <action>` | Alias for `actions details` |
+| Actions | `actions type <action>` | Get action server type |
 | Actions | `actions send <action> <json>` | Send action goal |
+| Actions | `actions send-goal <action> <json>` | Alias for `actions send` |
 
 ---
 
@@ -97,25 +109,26 @@ python3 {baseDir}/scripts/ros2_cli.py topics details /turtle1/cmd_vel
 python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
 ```
 
-### topics subscribe
+### topics subscribe / echo / sub
 
-Without `--duration`: returns first message. With `--duration`: collects multiple messages.
+`echo` and `sub` are aliases for `subscribe`. Without `--duration`: returns first message. With `--duration`: collects multiple messages.
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe /turtle1/pose
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+python3 {baseDir}/scripts/ros2_cli.py topics echo /odom
+python3 {baseDir}/scripts/ros2_cli.py topics sub /odom --duration 10 --max-messages 50
 ```
 
-### topics publish
+### topics publish / pub
 
-Without `--duration`: single-shot. With `--duration`: publishes repeatedly at `--rate` Hz. **Use `--duration` for velocity commands** — most robot controllers stop if they don't receive continuous `cmd_vel` messages.
+`pub` is an alias for `publish`. Without `--duration`: single-shot. With `--duration`: publishes repeatedly at `--rate` Hz. **Use `--duration` for velocity commands** — most robot controllers stop if they don't receive continuous `cmd_vel` messages.
 
 ```bash
 # Single-shot
 python3 {baseDir}/scripts/ros2_cli.py topics publish /trigger '{"data": ""}'
 
 # Move forward 3 seconds (velocity — use --duration)
-python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics pub /cmd_vel \
   '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
 
 # Stop
@@ -125,13 +138,13 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
 
 Options: `--duration SECONDS`, `--rate HZ` (default 10)
 
-### topics publish-sequence
+### topics publish-sequence / pub-seq
 
-Publish a sequence of messages, each repeated at `--rate` Hz for its corresponding duration. Arrays must have the same length.
+`pub-seq` is an alias for `publish-sequence`. Publish a sequence of messages, each repeated at `--rate` Hz for its corresponding duration. Arrays must have the same length.
 
 ```bash
 # Forward 3s then stop
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+python3 {baseDir}/scripts/ros2_cli.py topics pub-seq /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
   '[3.0, 0.5]'
 
@@ -142,15 +155,6 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
 ```
 
 Options: `--rate HZ` (default 10)
-
-### topics echo
-
-Alias for `topics subscribe`. Same arguments, same behaviour.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics echo /turtle1/pose
-python3 {baseDir}/scripts/ros2_cli.py topics echo /odom --duration 10 --max-msgs 50
-```
 
 ### topics publish-until
 
@@ -184,12 +188,35 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-continuous /cmd_vel \
 
 Options: `--timeout SECONDS` (**required**), `--rate HZ` (default 10), `--msg-type TYPE`
 
-### services list / type / details
+### topics hz
+
+Measure the publish rate of a topic. Reports rate (Hz), min/max delta, and standard deviation.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics hz /turtle1/pose
+python3 {baseDir}/scripts/ros2_cli.py topics hz /scan --window 20 --timeout 15
+```
+
+Options: `--window N` (intervals to sample, default 10), `--timeout SEC` (default 10)
+
+### topics find
+
+Find all topics publishing a specific message type. Accepts both `/msg/` and short formats.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
+```
+
+### services list / type / details / info
+
+`info` is an alias for `details`.
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py services list
 python3 {baseDir}/scripts/ros2_cli.py services type /spawn
 python3 {baseDir}/scripts/ros2_cli.py services details /spawn
+python3 {baseDir}/scripts/ros2_cli.py services info /spawn
 ```
 
 ### services call
@@ -200,11 +227,23 @@ python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
   '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
 ```
 
-### nodes list / details
+### services find
+
+Find all services of a specific type. Accepts both `/srv/` and short formats.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/srv/Empty
+python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/Empty
+```
+
+### nodes list / details / info
+
+`info` is an alias for `details`. Output includes publishers, subscribers, services, action servers, and action clients.
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py nodes list
 python3 {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py nodes info /turtlesim
 ```
 
 ### params list / get / set
@@ -219,12 +258,18 @@ python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
 python3 {baseDir}/scripts/ros2_cli.py params set /base_controller base_frame_id base_link_new
 ```
 
-### actions list / details / send
+### actions list / details / info / type / send / send-goal
+
+`info` is an alias for `details`. `send-goal` is an alias for `send`.
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py actions list
 python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
+python3 {baseDir}/scripts/ros2_cli.py actions info /turtle1/rotate_absolute
+python3 {baseDir}/scripts/ros2_cli.py actions type /turtle1/rotate_absolute
 python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
+  '{"theta":3.14}'
+python3 {baseDir}/scripts/ros2_cli.py actions send-goal /turtle1/rotate_absolute \
   '{"theta":3.14}'
 ```
 

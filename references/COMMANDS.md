@@ -84,9 +84,9 @@ Output:
 
 ---
 
-## topics details `<topic>`
+## topics details `<topic>` / topics info `<topic>`
 
-Get topic details including message type, publishers, and subscribers.
+Get topic details including message type, publishers, and subscribers. `topics info` is an alias for `topics details`.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -133,9 +133,9 @@ Output:
 
 ---
 
-## topics subscribe `<topic>` [options]
+## topics subscribe `<topic>` [options] / topics echo / topics sub
 
-Subscribe to a topic and receive messages. Also available as `topics echo` (identical alias).
+Subscribe to a topic and receive messages. `topics echo` and `topics sub` are identical aliases.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -178,7 +178,7 @@ Output:
 
 ---
 
-## topics publish `<topic>` `<json_message>` [options]
+## topics publish `<topic>` `<json_message>` [options] / topics pub
 
 Publish a message to a topic. Without `--duration`, sends once. With `--duration`, publishes repeatedly at `--rate` Hz — required for velocity commands since most robot controllers stop if they don't receive continuous commands.
 
@@ -224,7 +224,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
 
 ---
 
-## topics publish-sequence `<topic>` `<json_messages>` `<json_durations>` [options]
+## topics publish-sequence `<topic>` `<json_messages>` `<json_durations>` [options] / topics pub-seq
 
 Publish a sequence of messages. Each message is published repeatedly at `--rate` Hz for its corresponding duration. The arrays must have the same length.
 
@@ -394,9 +394,9 @@ Output:
 
 ---
 
-## services details `<service>`
+## services details `<service>` / services info `<service>`
 
-Get service details including type, request fields, and response fields.
+Get service details including type, request fields, and response fields. `services info` is an alias for `services details`.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -469,9 +469,9 @@ Output:
 
 ---
 
-## nodes details `<node>`
+## nodes details `<node>` / nodes info `<node>`
 
-Get node details including topics and services.
+Get node details including topics, services, action servers, and action clients. `nodes info` is an alias for `nodes details`.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -487,7 +487,9 @@ Output:
   "node": "/turtlesim",
   "publishers": ["/turtle1/color_sensor", "/turtle1/pose", "/rosout"],
   "subscribers": ["/turtle1/cmd_vel"],
-  "services": ["/clear", "/kill", "/reset", "/spawn", "/turtle1/set_pen", "/turtle1/teleport_absolute"]
+  "services": ["/clear", "/kill", "/reset", "/spawn", "/turtle1/set_pen", "/turtle1/teleport_absolute"],
+  "action_servers": ["/turtle1/rotate_absolute"],
+  "action_clients": []
 }
 ```
 
@@ -589,9 +591,9 @@ Output:
 
 ---
 
-## actions details `<action>`
+## actions details `<action>` / actions info `<action>`
 
-Get action details including goal, result, and feedback field structures.
+Get action details including goal, result, and feedback field structures. `actions info` is an alias for `actions details`.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -614,9 +616,9 @@ Output:
 
 ---
 
-## actions send `<action>` `<json_goal>`
+## actions send `<action>` `<json_goal>` / actions send-goal
 
-Send an action goal and wait for the result.
+Send an action goal and wait for the result. `actions send-goal` is an alias for `actions send`.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -646,4 +648,118 @@ If timeout:
   "success": false,
   "error": "Timeout after 5.0s"
 }
+```
+
+---
+
+## topics hz `<topic>` [options]
+
+Measure the publish rate of a topic. Collects inter-message intervals over a sliding window and reports rate, min/max delta, and standard deviation.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `topic` | Yes | Topic name |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--window N` | `10` | Number of inter-message intervals to sample |
+| `--timeout SECONDS` | `10` | Max wait time; returns error if fewer than 2 messages arrive |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics hz /turtle1/pose
+python3 {baseDir}/scripts/ros2_cli.py topics hz /scan --window 20 --timeout 15
+```
+
+Output:
+```json
+{
+  "topic": "/turtle1/pose",
+  "rate": 62.4831,
+  "min_delta": 0.015832,
+  "max_delta": 0.016201,
+  "std_dev": 0.000089,
+  "samples": 10
+}
+```
+
+If fewer than 2 messages arrive within the timeout:
+```json
+{"error": "Fewer than 2 messages received within 10.0s on '/turtle1/pose'"}
+```
+
+---
+
+## topics find `<message_type>`
+
+Find all topics publishing a specific message type. Accepts both `/msg/` and short format (normalised for comparison).
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `message_type` | Yes | Message type (e.g. `geometry_msgs/msg/Twist` or `geometry_msgs/Twist`) |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
+```
+
+Output:
+```json
+{
+  "message_type": "geometry_msgs/msg/Twist",
+  "topics": ["/cmd_vel", "/turtle1/cmd_vel"],
+  "count": 2
+}
+```
+
+If no topics match:
+```json
+{"message_type": "geometry_msgs/msg/Twist", "topics": [], "count": 0}
+```
+
+---
+
+## services find `<service_type>`
+
+Find all services of a specific service type. Accepts both `/srv/` and short format (normalised for comparison).
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `service_type` | Yes | Service type (e.g. `std_srvs/srv/Empty` or `std_srvs/Empty`) |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/srv/Empty
+python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/Empty
+```
+
+Output:
+```json
+{
+  "service_type": "std_srvs/srv/Empty",
+  "services": ["/clear", "/reset"],
+  "count": 2
+}
+```
+
+---
+
+## actions type `<action>`
+
+Get the type of an action server.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `action` | Yes | Action server name |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py actions type /turtle1/rotate_absolute
+```
+
+Output:
+```json
+{"action": "/turtle1/rotate_absolute", "type": "turtlesim/action/RotateAbsolute"}
+```
+
+If the action is not found in the ROS graph:
+```json
+{"error": "Action '/turtle1/rotate_absolute' not found in the ROS graph"}
 ```
