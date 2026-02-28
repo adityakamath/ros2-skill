@@ -20,6 +20,22 @@ All notable changes to ros2-skill will be documented in this file.
   - `nodes info` → `nodes details`
   - `actions info` → `actions details`
   - `actions send-goal` → `actions send`
+- **`topics bw`**: measure topic bandwidth; serialises each message with `rclpy.serialization.serialize_message` to count bytes; collects `--window` samples (default 10); reports `bw` (bytes/s), `bytes_per_msg`, `rate` (Hz), `samples`; uses `BwMonitor(Node)` following the same `SingleThreadedExecutor`/`threading.Event` pattern as `HzMonitor`
+- **`topics delay`**: measure end-to-end latency between `header.stamp` and wall clock; errors if the message has no `header.stamp`; reports `mean_delay`, `min_delay`, `max_delay`, `std_dev`, `samples`; uses `DelayMonitor(Node)` with the same threading model
+- **`params describe`**: describe a single parameter via `DescribeParameters` service; reports `name`, `type`, `description`, `read_only`, `dynamic_typing`, `additional_constraints`
+- **`params dump`**: bulk-export all parameters for a node; calls `list_parameters` then `GetParameters`; returns `{"node": ..., "parameters": {name: value, ...}}`
+- **`params load`**: bulk-set parameters from a JSON string or a file path; accepts `{"param": value}` flat dict; converts each value via `_infer_param_value` and calls `SetParameters`; reports per-parameter success/failure
+- **`params delete`**: delete one or more parameters via `DeleteParameters` service; accepts multiple parameter names; reports `deleted`, `count`
+- **`actions cancel`**: cancel all in-flight goals on an action server by sending a `CancelGoal` request with zero UUID (`[0]*16`) and zero timestamp — per ROS 2 spec this cancels all goals; reports `return_code` and `cancelled_goals`
+- **`actions send --feedback`**: new `--feedback` flag on both `send` and `send-goal`; when set, passes a `feedback_callback` to `send_goal_async`; collected feedback messages are included in output as `feedback_msgs: [...]`
+- **`interface show <type>` / `interface proto <type>`**: aliases for `topics message`; same handler, same arguments
+- **`interface list`**: list all available ROS 2 interfaces (messages, services, actions) across all packages using `rosidl_runtime_py`; returns `messages`, `services`, `actions`, `count`
+- **`interface packages`**: list all packages that contain at least one interface; returns `packages`, `count`
+- **`interface package <pkg>`**: list all interfaces in a single package; returns `package`, `messages`, `services`, `actions`
+- **`BwMonitor(Node)`**: top-level subscriber class that accumulates `(timestamp, serialized_size)` tuples and sets `threading.Event` after `window` samples
+- **`DelayMonitor(Node)`**: top-level subscriber class that accumulates header-stamp latency samples; sets `header_missing` flag if the message has no `header.stamp`
+- **`_param_value_to_python(v)`**: converts a `ParameterValue` (types 1–9) to a native Python value; used by `cmd_params_dump`
+- **`_infer_param_value(value)`**: infers a `ParameterValue` from a native Python value (bool→1, int→2, float→3, str→4, lists→6–9); used by `cmd_params_load`
 
 ---
 

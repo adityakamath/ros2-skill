@@ -71,6 +71,8 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics publish-continuous <topic> <json>` | Publish at rate for bounded duration |
 | Topics | `topics hz <topic>` | Measure topic publish rate |
 | Topics | `topics find <msg_type>` | Find topics by message type |
+| Topics | `topics bw <topic>` | Measure topic bandwidth (bytes/s) |
+| Topics | `topics delay <topic>` | Measure header-stamp end-to-end latency |
 | Services | `services list` | List all available services |
 | Services | `services type <service>` | Get service type |
 | Services | `services details <service>` | Get service request/response fields |
@@ -83,12 +85,22 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Params | `params list <node>` | List node parameters |
 | Params | `params get <node:param>` | Get parameter value |
 | Params | `params set <node:param> <value>` | Set parameter value |
+| Params | `params describe <node:param>` | Describe parameter type and constraints |
+| Params | `params dump <node>` | Export all parameters for a node as JSON |
+| Params | `params load <node> <json>` | Bulk-set parameters from JSON |
+| Params | `params delete <node> <param>` | Delete a parameter |
 | Actions | `actions list` | List action servers |
 | Actions | `actions details <action>` | Get action goal/result/feedback fields |
 | Actions | `actions info <action>` | Alias for `actions details` |
 | Actions | `actions type <action>` | Get action server type |
 | Actions | `actions send <action> <json>` | Send action goal |
 | Actions | `actions send-goal <action> <json>` | Alias for `actions send` |
+| Actions | `actions cancel <action>` | Cancel all in-flight goals |
+| Interface | `interface show <type>` | Get interface field structure |
+| Interface | `interface proto <type>` | Alias for `interface show` |
+| Interface | `interface list` | List all interfaces across all packages |
+| Interface | `interface packages` | List packages with interfaces |
+| Interface | `interface package <pkg>` | List interfaces in a single package |
 
 ---
 
@@ -271,6 +283,85 @@ python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
   '{"theta":3.14}'
 python3 {baseDir}/scripts/ros2_cli.py actions send-goal /turtle1/rotate_absolute \
   '{"theta":3.14}'
+```
+
+### actions send --feedback
+
+Add `--feedback` to collect feedback messages during goal execution. Feedback is included in the result as `feedback_msgs`.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
+  '{"theta":3.14}' --feedback
+```
+
+### actions cancel
+
+Cancel all in-flight goals on an action server.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py actions cancel /turtle1/rotate_absolute
+```
+
+Options: `--timeout SECONDS` (default 5)
+
+### topics bw
+
+Measure topic bandwidth. Reports bytes/s, bytes/msg, and rate.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics bw /camera/image_raw
+python3 {baseDir}/scripts/ros2_cli.py topics bw /scan --window 20 --timeout 15
+```
+
+Options: `--window N` (samples, default 10), `--timeout SEC` (default 10)
+
+### topics delay
+
+Measure end-to-end latency between `header.stamp` and wall clock. Requires messages with `header.stamp`.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics delay /odom
+python3 {baseDir}/scripts/ros2_cli.py topics delay /scan --window 20
+```
+
+Options: `--window N` (samples, default 10), `--timeout SEC` (default 10)
+
+### params describe / dump / load / delete
+
+Advanced parameter operations.
+
+```bash
+# Describe a parameter (type, constraints, read-only status)
+python3 {baseDir}/scripts/ros2_cli.py params describe /turtlesim:background_r
+
+# Export all parameters for a node
+python3 {baseDir}/scripts/ros2_cli.py params dump /turtlesim
+
+# Bulk-set parameters from JSON
+python3 {baseDir}/scripts/ros2_cli.py params load /turtlesim \
+  '{"background_r":255,"background_g":0,"background_b":0}'
+
+# Delete a parameter
+python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r
+```
+
+### interface show / proto / list / packages / package
+
+Inspect ROS 2 interface definitions. `proto` is an alias for `show`.
+
+```bash
+# Show field structure of a message, service, or action type
+python3 {baseDir}/scripts/ros2_cli.py interface show geometry_msgs/Twist
+python3 {baseDir}/scripts/ros2_cli.py interface proto std_srvs/SetBool
+
+# List all available interfaces
+python3 {baseDir}/scripts/ros2_cli.py interface list
+
+# List packages that contain interfaces
+python3 {baseDir}/scripts/ros2_cli.py interface packages
+
+# List interfaces in a specific package
+python3 {baseDir}/scripts/ros2_cli.py interface package geometry_msgs
 ```
 
 ---

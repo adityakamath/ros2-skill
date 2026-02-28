@@ -53,11 +53,12 @@ See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 | Category | Commands |
 | -------- | -------- |
 | Connection | `version` |
-| Topics | `list`, `type`, `details`, `info`, `message`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `find` |
+| Topics | `list`, `type`, `details`, `info`, `message`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `find`, `bw`, `delay` |
 | Services | `list`, `type`, `details`, `info`, `call`, `find` |
 | Nodes | `list`, `details`, `info` |
-| Parameters | `list`, `get`, `set` |
-| Actions | `list`, `details`, `info`, `type`, `send`, `send-goal` |
+| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
+| Actions | `list`, `details`, `info`, `type`, `send`, `send-goal`, `cancel` |
+| Interface | `show`, `proto`, `list`, `packages`, `package` |
 
 All commands output JSON. See `SKILL.md` for quick reference and `references/COMMANDS.md` for full details with output examples.
 
