@@ -2528,6 +2528,192 @@ def cmd_actions_cancel(args):
         output({"error": str(e)})
 
 
+def cmd_actions_find(args):
+    """Find action servers of a specific action type."""
+    if not args.action_type:
+        return output({"error": "action_type argument is required"})
+
+    target_raw = args.action_type
+
+    # Normalise: turtlesim/action/RotateAbsolute and turtlesim/RotateAbsolute are equivalent.
+    def _norm_action(t):
+        return re.sub(r'/action/', '/', t)
+
+    target_norm = _norm_action(target_raw)
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+        all_topics = node.get_topic_names_and_types()
+        rclpy.shutdown()
+
+        matched = []
+        seen = set()
+        for name, types in all_topics:
+            if '/_action/feedback' in name:
+                action_name = name.split('/_action/')[0]
+                if action_name in seen:
+                    continue
+                for t in types:
+                    resolved = re.sub(r'_FeedbackMessage$', '', t)
+                    if _norm_action(resolved) == target_norm:
+                        matched.append(action_name)
+                        seen.add(action_name)
+                        break
+
+        output({
+            "action_type": target_raw,
+            "actions": matched,
+            "count": len(matched),
+        })
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_services_echo(args):
+    """Echo service request/response events via service introspection.
+
+    Requires the service client and server to have introspection enabled:
+        node.configure_introspection(
+            clock, qos, ServiceIntrospectionState.METADATA  # or CONTENTS
+        )
+    When enabled, events are published on <service>/_service_event.
+    """
+    if not args.service:
+        return output({"error": "service argument is required"})
+
+    service = args.service.rstrip('/')
+    event_topic = service + '/_service_event'
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+        all_topics = dict(node.get_topic_names_and_types())
+        rclpy.shutdown()
+
+        if event_topic not in all_topics:
+            return output({
+                "error": f"No service event topic found: {event_topic}",
+                "hint": (
+                    "Service introspection must be enabled on the server/client "
+                    "via configure_introspection(clock, qos, "
+                    "ServiceIntrospectionState.METADATA or CONTENTS)."
+                ),
+            })
+
+        msg_type = all_topics[event_topic][0]
+
+        rclpy.init()
+        subscriber = TopicSubscriber(event_topic, msg_type)
+
+        if subscriber.sub is None:
+            rclpy.shutdown()
+            return output({"error": f"Could not load event message type: {msg_type}"})
+
+        executor = rclpy.executors.SingleThreadedExecutor()
+        executor.add_node(subscriber)
+
+        if args.duration:
+            end_time = time.time() + args.duration
+            while time.time() < end_time and len(subscriber.messages) < (args.max_messages or 100):
+                executor.spin_once(timeout_sec=0.1)
+            with subscriber.lock:
+                messages = (subscriber.messages[:args.max_messages]
+                            if args.max_messages else subscriber.messages[:])
+            rclpy.shutdown()
+            output({
+                "service": service,
+                "event_topic": event_topic,
+                "collected_count": len(messages),
+                "events": messages,
+            })
+        else:
+            end_time = time.time() + args.timeout
+            while time.time() < end_time:
+                executor.spin_once(timeout_sec=0.1)
+                with subscriber.lock:
+                    if subscriber.messages:
+                        msg = subscriber.messages[0]
+                        rclpy.shutdown()
+                        output({"service": service, "event": msg})
+                        return
+            rclpy.shutdown()
+            output({"error": "Timeout waiting for service event"})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_actions_echo(args):
+    """Echo action feedback and status messages from a live action server."""
+    if not args.action:
+        return output({"error": "action argument is required"})
+
+    action = args.action.rstrip('/')
+    feedback_topic = action + '/_action/feedback'
+    status_topic = action + '/_action/status'
+
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+        all_topics = dict(node.get_topic_names_and_types())
+        rclpy.shutdown()
+
+        if feedback_topic not in all_topics:
+            return output({"error": f"Action server not found: {action}"})
+
+        feedback_type = all_topics[feedback_topic][0]
+        status_type = (all_topics[status_topic][0]
+                       if status_topic in all_topics else None)
+
+        rclpy.init()
+        fb_sub = TopicSubscriber(feedback_topic, feedback_type)
+
+        if fb_sub.sub is None:
+            rclpy.shutdown()
+            return output({"error": f"Could not load feedback message type: {feedback_type}"})
+
+        executor = rclpy.executors.SingleThreadedExecutor()
+        executor.add_node(fb_sub)
+
+        status_sub = None
+        if status_type:
+            status_sub = TopicSubscriber(status_topic, status_type)
+            executor.add_node(status_sub)
+
+        if args.duration:
+            end_time = time.time() + args.duration
+            while time.time() < end_time and len(fb_sub.messages) < (args.max_messages or 100):
+                executor.spin_once(timeout_sec=0.1)
+            with fb_sub.lock:
+                feedback_msgs = (fb_sub.messages[:args.max_messages]
+                                 if args.max_messages else fb_sub.messages[:])
+            status_msgs = []
+            if status_sub:
+                with status_sub.lock:
+                    status_msgs = status_sub.messages[:]
+            rclpy.shutdown()
+            output({
+                "action": action,
+                "collected_count": len(feedback_msgs),
+                "feedback": feedback_msgs,
+                "status": status_msgs,
+            })
+        else:
+            end_time = time.time() + args.timeout
+            while time.time() < end_time:
+                executor.spin_once(timeout_sec=0.1)
+                with fb_sub.lock:
+                    if fb_sub.messages:
+                        msg = fb_sub.messages[0]
+                        rclpy.shutdown()
+                        output({"action": action, "feedback": msg})
+                        return
+            rclpy.shutdown()
+            output({"error": "Timeout waiting for action feedback"})
+    except Exception as e:
+        output({"error": str(e)})
+
+
 def _add_subscribe_args(p):
     """Add the shared arguments for the subscribe / echo subparsers."""
     p.add_argument("topic", nargs="?")
@@ -2657,6 +2843,14 @@ def build_parser():
     p.add_argument("--service-type", dest="service_type", default=None,
                    help="Service type (auto-detected if not provided, e.g. std_srvs/srv/SetBool)")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
+    p = ssub.add_parser("echo", help="Echo service events (requires service introspection enabled)")
+    p.add_argument("service")
+    p.add_argument("--duration", type=float, default=None,
+                   help="Collect events for this many seconds (default: wait for first event)")
+    p.add_argument("--max-messages", "--max-events", dest="max_messages", type=int, default=100,
+                   help="Max events to collect when using --duration (default: 100)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout waiting for first event in seconds (default: 5)")
 
     nodes = sub.add_parser("nodes", help="Node operations")
     nsub = nodes.add_subparsers(dest="subcommand")
@@ -2723,6 +2917,16 @@ def build_parser():
     p = asub.add_parser("cancel", help="Cancel all in-flight goals on an action server")
     p.add_argument("action", nargs="?")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
+    p = asub.add_parser("echo", help="Echo action feedback and status messages")
+    p.add_argument("action")
+    p.add_argument("--duration", type=float, default=None,
+                   help="Collect feedback for this many seconds (default: wait for first message)")
+    p.add_argument("--max-messages", "--max-msgs", dest="max_messages", type=int, default=100,
+                   help="Max feedback messages to collect when using --duration (default: 100)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout waiting for first feedback in seconds (default: 5)")
+    p = asub.add_parser("find", help="Find action servers by action type")
+    p.add_argument("action_type", nargs="?")
 
     return parser
 
@@ -2758,6 +2962,7 @@ DISPATCH = {
     # services — aliases
     ("services", "ls"): cmd_services_list,
     ("services", "info"): cmd_services_details,
+    ("services", "echo"): cmd_services_echo,
     # nodes — canonical
     ("nodes", "list"): cmd_nodes_list,
     ("nodes", "details"): cmd_nodes_details,
@@ -2789,6 +2994,8 @@ DISPATCH = {
     ("params", "delete"): cmd_params_delete,
     # actions — Phase 2
     ("actions", "cancel"): cmd_actions_cancel,
+    ("actions", "echo"): cmd_actions_echo,
+    ("actions", "find"): cmd_actions_find,
 }
 
 
