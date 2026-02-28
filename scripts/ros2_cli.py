@@ -897,9 +897,17 @@ def cmd_services_details(args):
 
 
 def cmd_services_call(args):
-    # Support both:
-    #   services call /svc '{"data":true}' --service-type pkg/srv/Type  (new)
-    #   services call /svc pkg/srv/Type '{"data":true}'                 (old positional)
+    # Detect which of the two supported call formats was used:
+    #
+    #   New (flag) form:      services call /svc '{"data":true}' --service-type pkg/srv/T
+    #     args.extra_request is None  → request_json = args.request
+    #                                    service_type_override = None (fall through to --service-type flag)
+    #
+    #   Old (positional) form: services call /svc pkg/srv/T '{"data":true}'
+    #     args.extra_request is set  → args.request holds the service type string
+    #                                    args.extra_request holds the JSON payload
+    #                                    service_type_override = args.request
+    #                                    request_json = args.extra_request
     if getattr(args, 'extra_request', None) is not None:
         service_type_override = args.request
         request_json = args.extra_request
@@ -1181,7 +1189,7 @@ def cmd_params_set(args):
             else:
                 reason = result.results[0].reason if result.results else ""
                 reason_lc = reason.lower()
-                if 'read' in reason_lc and ('only' in reason_lc or 'readonly' in reason_lc):
+                if re.search(r'\b(read[- ]?only|readonly)\b', reason_lc):
                     output({"name": full_name, "value": value_str, "success": False,
                             "error": "Parameter is read-only and cannot be changed at runtime",
                             "read_only": True})
@@ -1343,6 +1351,19 @@ def cmd_actions_send(args):
         output({"error": str(e)})
 
 
+def _add_subscribe_args(p):
+    """Add the shared arguments for the subscribe / echo subparsers."""
+    p.add_argument("topic", nargs="?")
+    p.add_argument("--msg-type", dest="msg_type", default=None,
+                   help="Message type (auto-detected if not provided)")
+    p.add_argument("--duration", type=float, default=None,
+                   help="Subscribe for duration (seconds)")
+    p.add_argument("--max-messages", "--max-msgs", dest="max_messages", type=int, default=100,
+                   help="Max messages to collect")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout (seconds) when waiting for a single message (default: 5)")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="ROS 2 Skill CLI - Control ROS 2 robots directly via rclpy")
     sub = parser.add_subparsers(dest="command")
@@ -1361,18 +1382,8 @@ def build_parser():
     p.add_argument("topic")
     p = tsub.add_parser("message", help="Get message structure")
     p.add_argument("message_type")
-    p = tsub.add_parser("subscribe", help="Subscribe to a topic")
-    p.add_argument("topic", nargs="?")
-    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
-    p.add_argument("--duration", type=float, default=None, help="Subscribe for duration (seconds)")
-    p.add_argument("--max-messages", "--max-msgs", dest="max_messages", type=int, default=100, help="Max messages to collect")
-    p.add_argument("--timeout", type=float, default=5.0, help="Timeout (seconds) when waiting for a single message (default: 5)")
-    p = tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)")
-    p.add_argument("topic", nargs="?")
-    p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
-    p.add_argument("--duration", type=float, default=None, help="Subscribe for duration (seconds)")
-    p.add_argument("--max-messages", "--max-msgs", dest="max_messages", type=int, default=100, help="Max messages to collect")
-    p.add_argument("--timeout", type=float, default=5.0, help="Timeout (seconds) when waiting for a single message (default: 5)")
+    _add_subscribe_args(tsub.add_parser("subscribe", help="Subscribe to a topic"))
+    _add_subscribe_args(tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)"))
     p = tsub.add_parser("publish", help="Publish a message")
     p.add_argument("topic", nargs="?")
     p.add_argument("msg", nargs="?", help="JSON message")
