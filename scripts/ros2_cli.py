@@ -73,11 +73,14 @@ Commands:
     Get service details including type, request fields, and response fields.
     $ python3 ros2_cli.py services details /spawn
 
-  services call <service> <json_request>
-    Call a service with a JSON request payload.
+  services call <service> <json_request> [--service-type TYPE]
+    Call a service with a JSON request payload. Service type is auto-detected
+    from the ROS graph; use --service-type when the service is not yet visible.
     $ python3 ros2_cli.py services call /reset '{}'
     $ python3 ros2_cli.py services call /spawn \
         '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
+    $ python3 ros2_cli.py services call /emergency_stop \
+        '{"data": true}' --service-type std_srvs/srv/SetBool
 
   nodes list
     List all active nodes.
@@ -886,16 +889,20 @@ def cmd_services_call(args):
         rclpy.init()
         node = ROS2CLI()
         
-        services = node.get_service_names()
-        service_type = None
-        for name, types in services:
-            if name == args.service:
-                service_type = types[0] if types else ""
-                break
-        
+        service_type = args.service_type
+        if not service_type:
+            services = node.get_service_names()
+            for name, types in services:
+                if name == args.service:
+                    service_type = types[0] if types else ""
+                    break
+
         if not service_type:
             rclpy.shutdown()
-            return output({"error": f"Service not found: {args.service}"})
+            return output({
+                "error": f"Service not found: {args.service}",
+                "hint": "Use --service-type to specify the type explicitly (e.g. --service-type std_srvs/srv/SetBool)"
+            })
         
         srv_class = get_srv_type(service_type)
         if not srv_class:
@@ -1340,6 +1347,8 @@ def build_parser():
     p = ssub.add_parser("call", help="Call a service")
     p.add_argument("service")
     p.add_argument("request", help="JSON request")
+    p.add_argument("--service-type", dest="service_type", default=None,
+                   help="Service type (auto-detected if not provided, e.g. std_srvs/srv/SetBool)")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
 
     nodes = sub.add_parser("nodes", help="Node operations")
