@@ -45,17 +45,22 @@ Commands:
     $ python3 ros2_cli.py topics echo /odom
     $ python3 ros2_cli.py topics sub /odom --duration 10 --max-msgs 50
 
-  topics publish <topic> <json_message> [--duration SEC] [--rate HZ]
-  topics pub      <topic> <json_message> [--duration SEC] [--rate HZ]
-    Publish a message to a topic (pub is an alias for publish).
-    Without --duration: sends once (single-shot).
-    With --duration: publishes repeatedly at --rate Hz for the specified seconds.
-    --duration SECONDS   Publish repeatedly for this duration
+  topics publish           <topic> <json_message> [--duration SEC | --timeout SEC] [--rate HZ]
+  topics pub               <topic> <json_message> [--duration SEC | --timeout SEC] [--rate HZ]
+  topics publish-continuous <topic> <json_message> [--duration SEC | --timeout SEC] [--rate HZ]
+    Publish a message to a topic.  pub and publish-continuous are aliases for publish.
+    Without --duration / --timeout: sends once (single-shot).
+    With --duration / --timeout: publishes repeatedly at --rate Hz for the specified seconds,
+    then stops.  Reports stopped_by: "timeout" or "keyboard_interrupt".
+    --duration SECONDS   Publish repeatedly for this duration (--timeout is an alias)
+    --timeout SECONDS    Alias for --duration
     --rate HZ            Publish rate (default: 10 Hz)
     $ python3 ros2_cli.py topics publish /turtle1/cmd_vel \
         '{"linear":{"x":2.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
     $ python3 ros2_cli.py topics pub /cmd_vel \
         '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
+    $ python3 ros2_cli.py topics publish /cmd_vel \
+        '{"linear":{"x":0.3},"angular":{"z":0}}' --timeout 5
 
   topics publish-sequence <topic> <json_messages> <json_durations> [--rate HZ]
   topics pub-seq          <topic> <json_messages> <json_durations> [--rate HZ]
@@ -83,14 +88,6 @@ Commands:
     $ python3 ros2_cli.py topics publish-until /cmd_vel \
         '{"linear":{"x":0.3},"angular":{"z":0}}' \
         --monitor /odom --field pose.pose.position.x --delta 1.0
-
-  topics publish-continuous <topic> <json_msg> --timeout SEC [--rate HZ]
-    Publish at --rate Hz for exactly --timeout seconds (required).
-    --timeout is mandatory — never publish to a robot without a hard time limit.
-    --rate HZ         Publish rate (default: 10 Hz)
-    --timeout SEC     Hard stop after this many seconds (required)
-    $ python3 ros2_cli.py topics publish-continuous /cmd_vel \
-        '{"linear":{"x":0.3},"angular":{"z":0}}' --timeout 5 --rate 10
 
   topics hz <topic> [--window N] [--timeout SEC]
     Measure the publish rate of a topic. Collects --window inter-message intervals
@@ -142,8 +139,10 @@ Commands:
     $ python3 ros2_cli.py services info /spawn
 
   nodes list
-    List all active nodes.
+  nodes ls
+    List all active nodes.  (ls is an alias for list)
     $ python3 ros2_cli.py nodes list
+    $ python3 ros2_cli.py nodes ls
 
   nodes details <node>
   nodes info     <node>
@@ -153,8 +152,10 @@ Commands:
     $ python3 ros2_cli.py nodes info /turtlesim
 
   params list <node>
-    List all parameters for a node.
+  params ls   <node>
+    List all parameters for a node.  (ls is an alias for list)
     $ python3 ros2_cli.py params list /turtlesim
+    $ python3 ros2_cli.py params ls /turtlesim
 
   params get <node:param_name>
   params get <node> <param_name>
@@ -169,8 +170,10 @@ Commands:
     $ python3 ros2_cli.py params set /turtlesim background_r 255
 
   actions list
-    List all available action servers.
+  actions ls
+    List all available action servers.  (ls is an alias for list)
     $ python3 ros2_cli.py actions list
+    $ python3 ros2_cli.py actions ls
 
   actions details <action>
   actions info    <action>
@@ -1012,21 +1015,29 @@ def cmd_topics_publish(args):
         msg = dict_to_msg(msg_class, msg_data)
 
         rate = getattr(args, "rate", None) or 10.0
-        duration = getattr(args, "duration", None)
+        # Accept --duration or --timeout (equivalent; publish-continuous uses --timeout)
+        duration = getattr(args, "duration", None) or getattr(args, "timeout", None)
         interval = 1.0 / rate
 
         if duration and duration > 0:
             published = 0
-            end_time = time.time() + duration
-            while time.time() < end_time:
-                publisher.pub.publish(msg)
-                published += 1
-                remaining = end_time - time.time()
-                if remaining > 0:
-                    time.sleep(min(interval, remaining))
+            start_time = time.time()
+            end_time = start_time + duration
+            stopped_by = "timeout"
+            try:
+                while time.time() < end_time:
+                    publisher.pub.publish(msg)
+                    published += 1
+                    remaining = end_time - time.time()
+                    if remaining > 0:
+                        time.sleep(min(interval, remaining))
+            except KeyboardInterrupt:
+                stopped_by = "keyboard_interrupt"
+            elapsed = round(time.time() - start_time, 3)
             rclpy.shutdown()
             output({"success": True, "topic": topic, "msg_type": msg_type,
-                    "duration": duration, "rate": rate, "published_count": published})
+                    "duration": elapsed, "rate": rate, "published_count": published,
+                    "stopped_by": stopped_by})
         else:
             publisher.pub.publish(msg)
             time.sleep(0.1)
@@ -1234,82 +1245,6 @@ def cmd_topics_publish_until(args):
                         "success": False,
                         "condition_met": False,
                         "error": f"Timeout after {timeout}s: condition not met"})
-
-    except Exception as e:
-        output({"error": str(e)})
-
-
-def cmd_topics_publish_continuous(args):
-    """Publish to a topic at a fixed rate until --timeout elapses (required).
-
-    --timeout is mandatory: never publish to a robot topic without a hard
-    time limit, especially when invoked from an AI agent that cannot send
-    Ctrl+C.
-    """
-    if not args.topic:
-        return output({"error": "topic argument is required"})
-    if args.msg is None:
-        return output({"error": "msg argument is required"})
-
-    try:
-        msg_data = json.loads(args.msg)
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        return output({"error": f"Invalid JSON message: {e}"})
-
-    try:
-        rclpy.init()
-
-        msg_type = args.msg_type
-        topic = args.topic
-
-        temp_node = ROS2CLI("temp")
-        for name, types in temp_node.get_topic_names():
-            if name == topic and types:
-                msg_type = types[0]
-                break
-
-        if not msg_type:
-            rclpy.shutdown()
-            return output({"error": f"Could not detect message type for topic: {topic}. Use --msg-type."})
-
-        msg_class = get_msg_type(msg_type)
-        if not msg_class:
-            rclpy.shutdown()
-            return output(get_msg_error(msg_type))
-
-        publisher = TopicPublisher(topic, msg_type)
-        if publisher.pub is None:
-            rclpy.shutdown()
-            return output({"error": f"Failed to create publisher for {msg_type}"})
-
-        msg = dict_to_msg(msg_class, msg_data)
-
-        rate = args.rate or 10.0
-        timeout = args.timeout  # required by parser — always set
-        interval = 1.0 / rate
-        start_time = time.time()
-        published_count = 0
-        stopped_by = "timeout"
-
-        try:
-            while (time.time() - start_time) < timeout:
-                publisher.pub.publish(msg)
-                published_count += 1
-                time.sleep(interval)
-        except KeyboardInterrupt:
-            stopped_by = "keyboard_interrupt"
-
-        elapsed = round(time.time() - start_time, 3)
-        rclpy.shutdown()
-        output({
-            "success": True,
-            "topic": topic,
-            "msg_type": msg_type,
-            "published_count": published_count,
-            "duration": elapsed,
-            "rate": rate,
-            "stopped_by": stopped_by,
-        })
 
     except Exception as e:
         output({"error": str(e)})
@@ -2675,8 +2610,8 @@ def build_parser():
         p.add_argument("msg", nargs="?", help="JSON message")
         p.add_argument("--msg-type", dest="msg_type", default=None,
                        help="Message type (auto-detected if not provided)")
-        p.add_argument("--duration", type=float, default=None,
-                       help="Publish repeatedly for duration (seconds)")
+        p.add_argument("--duration", "--timeout", dest="duration", type=float, default=None,
+                       help="Publish repeatedly for this many seconds (--timeout is an alias)")
         p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
     for _seq_name in ("publish-sequence", "pub-seq"):
         p = tsub.add_parser(_seq_name, help="Publish message sequence with delays"
@@ -2701,13 +2636,14 @@ def build_parser():
     p.add_argument("--timeout", type=float, default=60.0, help="Safety timeout in seconds (default: 60)")
     p.add_argument("--msg-type", dest="msg_type", default=None, help="Publish topic message type (auto-detected)")
     p.add_argument("--monitor-msg-type", dest="monitor_msg_type", default=None, help="Monitor topic message type (auto-detected)")
-    p = tsub.add_parser("publish-continuous", help="Publish at a fixed rate for a required duration (--timeout)")
+    p = tsub.add_parser("publish-continuous",
+                        help="Alias for publish (use topics publish --duration / --timeout instead)")
     p.add_argument("topic", nargs="?")
     p.add_argument("msg", nargs="?", help="JSON message to publish")
-    p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
-    p.add_argument("--timeout", type=float, required=True,
-                   help="Hard stop after this many seconds (required — never publish without a time limit)")
     p.add_argument("--msg-type", dest="msg_type", default=None, help="Message type (auto-detected if not provided)")
+    p.add_argument("--duration", "--timeout", dest="duration", type=float, default=None,
+                   help="Publish repeatedly for this many seconds")
+    p.add_argument("--rate", type=float, default=10.0, help="Publish rate in Hz (default: 10)")
 
     services = sub.add_parser("services", help="Service operations")
     ssub = services.add_subparsers(dest="subcommand")
@@ -2734,6 +2670,7 @@ def build_parser():
     nodes = sub.add_parser("nodes", help="Node operations")
     nsub = nodes.add_subparsers(dest="subcommand")
     nsub.add_parser("list", help="List all nodes")
+    nsub.add_parser("ls", help="Alias for list")
     p = nsub.add_parser("details", help="Get node details")
     p.add_argument("node")
     p = nsub.add_parser("info", help="Alias for details (ros2 node info)")
@@ -2741,9 +2678,11 @@ def build_parser():
 
     params = sub.add_parser("params", help="Parameter operations")
     psub = params.add_subparsers(dest="subcommand")
-    p = psub.add_parser("list", help="List parameters for a node")
-    p.add_argument("node")
-    p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
+    for _params_list_name in ("list", "ls"):
+        p = psub.add_parser(_params_list_name, help="List parameters for a node"
+                            if _params_list_name == "list" else "Alias for list")
+        p.add_argument("node")
+        p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
     p = psub.add_parser("get", help="Get parameter value")
     p.add_argument("name", help="/node_name:param_name or just /node_name")
     p.add_argument("param_name", nargs="?", default=None, help="Parameter name (alternative to colon format)")
@@ -2773,6 +2712,7 @@ def build_parser():
     actions = sub.add_parser("actions", help="Action operations")
     asub = actions.add_subparsers(dest="subcommand")
     asub.add_parser("list", help="List all actions")
+    asub.add_parser("ls", help="Alias for list")
     p = asub.add_parser("details", help="Get action details")
     p.add_argument("action")
     p = asub.add_parser("info", help="Alias for details (ros2 action info)")
@@ -2819,7 +2759,7 @@ DISPATCH = {
     ("topics", "publish"): cmd_topics_publish,
     ("topics", "publish-sequence"): cmd_topics_publish_sequence,
     ("topics", "publish-until"): cmd_topics_publish_until,
-    ("topics", "publish-continuous"): cmd_topics_publish_continuous,
+    ("topics", "publish-continuous"): cmd_topics_publish,
     ("topics", "hz"): cmd_topics_hz,
     ("topics", "find"): cmd_topics_find,
     # topics — aliases
@@ -2841,10 +2781,13 @@ DISPATCH = {
     ("nodes", "details"): cmd_nodes_details,
     # nodes — aliases
     ("nodes", "info"): cmd_nodes_details,
+    ("nodes", "ls"): cmd_nodes_list,
     # params
     ("params", "list"): cmd_params_list,
     ("params", "get"): cmd_params_get,
     ("params", "set"): cmd_params_set,
+    # params — aliases
+    ("params", "ls"): cmd_params_list,
     # actions — canonical
     ("actions", "list"): cmd_actions_list,
     ("actions", "details"): cmd_actions_details,
@@ -2853,6 +2796,7 @@ DISPATCH = {
     # actions — aliases
     ("actions", "info"): cmd_actions_details,
     ("actions", "send-goal"): cmd_actions_send,
+    ("actions", "ls"): cmd_actions_list,
     # topics — Phase 2
     ("topics", "bw"): cmd_topics_bw,
     ("topics", "delay"): cmd_topics_delay,
