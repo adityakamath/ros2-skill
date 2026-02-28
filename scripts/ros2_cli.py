@@ -380,7 +380,6 @@ def parse_node_param(name):
 def cmd_version(args):
     try:
         rclpy.init()
-        node = ROS2CLI()
         version = rclpy.utilities.get_domain_id()
         distro = os.environ.get('ROS_DISTRO', 'unknown')
         result = {"version": "2", "distro": distro, "domain_id": version}
@@ -593,6 +592,9 @@ class TopicSubscriber(Node):
 
 
 def cmd_topics_subscribe(args):
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+
     try:
         rclpy.init()
         node = ROS2CLI("temp")
@@ -664,6 +666,9 @@ class TopicPublisher(Node):
 
 
 def cmd_topics_publish(args):
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+
     try:
         msg_data = json.loads(args.msg)
     except (json.JSONDecodeError, TypeError, ValueError) as e:
@@ -726,6 +731,9 @@ def cmd_topics_publish(args):
 
 
 def cmd_topics_publish_sequence(args):
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+
     try:
         messages = json.loads(args.messages)
         durations = json.loads(args.durations)
@@ -880,7 +888,7 @@ def cmd_services_call(args):
 
         client = node.create_client(srv_class, args.service)
 
-        if not client.wait_for_service(timeout_sec=5.0):
+        if not client.wait_for_service(timeout_sec=args.timeout):
             rclpy.shutdown()
             return output({"error": f"Service not available: {args.service}"})
 
@@ -989,16 +997,15 @@ def cmd_params_list(args):
 
 
 def cmd_params_get(args):
+    if ':' not in args.name:
+        return output({"error": "Use format /node_name:param_name (e.g. /turtlesim:background_r)"})
+
     try:
         rclpy.init()
         node = ROS2CLI()
-        
+
         full_name = args.name
-        if ':' in full_name:
-            node_name, param_name = full_name.split(':', 1)
-        else:
-            node_name = full_name
-            param_name = None
+        node_name, param_name = full_name.split(':', 1)
         
         if not node_name.startswith('/'):
             node_name = '/' + node_name
@@ -1052,16 +1059,15 @@ def cmd_params_get(args):
 
 
 def cmd_params_set(args):
+    if ':' not in args.name:
+        return output({"error": "Use format /node_name:param_name (e.g. /turtlesim:background_r)"})
+
     try:
         rclpy.init()
         node = ROS2CLI()
-        
+
         full_name = args.name
-        if ':' in full_name:
-            node_name, param_name = full_name.split(':', 1)
-        else:
-            node_name = full_name
-            param_name = None
+        node_name, param_name = full_name.split(':', 1)
         
         if not node_name.startswith('/'):
             node_name = '/' + node_name
@@ -1109,7 +1115,13 @@ def cmd_params_set(args):
         
         rclpy.shutdown()
         if future.done():
-            output({"name": args.name, "value": args.value, "success": True})
+            result = future.result()
+            if result.results and result.results[0].successful:
+                output({"name": args.name, "value": args.value, "success": True})
+            else:
+                reason = result.results[0].reason if result.results else "unknown"
+                output({"name": args.name, "value": args.value, "success": False,
+                        "error": reason or "Parameter rejected by node"})
         else:
             output({"error": "Timeout setting parameter"})
     except Exception as e:
@@ -1218,7 +1230,7 @@ def cmd_actions_send(args):
         
         client = ActionClient(node, action_class, args.action)
         
-        if not client.wait_for_server(timeout_sec=5.0):
+        if not client.wait_for_server(timeout_sec=args.timeout):
             rclpy.shutdown()
             return output({"error": f"Action server not available: {args.action}"})
         
