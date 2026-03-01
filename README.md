@@ -13,18 +13,13 @@ Agent (LLM) → ros2_cli.py → rclpy → ROS 2
 
 ## Overview
 
-An AI agent skill that lets agents control ROS 2 robots through natural language. The agent reads `SKILL.md`, understands available commands, and executes `ros2_cli.py` to interact with ROS 2 systems directly via rclpy.
+An AI agent skill that lets agents control ROS 2 robots through natural language. The agent reads `SKILL.md`, understands available commands, and executes `ros2_cli.py` to interact with ROS 2 directly via rclpy — no rosbridge required.
 
 ## Quick Start (CLI)
-
-Use `ros2_cli.py` directly from the command line.
 
 ```bash
 # Source ROS 2 environment
 source /opt/ros/${ROS_DISTRO}/setup.bash
-
-# Install dependencies
-pip install rclpy
 
 # Run commands
 python3 scripts/ros2_cli.py version
@@ -48,19 +43,19 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 
 See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 
-## Supported Commands
+## Commands
 
 | Category | Commands |
 | -------- | -------- |
 | Connection | `version` |
 | Safety | `estop` |
-| Topics | `list`, `ls`, `type`, `details`, `info`, `message`, `message-structure`, `message-struct`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `find`, `bw`, `delay` |
+| Topics | `list`, `ls`, `type`, `details`, `info`, `message`, `message-structure`, `message-struct`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `bw`, `delay`, `find` |
 | Services | `list`, `ls`, `type`, `details`, `info`, `call`, `find`, `echo` |
 | Nodes | `list`, `ls`, `details`, `info` |
 | Parameters | `list`, `ls`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
 | Actions | `list`, `ls`, `details`, `info`, `type`, `send`, `send-goal`, `cancel`, `echo`, `find` |
 
-All commands output JSON. See `SKILL.md` for quick reference and `references/COMMANDS.md` for full details with output examples.
+All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`references/COMMANDS.md`](references/COMMANDS.md) for full details with examples.
 
 ## How It Works
 
@@ -79,37 +74,34 @@ ros2-skill/
 ├── scripts/
 │   └── ros2_cli.py       # Standalone CLI tool (all ROS 2 operations)
 ├── references/
-│   └── COMMANDS.md      # Full command reference with output examples
+│   └── COMMANDS.md       # Full command reference with output examples
 ├── examples/
-│   ├── turtlesim.md     # Turtlesim tutorial
+│   ├── turtlesim.md      # Turtlesim tutorial
 │   ├── sensor-monitor.md # Sensor monitoring workflows
-│   └── openclaw.md      # OpenClaw integration tutorial
+│   └── openclaw.md       # OpenClaw integration tutorial
 └── tests/
-    └── test_ros_cli.py  # Unit tests (tests ros2_cli.py)
+    └── test_ros_cli.py   # Unit tests
 ```
 
 ## Requirements
 
 - Python 3.10+
-- ROS 2 environment sourced
-- `rclpy` package
+- ROS 2 environment sourced (`source /opt/ros/${ROS_DISTRO}/setup.bash`)
+- `rclpy` (included with ROS 2)
 
 ## Testing
 
 ```bash
-# Source ROS 2 environment
 source /opt/ros/${ROS_DISTRO}/setup.bash
-
-# Run tests
 python3 -m pytest tests/ -v
 ```
 
-Note: Some tests require a ROS 2 environment to run fully.
+Note: Some tests require a running ROS 2 environment.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## About
-
-This is a fork of the original [ros-skill](https://github.com/lpigeon/ros-skill) repository. The original supports both ROS 1 and ROS 2 using rosbridge WebSocket for communication, making it suitable for controlling remote robots over a network.
-
-This version (`ros2-skill`) is designed to run directly on a ROS 2 robot and uses `rclpy` for direct local communication with ROS 2, without requiring rosbridge.
+Forked from [ros-skill](https://github.com/lpigeon/ros-skill) by [@lpigeon](https://github.com/lpigeon).
