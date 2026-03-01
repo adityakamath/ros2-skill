@@ -2706,32 +2706,33 @@ def cmd_services_echo(args):
         executor = rclpy.executors.SingleThreadedExecutor()
         executor.add_node(subscriber)
 
-        if args.duration:
-            end_time = time.time() + args.duration
-            while time.time() < end_time and len(subscriber.messages) < (args.max_messages or 100):
-                executor.spin_once(timeout_sec=0.1)
-            with subscriber.lock:
-                messages = (subscriber.messages[:args.max_messages]
-                            if args.max_messages else subscriber.messages[:])
-            rclpy.shutdown()
-            output({
-                "service": service,
-                "event_topic": event_topic,
-                "collected_count": len(messages),
-                "events": messages,
-            })
-        else:
-            end_time = time.time() + args.timeout
+        # Collect all events within the collection window.
+        # --duration overrides --timeout when both are provided.
+        # Default timeout (30s) is intentionally generous so the command can
+        # be started before the service call and still capture both the
+        # client-request and server-response events.
+        window = args.duration if args.duration is not None else args.timeout
+        max_events = args.max_messages
+        end_time = time.time() + window
+
+        try:
             while time.time() < end_time:
+                if max_events is not None and len(subscriber.messages) >= max_events:
+                    break
                 executor.spin_once(timeout_sec=0.1)
-                with subscriber.lock:
-                    if subscriber.messages:
-                        msg = subscriber.messages[0]
-                        rclpy.shutdown()
-                        output({"service": service, "event": msg})
-                        return
-            rclpy.shutdown()
-            output({"error": "Timeout waiting for service event"})
+        except KeyboardInterrupt:
+            pass
+
+        with subscriber.lock:
+            events = (subscriber.messages[:max_events]
+                      if max_events is not None else subscriber.messages[:])
+        rclpy.shutdown()
+        output({
+            "service": service,
+            "event_topic": event_topic,
+            "collected_count": len(events),
+            "events": events,
+        })
     except Exception as e:
         output({"error": str(e)})
 
@@ -2953,11 +2954,11 @@ def build_parser():
     p = ssub.add_parser("echo", help="Echo service events (requires service introspection enabled)")
     p.add_argument("service")
     p.add_argument("--duration", type=float, default=None,
-                   help="Collect events for this many seconds (default: wait for first event)")
-    p.add_argument("--max-messages", "--max-events", dest="max_messages", type=int, default=100,
-                   help="Max events to collect when using --duration (default: 100)")
-    p.add_argument("--timeout", type=float, default=5.0,
-                   help="Timeout waiting for first event in seconds (default: 5)")
+                   help="Collect events for exactly this many seconds (overrides --timeout)")
+    p.add_argument("--max-messages", "--max-events", dest="max_messages", type=int, default=None,
+                   help="Stop after collecting this many events (default: unlimited within window)")
+    p.add_argument("--timeout", type=float, default=30.0,
+                   help="Collection window in seconds when --duration is not set (default: 30)")
 
     nodes = sub.add_parser("nodes", help="Node operations")
     nsub = nodes.add_subparsers(dest="subcommand")
