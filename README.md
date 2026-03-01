@@ -104,4 +104,4 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-Forked from [ros-skill](https://github.com/lpigeon/ros-skill) by [@lpigeon](https://github.com/lpigeon).
+Adapted from [ros-skill](https://github.com/lpigeon/ros-skill) by [@lpigeon](https://github.com/lpigeon).
