@@ -284,13 +284,38 @@ python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/Empty
 
 Echo service events (request/response pairs). Requires service introspection to be enabled on the server or client via `configure_introspection(clock, qos, ServiceIntrospectionState.METADATA)`. Returns an error with a hint if introspection is not active.
 
+Always collects **all** events within the collection window and returns them together — it does **not** exit after the first event. A single service call typically produces at least 2 events (client request + server response).
+
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py services echo /spawn
+# Collect all events for 30 s (default) — start this before making the service call
+python3 {baseDir}/scripts/ros2_cli.py services echo /emergency_stop
+
+# Explicit window
+python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --timeout 60
+
+# Stop early once 4 events are received (e.g. 2 calls × 2 events each)
+python3 {baseDir}/scripts/ros2_cli.py services echo /set_bool --max-messages 4
+
+# Fixed duration (overrides --timeout)
 python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --duration 10
-python3 {baseDir}/scripts/ros2_cli.py services echo /set_bool --max-messages 5
 ```
 
-Options: `--duration SECONDS` (collect for N seconds), `--max-messages N` (default 100), `--timeout SECONDS` (default 5.0, wait for first event)
+**Background workflow** — start the echo before triggering the service call:
+
+```bash
+# 1. Start echo in background (runs for up to 60 s)
+python3 {baseDir}/scripts/ros2_cli.py services echo /emergency_stop --timeout 60 > /tmp/echo.json &
+ECHO_PID=$!
+
+# 2. Trigger the service
+python3 {baseDir}/scripts/ros2_cli.py services call /emergency_stop '{}'
+
+# 3. Wait for echo to finish and inspect result
+wait $ECHO_PID
+cat /tmp/echo.json
+```
+
+Options: `--timeout SECONDS` (collection window, default 30.0), `--duration SECONDS` (same as `--timeout`, takes precedence), `--max-messages N` (stop early after N events, default: unlimited within window)
 
 ### nodes list / details / info
 
