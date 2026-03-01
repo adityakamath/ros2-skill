@@ -908,17 +908,45 @@ class ConditionMonitor(Node):
             if self.euclidean:
                 # ---- Euclidean N-dimensional distance mode ----
                 # Resolve every field path and coerce to float.
+                # If a field resolves to a dict (e.g. pose.pose.position → {x,y,z}),
+                # auto-expand its direct numeric children (sorted by key) so that
+                # users can pass a composite path rather than every sub-field explicitly.
                 values = []
                 for fp in self.fields:
                     try:
                         v = resolve_field(msg_dict, fp)
-                        values.append(float(v))
-                    except (KeyError, IndexError, TypeError, ValueError) as e:
+                    except (KeyError, IndexError, TypeError) as e:
                         self.field_error = (
-                            f"Field '{fp}' not found or not numeric in monitor message: {e}"
+                            f"Field '{fp}' not found in monitor message: {e}"
                         )
                         self.stop_event.set()
                         return
+
+                    if isinstance(v, dict):
+                        # Auto-expand: extract all direct numeric children, sorted by key.
+                        numeric_children = [
+                            (k, float(v[k]))
+                            for k in sorted(v.keys())
+                            if isinstance(v[k], (int, float))
+                        ]
+                        if not numeric_children:
+                            self.field_error = (
+                                f"Field '{fp}' resolves to a dict with no direct numeric "
+                                f"sub-fields (keys: {sorted(v.keys())}). "
+                                f"Specify a leaf field such as {fp}.x"
+                            )
+                            self.stop_event.set()
+                            return
+                        values.extend(val for _, val in numeric_children)
+                    else:
+                        try:
+                            values.append(float(v))
+                        except (TypeError, ValueError) as e:
+                            self.field_error = (
+                                f"Field '{fp}' not numeric in monitor message: {e}"
+                            )
+                            self.stop_event.set()
+                            return
 
                 # Capture start state on the very first message.
                 if self.start_values is None:
