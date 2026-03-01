@@ -16,7 +16,7 @@ Agent (LLM) → ros2_cli.py → rclpy → ROS 2
 
 ## Overview
 
-An AI agent skill that lets agents control ROS 2 robots through natural language. The agent reads `SKILL.md`, understands available commands, and executes `ros2_cli.py` to interact with ROS 2 directly via rclpy — no rosbridge required.
+An AI agent skill that lets agents control ROS 2 robots through natural language. The agent reads `SKILL.md`, understands available commands, and executes `ros2_cli.py` to interact with ROS 2 directly via rclpy — no rosbridge required, perfect for on-board deployment.
 
 ## Quick Start (CLI)
 
@@ -39,12 +39,11 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 
 ## Quick Start (AI Agent)
 
-**ros2-skill** works with any AI agent that supports [Agent Skills](https://agentskills.io). For easy setup, we recommend [OpenClaw](https://github.com/openclaw/openclaw) — install **ros2-skill** from [ClawHub](https://clawhub.ai/adityakamath/ros2-skill) and talk to your robot:
+**ros2-skill** works with any AI agent that supports [Agent Skills](https://agentskills.io). For easy setup, I recommend using [nanobot](https://github.com/HKUDS/nanobot), a lightweight alternative to [OpenClaw](https://github.com/openclaw/openclaw) that can run directly on-board the ROS 2 robot's computer. Install **ros2-skill** from [ClawHub](https://clawhub.ai/adityakamath/ros2-skill) and talk to your robot:
 
 - "What topics are available?"
 - "Move the robot forward 1 meter"
-
-See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
+- "Trigger the emergency stop"
 
 ## Commands
 
@@ -78,19 +77,14 @@ ros2-skill/
 │   └── ros2_cli.py       # Standalone CLI tool (all ROS 2 operations)
 ├── references/
 │   └── COMMANDS.md       # Full command reference with output examples
-├── examples/
-│   ├── turtlesim.md      # Turtlesim tutorial
-│   ├── sensor-monitor.md # Sensor monitoring workflows
-│   └── openclaw.md       # OpenClaw integration tutorial
 └── tests/
-    └── test_ros_cli.py   # Unit tests
+    └── test_ros2_cli.py   # Unit tests
 ```
 
 ## Requirements
 
 - Python 3.10+
 - ROS 2 environment sourced (`source /opt/ros/${ROS_DISTRO}/setup.bash`)
-- `rclpy` (included with ROS 2)
 
 ## Testing
 
