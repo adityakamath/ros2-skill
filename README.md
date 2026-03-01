@@ -1,9 +1,11 @@
 # ROS 2 Skill
 
-![Static Badge](https://img.shields.io/badge/ROS%202-Supported-green)
-![Static Badge](https://img.shields.io/badge/License-Apache%202.0-blue)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 [![ClawHub](https://img.shields.io/badge/ClawHub-ros2--skill-orange)](https://clawhub.ai/adityakamath/ros2-skill)
+![Static Badge](https://img.shields.io/badge/ROS%202-Supported-green)
+[![Repo](https://img.shields.io/badge/Repo-adityakamath%2Fros2--skill-purple)](https://github.com/adityakamath/ros2-skill)
+[![Blog](https://img.shields.io/badge/Blog-kamathrobotics.com-darkorange)](https://kamathrobotics.com)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Static Badge](https://img.shields.io/badge/License-Apache%202.0-blue)
 
 [Agent Skill](https://agentskills.io) for ROS 2 robot control via rclpy.
 
