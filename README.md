@@ -1,6 +1,6 @@
 # ROS 2 Skill
 
-![Status](https://img.shields.io/badge/Status-Active-brightgreen)
+![Status](https://img.shields.io/badge/Status-Active-green)
 [![ClawHub](https://img.shields.io/badge/ClawHub-ros2--skill-orange)](https://clawhub.ai/adityakamath/ros2-skill)
 ![Static Badge](https://img.shields.io/badge/ROS%202-Supported-green)
 [![Repo](https://img.shields.io/badge/Repo-adityakamath%2Fros2--skill-purple)](https://github.com/adityakamath/ros2-skill)
