@@ -1073,7 +1073,7 @@ Output:
 
 ## params delete `<node>` `<param_name>` [`<extra_names>` ...] [options]
 
-Delete one or more parameters from a node via the `DeleteParameters` service.
+Delete one or more parameters from a node. ROS 2 has no `DeleteParameters` service; this command uses `SetParameters` with `PARAMETER_NOT_SET` (type 0) to undeclare each parameter. Nodes launched with `allow_undeclare_parameters=False` (the default) or read-only parameters will reject the request and return an error reason.
 
 **ROS 2 CLI equivalent:** `ros2 param delete /turtlesim background_r`
 
@@ -1097,9 +1097,14 @@ python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r back
 python3 {baseDir}/scripts/ros2_cli.py params delete /base_controller max_vel_x --timeout 10
 ```
 
-Output:
+Output (success):
 ```json
-{"node": "/turtlesim", "deleted": ["background_r"], "count": 1}
+{"node": "/turtlesim", "results": [{"name": "background_r", "success": true}], "count": 1}
+```
+
+Output (rejected — node disallows undeclaring):
+```json
+{"node": "/turtlesim", "results": [{"name": "background_r", "success": false, "error": "Node rejected deletion (parameter may be read-only or undeclaring is not allowed)"}], "count": 1}
 ```
 
 ---

@@ -611,7 +611,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /heater/cmd \
 **Destructive commands** (can move the robot or change state):
 - `topics publish` / `topics publish-sequence` — sends movement or control commands
 - `topics publish-until` — publishes continuously until a condition or timeout; always specify a conservative `--timeout`
-- `topics publish-continuous` — publishes for a fixed duration; `--timeout` is required
+- `topics publish-continuous` — alias for `topics publish`; `--duration` / `--timeout` is optional (single-shot without it)
 - `services call` — can reset, spawn, kill, or change robot state
 - `params set` — modifies runtime parameters
 - `actions send` — triggers robot actions (rotation, navigation, etc.)
