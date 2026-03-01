@@ -529,6 +529,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 
 | Move sideways N m | `/odom` | `pose.pose.position.y` | `--delta N` |
 | Move N m (any direction, 2D) | `/odom` | `pose.pose.position.x` `pose.pose.position.y` | `--euclidean --delta N` |
 | Move N m (any direction, 3D) | `/odom` | `pose.pose.position.x` `pose.pose.position.y` `pose.pose.position.z` | `--euclidean --delta N` |
+| Move N m (shorthand, auto-expanded) | `/odom` | `pose.pose.position` | `--euclidean --delta N` |
 | Rotate N rad | `/odom` | `pose.pose.orientation.z` | `--delta N` |
 | Joint reach angle | `/joint_states` | `position.0` (index of joint) | `--equals A` or `--delta D` |
 | Multi-joint Euclidean distance | `/joint_states` | `position.0` `position.1` | `--euclidean --delta D` |
@@ -539,6 +540,8 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 
 
 **`--euclidean`** takes any number of numeric fields, computes `sqrt(Σ(current_i - start_i)²)`, and stops when that distance ≥ the `--delta` threshold. Use it whenever the robot's path is not axis-aligned.
 
+**Composite field auto-expansion**: if a `--field` path resolves to a sub-message dict (e.g. `pose.pose.position` → `{x, y, z}`), `--euclidean` mode automatically expands it to all direct numeric children (sorted alphabetically: `x, y, z`). This lets you write `--field pose.pose.position --euclidean --delta 1.0` instead of listing every sub-field explicitly. Non-numeric children (strings, nested dicts) are skipped.
+
 #### Examples
 
 ```bash
@@ -547,12 +550,19 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
   --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
 
-# "Drive 2 meters in any direction" — curved/diagonal path, Euclidean XY
+# "Drive 2 meters in any direction" — curved/diagonal path, Euclidean XY (explicit fields)
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.3}}' \
   --monitor /odom \
   --field pose.pose.position.x pose.pose.position.y \
   --euclidean --delta 2.0 --timeout 60
+
+# "Drive 1 meter in any direction (3D)" — shorthand: auto-expands position to x,y,z
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor /odom \
+  --field pose.pose.position \
+  --euclidean --delta 1.0 --timeout 30
 
 # "Move arm until joint_3 reaches 1.5 rad" — joint index 2 (0-based)
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /arm/cmd \
