@@ -292,6 +292,17 @@ def get_msg_type(type_str):
     if '/msg/' in type_str:
         pkg, msg_name = type_str.split('/msg/', 1)
         msg_name = msg_name.strip()
+    elif '/srv/' in type_str:
+        # Service event types (e.g. std_srvs/srv/SetBool_Event) live in the
+        # srv submodule, not msg.  Handle them here so the generic rsplit
+        # branch doesn't build an invalid module path like "std_srvs/srv".
+        pkg, msg_name = type_str.split('/srv/', 1)
+        msg_name = msg_name.strip()
+        try:
+            module = importlib.import_module(f"{pkg}.srv")
+            return getattr(module, msg_name)
+        except Exception:
+            return None
     elif '/' in type_str:
         pkg, msg_name = type_str.rsplit('/', 1)
     elif '.' in type_str:
