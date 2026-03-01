@@ -4,7 +4,7 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.0] - 2026-03-01
 
-Initial release of ros2-skill — a fork of [ros-skill](https://github.com/lpigeon/ros-skill) redesigned for direct local ROS 2 communication via rclpy instead of rosbridge.
+Initial release of ros2-skill — an adaptation of [ros-skill](https://github.com/lpigeon/ros-skill) redesigned for direct local ROS 2 communication via rclpy instead of rosbridge.
 
 ### Topics
 
