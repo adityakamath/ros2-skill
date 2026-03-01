@@ -739,7 +739,7 @@ Output:
 
 ## services echo `<service>` [options]
 
-Echo service request/response events published on `<service>/_service_event`. Requires service introspection to be explicitly enabled on both the client and server via `configure_introspection()`.
+Collect service request/response events published on `<service>/_service_event` and return them all together. Requires service introspection to be explicitly enabled on both the client and server via `configure_introspection()`. A single service call produces at least 2 events (client-request + server-response).
 
 **ROS 2 CLI equivalent:** `ros2 service echo /service` (Jazzy+)
 
@@ -749,9 +749,9 @@ Echo service request/response events published on `<service>/_service_event`. Re
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--duration SECONDS` | _(none)_ | Collect events for this many seconds; without this, returns first event only |
-| `--max-messages N` / `--max-events N` | `100` | Maximum events to collect (only with `--duration`) |
-| `--timeout SECONDS` | `5` | Timeout waiting for first event |
+| `--timeout SECONDS` | `30` | Collection window in seconds (command exits after this, returning all events collected) |
+| `--duration SECONDS` | _(none)_ | Same as `--timeout` but takes precedence when both are supplied |
+| `--max-messages N` / `--max-events N` | _(unlimited)_ | Stop early after receiving this many events |
 
 **Note:** This command requires service introspection to be enabled on the server/client:
 ```python
@@ -761,28 +761,29 @@ node.configure_introspection(
 ```
 
 ```bash
-# Wait for first service event
+# Default: collect all events for 30 s — start BEFORE making the service call
 python3 {baseDir}/scripts/ros2_cli.py services echo /spawn
 
-# Collect events for 10 seconds
+# Longer window for slower workflows
+python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --timeout 60
+
+# Stop as soon as 2 events are received (one request + one response)
+python3 {baseDir}/scripts/ros2_cli.py services echo /emergency_stop --max-messages 2
+
+# Fixed duration window
 python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --duration 10
-
-# With custom timeout
-python3 {baseDir}/scripts/ros2_cli.py services echo /my_service --timeout 15 --duration 5
 ```
 
-Output (single event):
-```json
-{"service": "/spawn", "event": {"info": {}, "request": [{"x": 3.0, "y": 3.0}], "response": []}}
-```
-
-Output (duration mode):
+Output:
 ```json
 {
   "service": "/spawn",
   "event_topic": "/spawn/_service_event",
-  "collected_count": 3,
-  "events": [{"info": {}, "request": [{}], "response": []}]
+  "collected_count": 2,
+  "events": [
+    {"info": {}, "request": [{"x": 3.0, "y": 3.0, "theta": 0.0, "name": ""}], "response": []},
+    {"info": {}, "request": [], "response": [{"name": "turtle2"}]}
+  ]
 }
 ```
 
@@ -1072,7 +1073,7 @@ Output:
 
 ## params delete `<node>` `<param_name>` [`<extra_names>` ...] [options]
 
-Delete one or more parameters from a node via the `DeleteParameters` service.
+Delete one or more parameters from a node. ROS 2 has no `DeleteParameters` service; this command uses `SetParameters` with `PARAMETER_NOT_SET` (type 0) to undeclare each parameter. Nodes launched with `allow_undeclare_parameters=False` (the default) or read-only parameters will reject the request and return an error reason.
 
 **ROS 2 CLI equivalent:** `ros2 param delete /turtlesim background_r`
 
@@ -1096,9 +1097,14 @@ python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r back
 python3 {baseDir}/scripts/ros2_cli.py params delete /base_controller max_vel_x --timeout 10
 ```
 
-Output:
+Output (success):
 ```json
-{"node": "/turtlesim", "deleted": ["background_r"], "count": 1}
+{"node": "/turtlesim", "results": [{"name": "background_r", "success": true}], "count": 1}
+```
+
+Output (rejected — node disallows undeclaring):
+```json
+{"node": "/turtlesim", "results": [{"name": "background_r", "success": false, "error": "Node rejected deletion (parameter may be read-only or undeclaring is not allowed)"}], "count": 1}
 ```
 
 ---

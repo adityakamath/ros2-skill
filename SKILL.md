@@ -284,38 +284,37 @@ python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/Empty
 
 Echo service events (request/response pairs). Requires service introspection to be enabled on the server or client via `configure_introspection(clock, qos, ServiceIntrospectionState.METADATA)`. Returns an error with a hint if introspection is not active.
 
-Always collects **all** events within the collection window and returns them together — it does **not** exit after the first event. A single service call typically produces at least 2 events (client request + server response).
+Always collects **all** events within the collection window and returns them together. A single service call produces at least 2 events (client request + server response).
+
+**When to use this pattern** (natural language triggers):
+- "Call /X and show me what events were fired"
+- "Echo the /X service while triggering a call"
+- "I want to observe what happens when /X is called"
+- "Monitor /X service events while I trigger it"
+- "Capture the /X service request and response"
+
+**Agent workflow — always run as a single bash block.** The background PID must stay in scope between echo start, service call, and wait. Split Bash tool calls will lose the PID. Include `sleep 1` so the rclpy subscriber has time to connect before the service fires (VOLATILE durability = no replay of missed events):
 
 ```bash
-# Collect all events for 30 s (default) — start this before making the service call
-python3 {baseDir}/scripts/ros2_cli.py services echo /emergency_stop
-
-# Explicit window
-python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --timeout 60
-
-# Stop early once 4 events are received (e.g. 2 calls × 2 events each)
-python3 {baseDir}/scripts/ros2_cli.py services echo /set_bool --max-messages 4
-
-# Fixed duration (overrides --timeout)
-python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --duration 10
-```
-
-**Background workflow** — start the echo before triggering the service call:
-
-```bash
-# 1. Start echo in background (runs for up to 60 s)
-python3 {baseDir}/scripts/ros2_cli.py services echo /emergency_stop --timeout 60 > /tmp/echo.json &
+python3 {baseDir}/scripts/ros2_cli.py services echo /emergency_stop --timeout 30 > /tmp/svc_echo.json &
 ECHO_PID=$!
-
-# 2. Trigger the service
+sleep 1   # wait for subscriber to connect before firing the service
 python3 {baseDir}/scripts/ros2_cli.py services call /emergency_stop '{}'
-
-# 3. Wait for echo to finish and inspect result
 wait $ECHO_PID
-cat /tmp/echo.json
+cat /tmp/svc_echo.json
 ```
 
-Options: `--timeout SECONDS` (collection window, default 30.0), `--duration SECONDS` (same as `--timeout`, takes precedence), `--max-messages N` (stop early after N events, default: unlimited within window)
+Stop early after receiving exactly one request+response pair (2 events):
+```bash
+python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --max-messages 2 > /tmp/svc_echo.json &
+ECHO_PID=$!
+sleep 1
+python3 {baseDir}/scripts/ros2_cli.py services call /spawn '{"x": 3.0, "y": 3.0, "theta": 0.0, "name": "turtle2"}'
+wait $ECHO_PID
+cat /tmp/svc_echo.json
+```
+
+Options: `--timeout SECONDS` (collection window, default 30), `--duration SECONDS` (same, takes precedence), `--max-messages N` (stop early after N events, default: unlimited)
 
 ### nodes list / details / info
 
@@ -612,7 +611,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /heater/cmd \
 **Destructive commands** (can move the robot or change state):
 - `topics publish` / `topics publish-sequence` — sends movement or control commands
 - `topics publish-until` — publishes continuously until a condition or timeout; always specify a conservative `--timeout`
-- `topics publish-continuous` — publishes for a fixed duration; `--timeout` is required
+- `topics publish-continuous` — alias for `topics publish`; `--duration` / `--timeout` is optional (single-shot without it)
 - `services call` — can reset, spawn, kill, or change robot state
 - `params set` — modifies runtime parameters
 - `actions send` — triggers robot actions (rotation, navigation, etc.)
