@@ -276,12 +276,30 @@ import threading
 try:
     import rclpy
     from rclpy.node import Node
-    from rclpy.qos import qos_profile_system_default
+    from rclpy.qos import (qos_profile_system_default, QoSProfile,
+                           ReliabilityPolicy, DurabilityPolicy, HistoryPolicy)
     from rcl_interfaces.msg import Parameter, ParameterValue
 except ImportError as e:
     print(json.dumps({"error": f"Missing ROS 2 dependency: {e}. Source ROS 2 setup.bash or install the missing package."}))
     sys.exit(1)
 
+
+
+# QoS profile matching the service event publisher (RELIABLE + VOLATILE + depth=100)
+_SERVICE_EVENT_QOS = None  # initialised lazily after rclpy import guard above
+
+
+def _get_service_event_qos():
+    """Return (and cache) the QoS profile for service event topics."""
+    global _SERVICE_EVENT_QOS
+    if _SERVICE_EVENT_QOS is None:
+        _SERVICE_EVENT_QOS = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=100,
+        )
+    return _SERVICE_EVENT_QOS
 
 
 def get_msg_type(type_str):
@@ -731,17 +749,18 @@ def cmd_topics_message(args):
 
 
 class TopicSubscriber(Node):
-    def __init__(self, topic, msg_type):
+    def __init__(self, topic, msg_type, msg_class=None, qos=None):
         super().__init__('subscriber')
         self.msg_type = msg_type
         self.messages = []
         self.lock = threading.Lock()
         self.sub = None
 
-        msg_class = get_msg_type(msg_type)
-        if msg_class:
+        resolved_class = msg_class if msg_class is not None else get_msg_type(msg_type)
+        resolved_qos = qos if qos is not None else qos_profile_system_default
+        if resolved_class:
             self.sub = self.create_subscription(
-                msg_class, topic, self.callback, qos_profile_system_default
+                resolved_class, topic, self.callback, resolved_qos
             )
     
     def callback(self, msg):
@@ -2647,7 +2666,10 @@ def cmd_services_echo(args):
         msg_type = all_topics[event_topic][0]
 
         rclpy.init()
-        subscriber = TopicSubscriber(event_topic, msg_type)
+        # Service event publisher uses RELIABLE + VOLATILE + depth=1000;
+        # pass a matching QoS profile so the subscription is accepted.
+        subscriber = TopicSubscriber(event_topic, msg_type,
+                                     qos=_get_service_event_qos())
 
         if subscriber.sub is None:
             rclpy.shutdown()
@@ -2708,8 +2730,18 @@ def cmd_actions_echo(args):
         status_type = (all_topics[status_topic][0]
                        if status_topic in all_topics else None)
 
+        # Derive the action class from the feedback topic type.
+        # The feedback type is e.g. "pkg/action/Name_FeedbackMessage".
+        # _FeedbackMessage is NOT exported from pkg.action.__init__ but
+        # the action class (e.g. Fibonacci) has it as Impl.FeedbackMessage.
+        action_base_type = re.sub(r'_FeedbackMessage$', '', feedback_type)
+        action_class = get_action_type(action_base_type)
+        if action_class is None:
+            return output({"error": f"Could not load action type: {action_base_type}"})
+        fb_msg_class = action_class.Impl.FeedbackMessage
+
         rclpy.init()
-        fb_sub = TopicSubscriber(feedback_topic, feedback_type)
+        fb_sub = TopicSubscriber(feedback_topic, feedback_type, msg_class=fb_msg_class)
 
         if fb_sub.sub is None:
             rclpy.shutdown()
