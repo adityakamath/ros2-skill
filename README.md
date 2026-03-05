@@ -65,7 +65,7 @@ All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`r
 
 ### Message Type Aliases
 
-The skill supports 40+ message type aliases for commonly used ROS 2 message types. Use short names instead of full type names:
+The skill supports 50 message type aliases for commonly used ROS 2 message types. Use short names instead of full type names:
 
 - `twist` → `geometry_msgs/Twist`
 - `odom` → `nav_msgs/Odometry`

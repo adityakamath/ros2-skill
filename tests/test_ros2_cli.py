@@ -322,8 +322,8 @@ class TestMessageTypeAliases(unittest.TestCase):
 
     def test_alias_count(self):
         """Test that we have the expected number of aliases."""
-        # We defined 40+ aliases
-        self.assertGreaterEqual(len(self.ros2_cli.MSG_ALIASES), 40)
+        # We defined 50 aliases
+        self.assertEqual(len(self.ros2_cli.MSG_ALIASES), 50)
 
     def test_common_aliases_exist(self):
         """Test that all common aliases are present."""
@@ -414,27 +414,30 @@ class TestMessageTypeAliases(unittest.TestCase):
     def test_specific_package_aliases(self):
         """Test that we have expected aliases for each package category."""
         # std_msgs
-        std_msgs_aliases = ['string', 'int32', 'float32', 'float64', 'bool', 'header', 'empty']
+        std_msgs_aliases = ['string', 'int32', 'int64', 'uint8', 'float32', 'float64', 
+                           'bool', 'header', 'empty', 'colorrgba']
         for alias in std_msgs_aliases:
             self.assertIn(alias, self.ros2_cli.MSG_ALIASES)
             self.assertTrue(self.ros2_cli.MSG_ALIASES[alias].startswith('std_msgs/'))
         
         # geometry_msgs
-        geom_aliases = ['twist', 'pose', 'point', 'quaternion', 'vector3',
-                       'posestamped', 'twiststamped', 'transform', 'transformstamped']
+        geom_aliases = ['twist', 'pose', 'posearray', 'point', 'pointstamped', 'quaternion', 'vector3',
+                       'posestamped', 'twiststamped', 'transform', 'transformstamped',
+                       'polygon', 'polygonstamped']
         for alias in geom_aliases:
             self.assertIn(alias, self.ros2_cli.MSG_ALIASES)
             self.assertTrue(self.ros2_cli.MSG_ALIASES[alias].startswith('geometry_msgs/'))
         
         # sensor_msgs
         sensor_aliases = ['laserscan', 'image', 'compressedimage', 'pointcloud2',
-                         'imu', 'camerainfo', 'jointstate']
+                         'imu', 'camerainfo', 'jointstate', 'navsatfix', 
+                         'fluidpressure', 'magneticfield']
         for alias in sensor_aliases:
             self.assertIn(alias, self.ros2_cli.MSG_ALIASES)
             self.assertTrue(self.ros2_cli.MSG_ALIASES[alias].startswith('sensor_msgs/'))
         
         # nav_msgs
-        nav_aliases = ['odom', 'odometry', 'path', 'occupancygrid']
+        nav_aliases = ['odom', 'odometry', 'path', 'occupancygrid', 'gridcells']
         for alias in nav_aliases:
             self.assertIn(alias, self.ros2_cli.MSG_ALIASES)
             self.assertTrue(self.ros2_cli.MSG_ALIASES[alias].startswith('nav_msgs/'))

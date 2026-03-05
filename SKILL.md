@@ -174,7 +174,7 @@ The ROS 2 skill supports message type aliases for commonly used message types. I
 - `imu` → `sensor_msgs/Imu`
 - `pointcloud2` → `sensor_msgs/PointCloud2`
 
-For the complete list of 40+ supported aliases, see [Message Type Aliases](references/COMMANDS.md#message-type-aliases) in COMMANDS.md.
+For the complete list of 50 supported aliases, see [Message Type Aliases](references/COMMANDS.md#message-type-aliases) in COMMANDS.md.
 
 **Examples:**
 ```bash

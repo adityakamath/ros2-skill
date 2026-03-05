@@ -319,16 +319,21 @@ MSG_ALIASES = {
     # std_msgs
     'string': 'std_msgs/String',
     'int32': 'std_msgs/Int32',
+    'int64': 'std_msgs/Int64',
+    'uint8': 'std_msgs/UInt8',
     'float32': 'std_msgs/Float32',
     'float64': 'std_msgs/Float64',
     'bool': 'std_msgs/Bool',
     'header': 'std_msgs/Header',
     'empty': 'std_msgs/Empty',
+    'colorrgba': 'std_msgs/ColorRGBA',
     
     # geometry_msgs
     'twist': 'geometry_msgs/Twist',
     'pose': 'geometry_msgs/Pose',
+    'posearray': 'geometry_msgs/PoseArray',
     'point': 'geometry_msgs/Point',
+    'pointstamped': 'geometry_msgs/PointStamped',
     'quaternion': 'geometry_msgs/Quaternion',
     'vector3': 'geometry_msgs/Vector3',
     'posestamped': 'geometry_msgs/PoseStamped',
@@ -337,6 +342,8 @@ MSG_ALIASES = {
     'transformstamped': 'geometry_msgs/TransformStamped',
     'wrench': 'geometry_msgs/Wrench',
     'accel': 'geometry_msgs/Accel',
+    'polygon': 'geometry_msgs/Polygon',
+    'polygonstamped': 'geometry_msgs/PolygonStamped',
     
     # sensor_msgs
     'laserscan': 'sensor_msgs/LaserScan',
@@ -349,6 +356,9 @@ MSG_ALIASES = {
     'range': 'sensor_msgs/Range',
     'temperature': 'sensor_msgs/Temperature',
     'batterystate': 'sensor_msgs/BatteryState',
+    'navsatfix': 'sensor_msgs/NavSatFix',
+    'fluidpressure': 'sensor_msgs/FluidPressure',
+    'magneticfield': 'sensor_msgs/MagneticField',
     
     # nav_msgs
     'odometry': 'nav_msgs/Odometry',
@@ -356,6 +366,7 @@ MSG_ALIASES = {
     'path': 'nav_msgs/Path',
     'occupancygrid': 'nav_msgs/OccupancyGrid',
     'mapmetadata': 'nav_msgs/MapMetaData',
+    'gridcells': 'nav_msgs/GridCells',
     
     # visualization_msgs
     'marker': 'visualization_msgs/Marker',
