@@ -3,7 +3,7 @@ name: ros2-skill
 description: "Controls ROS 2 robots directly via rclpy CLI. Use when the user asks about ROS 2 topics, services, nodes, parameters, actions, robot movement, sensor data, or any ROS 2 robot interaction."
 license: Apache-2.0
 compatibility: "Requires python3, rclpy, and ROS 2 environment sourced"
-user-invocable: true
+user-invokable: true
 metadata: {"openclaw": {"emoji": "🤖", "requires": {"bins": ["python3", "ros2"], "pip": ["rclpy"]}, "category": "robotics", "tags": ["ros2", "robotics", "rclpy"]}, "author": ["adityakamath", "lpigeon"], "version": "3.0.0"}
 ---
 
@@ -69,7 +69,6 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics publish <topic> <json>` | Publish a message to a topic |
 | Topics | `topics pub <topic> <json>` | Alias for `topics publish` |
 | Topics | `topics publish-sequence <topic> <msgs> <durs>` | Publish message sequence |
-<<<<<<< Updated upstream
 | Topics | `topics pub-seq <topic> <msgs> <durs>` | Alias for `topics publish-sequence` |
 | Topics | `topics publish-until <topic> <json>` | Publish while monitoring; stop on condition (supports `--euclidean` for N-D distance) |
 | Topics | `topics publish-continuous <topic> <json>` | Alias for `topics publish` |
@@ -77,39 +76,8 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics find <msg_type>` | Find topics by message type |
 | Topics | `topics bw <topic>` | Measure topic bandwidth (bytes/s) |
 | Topics | `topics delay <topic>` | Measure header-stamp end-to-end latency |
-=======
-| Topics | `capture-image` | Capture image from ROS 2 topic and save to artifacts/ |
+| Topics | `topics capture-image` | Capture image from ROS 2 topic and save to artifacts/ |
 | Discord | `send-image` (discord_tools.py) | Send image to Discord channel |
----
-
-## Artifacts Folder
-
-All images and media are saved in the `artifacts/` folder (must be created manually in the root of the skill).
-
----
-
-## Configuration
-
-Create a `config.json` file in the root of the skill if you need to store custom settings (not Discord credentials). Discord bot token and channel ID must be provided by the AI agent (e.g., OpenClaw, Nanobot) at runtime.
-
----
-
-## Example: Capture and Send Image
-
-Capture an image from a ROS 2 topic:
-
-```bash
-python3 scripts/ros2_cli.py capture-image --topic /camera/image_raw/compressed --output test.jpg --timeout 5 --type auto
-```
-
-Send the image to Discord:
-
-```bash
-python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --delete
-```
-
----
->>>>>>> Stashed changes
 | Services | `services list` | List all available services |
 | Services | `services ls` | Alias for `services list` |
 | Services | `services type <service>` | Get service type |
@@ -140,6 +108,51 @@ python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --delete
 | Actions | `actions cancel <action>` | Cancel all in-flight goals |
 | Actions | `actions echo <action>` | Echo live action feedback and status messages |
 | Actions | `actions find <action_type>` | Find action servers by action type |
+
+---
+
+## Image Capture and Discord Integration
+
+### Artifacts Folder
+
+Images captured from ROS 2 topics are automatically saved to the `artifacts/` folder in the skill directory. The folder is created automatically if it doesn't exist.
+
+### Discord Configuration
+
+The Discord bot token is read from `~/.nanobot/config.json`:
+
+```json
+{
+  "discord": {
+    "token": "YOUR_DISCORD_BOT_TOKEN"
+  }
+}
+```
+
+**Important:** The Discord channel ID must be provided by the agent as a CLI argument (not stored in config). The agent should pass the correct channel ID based on where the user's request originated.
+
+### Example Workflow: Capture and Send Image
+
+1. **Capture image from ROS 2 camera topic:**
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics capture-image \
+  --topic /camera/image_raw/compressed \
+  --output robot_view.jpg \
+  --timeout 5.0 \
+  --type auto
+```
+
+2. **Send captured image to Discord:**
+
+```bash
+python3 {baseDir}/scripts/discord_tools.py send-image \
+  --path {baseDir}/artifacts/robot_view.jpg \
+  --channel-id 123456789012345678 \
+  --delete
+```
+
+The `--delete` flag removes the image after successfully sending it to Discord.
 
 ---
 

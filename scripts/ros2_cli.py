@@ -1,6 +1,5 @@
 import os
 import sys
-import argparse
 import time
 import json
 try:
@@ -11,86 +10,6 @@ try:
     import numpy as np
 except ImportError:
     pass  # Only import when needed
-
-# ...existing code...
-
-def capture_image(args):
-    """Capture an image from a ROS 2 image topic and save to artifacts/ folder."""
-    artifacts_dir = os.path.join(os.path.dirname(__file__), '..', 'artifacts')
-    artifacts_dir = os.path.abspath(artifacts_dir)
-    if not os.path.exists(artifacts_dir):
-        os.makedirs(artifacts_dir, exist_ok=True)
-    topic = args.topic
-    output = args.output
-    timeout = args.timeout
-    img_type = args.type
-    rclpy.init()
-    node = rclpy.create_node('image_capture')
-    received = {}
-    def cb(msg):
-        received['msg'] = msg
-    sub = None
-    if img_type == 'compressed' or (img_type == 'auto' and topic.endswith('/compressed')):
-        sub = node.create_subscription(CompressedImage, topic, cb, 10)
-    else:
-        sub = node.create_subscription(Image, topic, cb, 10)
-    executor = rclpy.executors.SingleThreadedExecutor()
-    executor.add_node(node)
-    start = time.time()
-    while time.time() - start < timeout:
-        rclpy.spin_once(node, timeout_sec=0.1)
-        if 'msg' in received:
-            break
-    node.destroy_node()
-    rclpy.shutdown()
-    if 'msg' not in received:
-        print(json.dumps({"error": f"No image received from {topic} within {timeout} seconds."}))
-        sys.exit(1)
-    msg = received['msg']
-    out_path = os.path.join(artifacts_dir, output)
-    try:
-        if isinstance(msg, CompressedImage):
-            np_arr = np.frombuffer(msg.data, np.uint8)
-            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            cv2.imwrite(out_path, img)
-        elif isinstance(msg, Image):
-            # Assume 8UC3 (bgr8)
-            arr = np.frombuffer(msg.data, dtype=np.uint8)
-            arr = arr.reshape((msg.height, msg.width, -1))
-            cv2.imwrite(out_path, arr)
-        else:
-            raise Exception("Unknown image message type")
-        print(json.dumps({"success": True, "path": out_path}))
-    except Exception as e:
-        print(json.dumps({"error": str(e)}))
-        sys.exit(1)
-
-# ...existing code...
-
-def main():
-    parser = argparse.ArgumentParser(description="ros2-skill CLI")
-    subparsers = parser.add_subparsers(dest="command")
-
-    # ...existing subcommands...
-
-    cap_parser = subparsers.add_parser("capture-image", help="Capture image from ROS 2 topic")
-    cap_parser.add_argument("--topic", required=True, help="ROS 2 image topic (e.g., /camera/image_raw/compressed)")
-    cap_parser.add_argument("--output", required=True, help="Output filename (saved in artifacts/)")
-    cap_parser.add_argument("--timeout", type=float, default=5.0, help="Seconds to wait for image")
-    cap_parser.add_argument("--type", choices=["auto", "compressed", "raw"], default="auto", help="Image type: compressed, raw, or auto")
-    cap_parser.set_defaults(func=capture_image)
-
-    args = parser.parse_args()
-    if hasattr(args, 'func'):
-        args.func(args)
-    else:
-        # ...existing main logic...
-        pass
-
-# ...existing code...
-
-if __name__ == "__main__":
-    main()
 #!/usr/bin/env python3
 """ROS 2 Skill - Standalone CLI tool for controlling ROS 2 robots directly via rclpy.
 
@@ -229,7 +148,7 @@ Commands:
     Find all services of a specific type.
     Accepts both /srv/ and non-/srv/ formats (normalised for comparison).
     $ python3 ros2_cli.py services find std_srvs/srv/Empty
-    $ python3 ros2_cli.py services find std_srvs/Empty
+    $ python3 ros2_cli.py services find std srvs/Empty
 
   services info <service>
     Alias for services details (ros2 service info).
@@ -406,7 +325,7 @@ def get_msg_type(type_str):
     elif '/srv/' in type_str:
         # Service event types (e.g. std_srvs/srv/SetBool_Event) live in the
         # srv submodule, not msg.  Handle them here so the generic rsplit
-        # branch doesn't build an invalid module path like "std_srvs/srv".
+        # branch doesn't build an invalid module path like "std srvs/srv".
         pkg, msg_name = type_str.split('/srv/', 1)
         msg_name = msg_name.strip()
         try:
@@ -1532,7 +1451,7 @@ def cmd_services_call(args):
             rclpy.shutdown()
             return output({
                 "error": f"Service not found: {args.service}",
-                "hint": "Use --service-type to specify the type explicitly (e.g. --service-type std_srvs/srv/SetBool)"
+                "hint": "Use --service-type to specify the type explicitly (e.g. --service-type std srvs/srv/SetBool)"
             })
         
         srv_class = get_srv_type(service_type)
@@ -2116,7 +2035,7 @@ def cmd_services_find(args):
 
     target_raw = args.service_type
 
-    # Normalise: std_srvs/Empty and std_srvs/srv/Empty are equivalent.
+    # Normalise: std srvs/Empty and std srvs/srv/Empty are equivalent.
     def _norm_srv(t):
         return re.sub(r'/srv/', '/', t)
 
@@ -2338,6 +2257,66 @@ def cmd_topics_delay(args):
             "std_dev": round(variance ** 0.5, 6),
             "samples": len(delays),
         })
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_topics_capture_image(args):
+    """Capture an image from a ROS 2 image topic and save to artifacts/ folder."""
+    topic = args.topic
+    output_filename = args.output
+    timeout = args.timeout
+    img_type = args.type
+
+    artifacts_dir = os.path.join(os.path.dirname(__file__), '..', 'artifacts')
+    artifacts_dir = os.path.abspath(artifacts_dir)
+    if not os.path.exists(artifacts_dir):
+        os.makedirs(artifacts_dir, exist_ok=True)
+
+    try:
+        rclpy.init()
+        node = rclpy.create_node('image_capture')
+        received = {}
+
+        def cb(msg):
+            received['msg'] = msg
+
+        sub = None
+        if img_type == 'compressed' or (img_type == 'auto' and topic.endswith('/compressed')):
+            sub = node.create_subscription(CompressedImage, topic, cb, 10)
+        else:
+            sub = node.create_subscription(Image, topic, cb, 10)
+
+        executor = rclpy.executors.SingleThreadedExecutor()
+        executor.add_node(node)
+        start = time.time()
+        while time.time() - start < timeout:
+            rclpy.spin_once(node, timeout_sec=0.1)
+            if 'msg' in received:
+                break
+
+        node.destroy_node()
+        rclpy.shutdown()
+
+        if 'msg' not in received:
+            return output({"error": f"No image received from {topic} within {timeout} seconds"})
+
+        msg = received['msg']
+        out_path = os.path.join(artifacts_dir, output_filename)
+
+        if isinstance(msg, CompressedImage):
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            cv2.imwrite(out_path, img)
+        elif isinstance(msg, Image):
+            # Assume 8UC3 (bgr8)
+            arr = np.frombuffer(msg.data, dtype=np.uint8)
+            arr = arr.reshape((msg.height, msg.width, -1))
+            cv2.imwrite(out_path, arr)
+        else:
+            return output({"error": "Unknown image message type"})
+
+        output({"success": True, "path": out_path})
     except Exception as e:
         output({"error": str(e)})
 
@@ -2932,6 +2911,11 @@ def build_parser():
     _add_subscribe_args(tsub.add_parser("subscribe", help="Subscribe to a topic"))
     _add_subscribe_args(tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)"))
     _add_subscribe_args(tsub.add_parser("sub", help="Alias for subscribe"))
+    p = tsub.add_parser("capture-image", help="Capture image from ROS 2 topic")
+    p.add_argument("--topic", required=True, help="ROS 2 image topic (e.g., /camera/image_raw/compressed)")
+    p.add_argument("--output", required=True, help="Output filename (saved in artifacts/)")
+    p.add_argument("--timeout", type=float, default=5.0, help="Seconds to wait for image")
+    p.add_argument("--type", choices=["auto", "compressed", "raw"], default="auto", help="Image type: compressed, raw, or auto")
     p = tsub.add_parser("info", help="Alias for details (ros2 topic info)")
     p.add_argument("topic")
     p = tsub.add_parser("hz", help="Measure topic publish rate")
@@ -3024,7 +3008,7 @@ def build_parser():
     p.add_argument("extra_request", nargs="?", default=None,
                    help="JSON request when using /svc service_type json positional format")
     p.add_argument("--service-type", dest="service_type", default=None,
-                   help="Service type (auto-detected if not provided, e.g. std_srvs/srv/SetBool)")
+                   help="Service type (auto-detected if not provided, e.g. std srvs/srv/SetBool)")
     p.add_argument("--timeout", type=float, default=5.0, help="Timeout in seconds (default: 5)")
     p = ssub.add_parser("echo", help="Echo service events (requires service introspection enabled)")
     p.add_argument("service")
@@ -3131,6 +3115,7 @@ DISPATCH = {
     ("topics", "publish-continuous"): cmd_topics_publish,
     ("topics", "hz"): cmd_topics_hz,
     ("topics", "find"): cmd_topics_find,
+    ("topics", "capture-image"): cmd_topics_capture_image,
     # topics — aliases
     ("topics", "echo"): cmd_topics_subscribe,
     ("topics", "sub"): cmd_topics_subscribe,

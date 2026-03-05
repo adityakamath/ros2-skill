@@ -46,33 +46,20 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 - "Move the robot forward 1 meter"
 - "Trigger the emergency stop"
 
-<<<<<<< Updated upstream
-## Commands
-=======
 See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 
-
 ## Supported Commands
->>>>>>> Stashed changes
 
 | Category | Commands |
 | -------- | -------- |
 | Connection | `version` |
-<<<<<<< Updated upstream
 | Safety | `estop` |
-| Topics | `list`, `ls`, `type`, `details`, `info`, `message`, `message-structure`, `message-struct`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `bw`, `delay`, `find` |
+| Topics | `list`, `ls`, `type`, `details`, `info`, `message`, `message-structure`, `message-struct`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `bw`, `delay`, `find`, `capture-image` |
 | Services | `list`, `ls`, `type`, `details`, `info`, `call`, `find`, `echo` |
 | Nodes | `list`, `ls`, `details`, `info` |
 | Parameters | `list`, `ls`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
 | Actions | `list`, `ls`, `details`, `info`, `type`, `send`, `send-goal`, `cancel`, `echo`, `find` |
-=======
-| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence`, `capture-image` |
-| Services | `list`, `type`, `details`, `call` |
-| Nodes | `list`, `details` |
-| Parameters | `list`, `get`, `set` |
-| Actions | `list`, `details`, `send` |
 | Discord | `send-image` (in `discord_tools.py`) |
->>>>>>> Stashed changes
 
 All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`references/COMMANDS.md`](references/COMMANDS.md) for full details with examples.
 
@@ -86,7 +73,17 @@ Images and other media are saved in the `artifacts/` folder (must be created man
 
 ## Configuration
 
-Create a `config.json` file in the root of the skill if you need to store custom settings (not Discord credentials). Discord bot token and channel ID must be provided by the AI agent (e.g., OpenClaw, Nanobot) at runtime.
+Discord integration requires a config file at `~/.nanobot/config.json`:
+
+```json
+{
+  "discord": {
+    "token": "YOUR_DISCORD_BOT_TOKEN"
+  }
+}
+```
+
+**Important:** The Discord channel ID must be provided by the agent as a CLI argument (`--channel-id`), not stored in config. The agent should pass the correct channel ID based on where the user's request originated.
 
 ---
 
@@ -95,17 +92,17 @@ Create a `config.json` file in the root of the skill if you need to store custom
 Capture an image from a ROS 2 topic and save to `artifacts/`:
 
 ```bash
-python3 scripts/ros2_cli.py capture-image --topic /camera/image_raw/compressed --output test.jpg --timeout 5 --type auto
+python3 scripts/ros2_cli.py topics capture-image --topic /camera/image_raw/compressed --output test.jpg --timeout 5 --type auto
 ```
 
 ---
 
 ## Discord Send Example
 
-Send an image to a Discord channel using the CLI tool:
+Send an image to a Discord channel using the CLI tool (requires bot token in `~/.nanobot/config.json`):
 
 ```bash
-python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --delete
+python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --channel-id 123456789012345678 --delete
 ```
 
 ---

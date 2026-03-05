@@ -3,31 +3,61 @@
 CLI tool for Discord integration: send images to a Discord channel.
 
 Usage:
-  python3 scripts/discord_tools.py send-image --path <image_path> [--delete]
+  python3 scripts/discord_tools.py send-image --path <image_path> --channel-id <channel_id> [--delete]
 
-Environment/config required:
-  DISCORD_BOT_TOKEN: Discord bot token
-  DISCORD_CHANNEL_ID: Channel ID to send images to
+Config required:
+  ~/.nanobot/config.json with structure:
+  {
+    "discord": {
+      "token": "YOUR_DISCORD_BOT_TOKEN"
+    }
+  }
+
+Arguments:
+  --channel-id: Discord channel ID (provided by nanobot agent dynamically)
 """
 import argparse
+import json
 import os
 import sys
 import requests
 
-def send_image(path, delete_after):
-    token = os.getenv("DISCORD_BOT_TOKEN")
-    channel_id = os.getenv("DISCORD_CHANNEL_ID")
-    if not token or not channel_id:
-        print("Error: DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID must be set in environment.", file=sys.stderr)
+def load_config():
+    """Load nanobot config from ~/.nanobot/config.json"""
+    config_path = os.path.expanduser("~/.nanobot/config.json")
+    if not os.path.exists(config_path):
+        print(f"Error: Config file not found at {config_path}", file=sys.stderr)
         sys.exit(1)
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        if "discord" not in config or "token" not in config["discord"]:
+            print("Error: Config must contain discord.token", file=sys.stderr)
+            sys.exit(1)
+        return config
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"Error reading config file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def send_image(path, channel_id, delete_after):
+    config = load_config()
+    token = config["discord"]["token"]
+    
+    if not channel_id:
+        print("Error: --channel-id argument is required", file=sys.stderr)
+        sys.exit(1)
+    
     if not os.path.exists(path):
         print(f"Error: File not found: {path}", file=sys.stderr)
         sys.exit(1)
+    
     url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
     headers = {"Authorization": f"Bot {token}"}
+    
     with open(path, "rb") as f:
         files = {"file": (os.path.basename(path), f)}
         response = requests.post(url, headers=headers, files=files)
+    
     if response.status_code == 200 or response.status_code == 201:
         print(f"Image sent to Discord channel {channel_id} successfully.")
         if delete_after:
@@ -43,11 +73,12 @@ def main():
 
     send_parser = subparsers.add_parser("send-image", help="Send image to Discord channel")
     send_parser.add_argument("--path", required=True, help="Path to image file")
+    send_parser.add_argument("--channel-id", required=True, help="Discord channel ID (provided by agent)")
     send_parser.add_argument("--delete", action="store_true", help="Delete image after sending")
 
     args = parser.parse_args()
     if args.command == "send-image":
-        send_image(args.path, args.delete)
+        send_image(args.path, args.channel_id, args.delete)
     else:
         parser.print_help()
         sys.exit(1)
