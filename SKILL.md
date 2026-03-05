@@ -69,6 +69,7 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics publish <topic> <json>` | Publish a message to a topic |
 | Topics | `topics pub <topic> <json>` | Alias for `topics publish` |
 | Topics | `topics publish-sequence <topic> <msgs> <durs>` | Publish message sequence |
+<<<<<<< Updated upstream
 | Topics | `topics pub-seq <topic> <msgs> <durs>` | Alias for `topics publish-sequence` |
 | Topics | `topics publish-until <topic> <json>` | Publish while monitoring; stop on condition (supports `--euclidean` for N-D distance) |
 | Topics | `topics publish-continuous <topic> <json>` | Alias for `topics publish` |
@@ -76,6 +77,39 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics find <msg_type>` | Find topics by message type |
 | Topics | `topics bw <topic>` | Measure topic bandwidth (bytes/s) |
 | Topics | `topics delay <topic>` | Measure header-stamp end-to-end latency |
+=======
+| Topics | `capture-image` | Capture image from ROS 2 topic and save to artifacts/ |
+| Discord | `send-image` (discord_tools.py) | Send image to Discord channel |
+---
+
+## Artifacts Folder
+
+All images and media are saved in the `artifacts/` folder (must be created manually in the root of the skill).
+
+---
+
+## Configuration
+
+Create a `config.json` file in the root of the skill if you need to store custom settings (not Discord credentials). Discord bot token and channel ID must be provided by the AI agent (e.g., OpenClaw, Nanobot) at runtime.
+
+---
+
+## Example: Capture and Send Image
+
+Capture an image from a ROS 2 topic:
+
+```bash
+python3 scripts/ros2_cli.py capture-image --topic /camera/image_raw/compressed --output test.jpg --timeout 5 --type auto
+```
+
+Send the image to Discord:
+
+```bash
+python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --delete
+```
+
+---
+>>>>>>> Stashed changes
 | Services | `services list` | List all available services |
 | Services | `services ls` | Alias for `services list` |
 | Services | `services type <service>` | Get service type |

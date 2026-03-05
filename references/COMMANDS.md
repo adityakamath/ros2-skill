@@ -1,3 +1,56 @@
+#
+# ---
+#
+# ## topics capture-image
+#
+# Capture an image from a ROS 2 image topic and save to the artifacts/ folder.
+#
+# | Option | Required | Description |
+# |--------|----------|-------------|
+# | --topic | Yes | ROS 2 image topic (e.g. /camera/image_raw/compressed) |
+# | --output | Yes | Output filename (saved in artifacts/) |
+# | --timeout | No | Seconds to wait for image (default: 5) |
+# | --type | No | Image type: compressed, raw, or auto (default: auto) |
+#
+# Example:
+# ```bash
+# python3 scripts/ros2_cli.py capture-image --topic /camera/image_raw/compressed --output test.jpg --timeout 5 --type auto
+# ```
+#
+# Output (success):
+# ```json
+# {"success": true, "path": "/path/to/artifacts/test.jpg"}
+# ```
+# Output (error):
+# ```json
+# {"error": "No image received from /camera/image_raw/compressed within 5 seconds."}
+# ```
+#
+# ---
+#
+# ## discord_tools.py send-image
+#
+# Send an image file to a Discord channel using a bot token and channel ID from config or environment.
+#
+# | Option | Required | Description |
+# |--------|----------|-------------|
+# | --path | Yes | Path to image file (relative or absolute) |
+# | --delete | No | Delete image after sending |
+#
+# Example:
+# ```bash
+# python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --delete
+# ```
+#
+# Output (success):
+# ```
+# Image sent to Discord channel <channel_id> successfully.
+# Deleted image: artifacts/test.jpg
+# ```
+# Output (error):
+# ```
+# Error: DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID must be set in environment.
+# ```
 # Command Reference
 
 Full reference for all `ros2_cli.py` commands with arguments, options, ROS 2 CLI equivalents, and output examples.

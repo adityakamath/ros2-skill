@@ -1,3 +1,96 @@
+import os
+import sys
+import argparse
+import time
+import json
+try:
+    import rclpy
+    from rclpy.node import Node
+    from sensor_msgs.msg import CompressedImage, Image
+    import cv2
+    import numpy as np
+except ImportError:
+    pass  # Only import when needed
+
+# ...existing code...
+
+def capture_image(args):
+    """Capture an image from a ROS 2 image topic and save to artifacts/ folder."""
+    artifacts_dir = os.path.join(os.path.dirname(__file__), '..', 'artifacts')
+    artifacts_dir = os.path.abspath(artifacts_dir)
+    if not os.path.exists(artifacts_dir):
+        os.makedirs(artifacts_dir, exist_ok=True)
+    topic = args.topic
+    output = args.output
+    timeout = args.timeout
+    img_type = args.type
+    rclpy.init()
+    node = rclpy.create_node('image_capture')
+    received = {}
+    def cb(msg):
+        received['msg'] = msg
+    sub = None
+    if img_type == 'compressed' or (img_type == 'auto' and topic.endswith('/compressed')):
+        sub = node.create_subscription(CompressedImage, topic, cb, 10)
+    else:
+        sub = node.create_subscription(Image, topic, cb, 10)
+    executor = rclpy.executors.SingleThreadedExecutor()
+    executor.add_node(node)
+    start = time.time()
+    while time.time() - start < timeout:
+        rclpy.spin_once(node, timeout_sec=0.1)
+        if 'msg' in received:
+            break
+    node.destroy_node()
+    rclpy.shutdown()
+    if 'msg' not in received:
+        print(json.dumps({"error": f"No image received from {topic} within {timeout} seconds."}))
+        sys.exit(1)
+    msg = received['msg']
+    out_path = os.path.join(artifacts_dir, output)
+    try:
+        if isinstance(msg, CompressedImage):
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            cv2.imwrite(out_path, img)
+        elif isinstance(msg, Image):
+            # Assume 8UC3 (bgr8)
+            arr = np.frombuffer(msg.data, dtype=np.uint8)
+            arr = arr.reshape((msg.height, msg.width, -1))
+            cv2.imwrite(out_path, arr)
+        else:
+            raise Exception("Unknown image message type")
+        print(json.dumps({"success": True, "path": out_path}))
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+        sys.exit(1)
+
+# ...existing code...
+
+def main():
+    parser = argparse.ArgumentParser(description="ros2-skill CLI")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # ...existing subcommands...
+
+    cap_parser = subparsers.add_parser("capture-image", help="Capture image from ROS 2 topic")
+    cap_parser.add_argument("--topic", required=True, help="ROS 2 image topic (e.g., /camera/image_raw/compressed)")
+    cap_parser.add_argument("--output", required=True, help="Output filename (saved in artifacts/)")
+    cap_parser.add_argument("--timeout", type=float, default=5.0, help="Seconds to wait for image")
+    cap_parser.add_argument("--type", choices=["auto", "compressed", "raw"], default="auto", help="Image type: compressed, raw, or auto")
+    cap_parser.set_defaults(func=capture_image)
+
+    args = parser.parse_args()
+    if hasattr(args, 'func'):
+        args.func(args)
+    else:
+        # ...existing main logic...
+        pass
+
+# ...existing code...
+
+if __name__ == "__main__":
+    main()
 #!/usr/bin/env python3
 """ROS 2 Skill - Standalone CLI tool for controlling ROS 2 robots directly via rclpy.
 
@@ -404,32 +497,14 @@ def get_srv_type(type_str):
 def get_msg_error(msg_type):
     """Generate helpful error message when message type cannot be loaded."""
     ros_distro = os.environ.get('ROS_DISTRO', '')
-    suggestions = []
-    base_type = msg_type.split('/')[-1] if '/' in msg_type else msg_type
-    common_types = {
-        'twist': 'geometry_msgs/msg/Twist',
-        'twiststamped': 'geometry_msgs/msg/TwistStamped',
-        'pose': 'turtlesim/msg/Pose',
-        'odom': 'nav_msgs/msg/Odometry',
-        'laserscan': 'sensor_msgs/msg/LaserScan',
-        'image': 'sensor_msgs/msg/Image',
-        'battery': 'sensor_msgs/msg/BatteryState',
-        'jointstate': 'sensor_msgs/msg/JointState',
-        'imu': 'sensor_msgs/msg/Imu',
-    }
-    if base_type.lower() in common_types:
-        suggestions.append(common_types[base_type.lower()])
-    
     hint = "ROS 2 message types use /msg/ format (e.g., geometry_msgs/msg/Twist)"
     if ros_distro:
         hint += f". Ensure ROS 2 workspace is built: cd ~/ros2_ws && colcon build && source install/setup.bash"
     else:
         hint += ". Ensure ROS 2 environment is sourced: source /opt/ros/<distro>/setup.bash"
-    
     return {
         "error": f"Unknown message type: {msg_type}",
         "hint": hint,
-        "suggestions": suggestions if suggestions else None,
         "ros_distro": ros_distro if ros_distro else None,
         "troubleshooting": [
             "1. Source ROS 2: source /opt/ros/<distro>/setup.bash",
