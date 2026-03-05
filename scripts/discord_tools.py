@@ -3,10 +3,9 @@
 CLI tool for Discord integration: send images to a Discord channel.
 
 Usage:
-  python3 scripts/discord_tools.py send-image --path <image_path> --channel-id <channel_id> [--delete]
+  python3 scripts/discord_tools.py send-image --path <image_path> --channel-id <channel_id> --config <config_path> [--delete]
 
-Config required:
-  ~/.nanobot/config.json with structure:
+Config file structure:
   {
     "discord": {
       "token": "YOUR_DISCORD_BOT_TOKEN"
@@ -14,6 +13,7 @@ Config required:
   }
 
 Arguments:
+  --config: Path to nanobot config file (e.g., ~/.nanobot/config.json)
   --channel-id: Discord channel ID (provided by nanobot agent dynamically)
 """
 import argparse
@@ -22,9 +22,9 @@ import os
 import sys
 import requests
 
-def load_config():
-    """Load nanobot config from ~/.nanobot/config.json"""
-    config_path = os.path.expanduser("~/.nanobot/config.json")
+def load_config(config_path):
+    """Load nanobot config from the specified config file path."""
+    config_path = os.path.expanduser(config_path)
     if not os.path.exists(config_path):
         print(f"Error: Config file not found at {config_path}", file=sys.stderr)
         sys.exit(1)
@@ -39,8 +39,8 @@ def load_config():
         print(f"Error reading config file: {e}", file=sys.stderr)
         sys.exit(1)
 
-def send_image(path, channel_id, delete_after):
-    config = load_config()
+def send_image(path, channel_id, config_path, delete_after):
+    config = load_config(config_path)
     token = config["discord"]["token"]
     
     if not channel_id:
@@ -74,11 +74,12 @@ def main():
     send_parser = subparsers.add_parser("send-image", help="Send image to Discord channel")
     send_parser.add_argument("--path", required=True, help="Path to image file")
     send_parser.add_argument("--channel-id", required=True, help="Discord channel ID (provided by agent)")
+    send_parser.add_argument("--config", required=True, help="Path to nanobot config file (e.g., ~/.nanobot/config.json)")
     send_parser.add_argument("--delete", action="store_true", help="Delete image after sending")
 
     args = parser.parse_args()
     if args.command == "send-image":
-        send_image(args.path, args.channel_id, args.delete)
+        send_image(args.path, args.channel_id, args.config, args.delete)
     else:
         parser.print_help()
         sys.exit(1)

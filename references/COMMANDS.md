@@ -35,15 +35,16 @@ Output (error):
 
 ## discord_tools.py send-image
 
-Send an image file to a Discord channel. The bot token is read from `~/.nanobot/config.json` at `config["discord"]["token"]`. The channel ID must be provided as a CLI argument by the agent.
+Send an image file to a Discord channel. The bot token is read from the config file specified by `--config` at `config["discord"]["token"]`. Both the config path and channel ID must be provided as CLI arguments by the agent.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | --path | Yes | Path to image file (relative or absolute) |
 | --channel-id | Yes | Discord channel ID (provided by agent based on context) |
+| --config | Yes | Path to nanobot config file (e.g., ~/.nanobot/config.json) |
 | --delete | No | Delete image after sending |
 
-**Config file (`~/.nanobot/config.json`):**
+**Config file structure:**
 ```json
 {
   "discord": {
@@ -54,7 +55,7 @@ Send an image file to a Discord channel. The bot token is read from `~/.nanobot/
 
 Example:
 ```bash
-python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --channel-id 123456789012345678 --delete
+python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --channel-id 123456789012345678 --config ~/.nanobot/config.json --delete
 ```
 
 Output (success):
@@ -64,7 +65,7 @@ Deleted image: artifacts/test.jpg
 ```
 Output (error):
 ```
-Error: Config file not found at ~/.nanobot/config.json
+Error: Config file not found at /path/to/config.json
 ```
 or
 ```

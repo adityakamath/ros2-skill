@@ -73,7 +73,7 @@ Images and other media are saved in the `artifacts/` folder (must be created man
 
 ## Configuration
 
-Discord integration requires a config file at `~/.nanobot/config.json`:
+Discord integration requires a config file with the following structure:
 
 ```json
 {
@@ -83,7 +83,7 @@ Discord integration requires a config file at `~/.nanobot/config.json`:
 }
 ```
 
-**Important:** The Discord channel ID must be provided by the agent as a CLI argument (`--channel-id`), not stored in config. The agent should pass the correct channel ID based on where the user's request originated.
+**Important:** Both the config file path (`--config`) and Discord channel ID (`--channel-id`) must be provided by the agent as CLI arguments. The agent should pass the correct values based on the deployment environment and where the user's request originated.
 
 ---
 
@@ -99,10 +99,10 @@ python3 scripts/ros2_cli.py topics capture-image --topic /camera/image_raw/compr
 
 ## Discord Send Example
 
-Send an image to a Discord channel using the CLI tool (requires bot token in `~/.nanobot/config.json`):
+Send an image to a Discord channel using the CLI tool:
 
 ```bash
-python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --channel-id 123456789012345678 --delete
+python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --channel-id 123456789012345678 --config ~/.nanobot/config.json --delete
 ```
 
 ---
