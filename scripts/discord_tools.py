@@ -25,17 +25,49 @@ import requests
 def load_config(config_path):
     """Load nanobot config from the specified config file path."""
     config_path = os.path.expanduser(config_path)
+    
+    # Debug: Show resolved config path
+    print(f"[DEBUG] Loading config from: {config_path}", file=sys.stderr)
+    
     if not os.path.exists(config_path):
         print(f"Error: Config file not found at {config_path}", file=sys.stderr)
         sys.exit(1)
+    
     try:
         with open(config_path, 'r') as f:
             config = json.load(f)
-        if "discord" not in config or "token" not in config["discord"]:
-            print("Error: Config must contain discord.token", file=sys.stderr)
+        
+        # Debug: Show loaded config structure (without sensitive data)
+        print(f"[DEBUG] Config keys: {list(config.keys())}", file=sys.stderr)
+        
+        # Validate config structure
+        if "discord" not in config:
+            print("Error: Config missing 'discord' section", file=sys.stderr)
+            print(f"[DEBUG] Available sections: {list(config.keys())}", file=sys.stderr)
             sys.exit(1)
+        
+        if not isinstance(config["discord"], dict):
+            print("Error: Config 'discord' section must be a dictionary", file=sys.stderr)
+            sys.exit(1)
+        
+        print(f"[DEBUG] Discord section keys: {list(config['discord'].keys())}", file=sys.stderr)
+        
+        if "token" not in config["discord"]:
+            print("Error: Config 'discord' section missing 'token' key", file=sys.stderr)
+            print(f"[DEBUG] Available keys in discord: {list(config['discord'].keys())}", file=sys.stderr)
+            sys.exit(1)
+        
+        if not config["discord"]["token"]:
+            print("Error: Config 'discord.token' is empty", file=sys.stderr)
+            sys.exit(1)
+        
+        print(f"[DEBUG] Config loaded successfully, token length: {len(config['discord']['token'])}", file=sys.stderr)
         return config
-    except (json.JSONDecodeError, IOError) as e:
+        
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in config file: {e}", file=sys.stderr)
+        sys.exit(1)
+    except IOError as e:
         print(f"Error reading config file: {e}", file=sys.stderr)
         sys.exit(1)
 
