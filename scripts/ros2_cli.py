@@ -314,9 +314,70 @@ def _get_service_event_qos():
     return _SERVICE_EVENT_QOS
 
 
+# Message type aliases for common ROS 2 message types
+MSG_ALIASES = {
+    # std_msgs
+    'string': 'std_msgs/String',
+    'int32': 'std_msgs/Int32',
+    'float32': 'std_msgs/Float32',
+    'float64': 'std_msgs/Float64',
+    'bool': 'std_msgs/Bool',
+    'header': 'std_msgs/Header',
+    'empty': 'std_msgs/Empty',
+    
+    # geometry_msgs
+    'twist': 'geometry_msgs/Twist',
+    'pose': 'geometry_msgs/Pose',
+    'point': 'geometry_msgs/Point',
+    'quaternion': 'geometry_msgs/Quaternion',
+    'vector3': 'geometry_msgs/Vector3',
+    'posestamped': 'geometry_msgs/PoseStamped',
+    'twiststamped': 'geometry_msgs/TwistStamped',
+    'transform': 'geometry_msgs/Transform',
+    'transformstamped': 'geometry_msgs/TransformStamped',
+    'wrench': 'geometry_msgs/Wrench',
+    'accel': 'geometry_msgs/Accel',
+    
+    # sensor_msgs
+    'laserscan': 'sensor_msgs/LaserScan',
+    'image': 'sensor_msgs/Image',
+    'compressedimage': 'sensor_msgs/CompressedImage',
+    'pointcloud2': 'sensor_msgs/PointCloud2',
+    'imu': 'sensor_msgs/Imu',
+    'camerainfo': 'sensor_msgs/CameraInfo',
+    'jointstate': 'sensor_msgs/JointState',
+    'range': 'sensor_msgs/Range',
+    'temperature': 'sensor_msgs/Temperature',
+    'batterystate': 'sensor_msgs/BatteryState',
+    
+    # nav_msgs
+    'odometry': 'nav_msgs/Odometry',
+    'odom': 'nav_msgs/Odometry',
+    'path': 'nav_msgs/Path',
+    'occupancygrid': 'nav_msgs/OccupancyGrid',
+    'mapmetadata': 'nav_msgs/MapMetaData',
+    
+    # visualization_msgs
+    'marker': 'visualization_msgs/Marker',
+    'markerarray': 'visualization_msgs/MarkerArray',
+    
+    # action_msgs
+    'goalstatus': 'action_msgs/GoalStatus',
+    'goalstatusarray': 'action_msgs/GoalStatusArray',
+    
+    # trajectory_msgs
+    'jointtrajectory': 'trajectory_msgs/JointTrajectory',
+    'jointtrajectorypoint': 'trajectory_msgs/JointTrajectoryPoint',
+}
+
+
 def get_msg_type(type_str):
     if not type_str:
         return None
+    
+    # Check for aliases (case-insensitive)
+    if type_str.lower() in MSG_ALIASES:
+        type_str = MSG_ALIASES[type_str.lower()]
 
     # Normalize to pkg, msg_name components
     if '/msg/' in type_str:

@@ -161,6 +161,28 @@ The `--delete` flag removes the image after successfully sending it to Discord.
 
 ## Key Commands
 
+### Message Type Aliases
+
+The ROS 2 skill supports message type aliases for commonly used message types. Instead of using the full message type name (e.g., `geometry_msgs/Twist`), you can use a short alias (e.g., `twist`). Aliases are case-insensitive and work with all commands that accept message types.
+
+**Common aliases:**
+- `twist` → `geometry_msgs/Twist`
+- `odom` / `odometry` → `nav_msgs/Odometry`
+- `laserscan` → `sensor_msgs/LaserScan`
+- `image` → `sensor_msgs/Image`
+- `pose` → `geometry_msgs/Pose`
+- `imu` → `sensor_msgs/Imu`
+- `pointcloud2` → `sensor_msgs/PointCloud2`
+
+For the complete list of 40+ supported aliases, see [Message Type Aliases](references/COMMANDS.md#message-type-aliases) in COMMANDS.md.
+
+**Examples:**
+```bash
+# Using alias instead of full type
+python3 {baseDir}/scripts/ros2_cli.py topics message twist
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --type odom
+```
+
 ### version
 
 ```bash

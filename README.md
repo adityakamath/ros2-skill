@@ -63,6 +63,26 @@ See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 
 All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`references/COMMANDS.md`](references/COMMANDS.md) for full details with examples.
 
+### Message Type Aliases
+
+The skill supports 40+ message type aliases for commonly used ROS 2 message types. Use short names instead of full type names:
+
+- `twist` → `geometry_msgs/Twist`
+- `odom` → `nav_msgs/Odometry`
+- `laserscan` → `sensor_msgs/LaserScan`
+- `image` → `sensor_msgs/Image`
+
+**Example:**
+```bash
+# Using alias
+python3 scripts/ros2_cli.py topics message twist
+
+# Equivalent to
+python3 scripts/ros2_cli.py topics message geometry_msgs/Twist
+```
+
+See [Message Type Aliases](references/COMMANDS.md#message-type-aliases) for the full list.
+
 ---
 
 ## Media and Artifacts Folder
