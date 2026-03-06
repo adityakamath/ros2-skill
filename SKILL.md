@@ -90,6 +90,11 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Nodes | `nodes ls` | Alias for `nodes list` |
 | Nodes | `nodes details <node>` | Get node topics/services/actions |
 | Nodes | `nodes info <node>` | Alias for `nodes details` |
+| Lifecycle | `lifecycle nodes` | List all managed (lifecycle) nodes |
+| Lifecycle | `lifecycle list [<node>]` | List available states and transitions |
+| Lifecycle | `lifecycle ls [<node>]` | Alias for `lifecycle list` |
+| Lifecycle | `lifecycle get <node>` | Get current lifecycle state of a node |
+| Lifecycle | `lifecycle set <node> <transition>` | Trigger lifecycle state transition |
 | Params | `params list <node>` | List node parameters |
 | Params | `params ls <node>` | Alias for `params list` |
 | Params | `params get <node:param>` | Get parameter value |
@@ -397,6 +402,55 @@ python3 {baseDir}/scripts/ros2_cli.py nodes list
 python3 {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
 python3 {baseDir}/scripts/ros2_cli.py nodes info /turtlesim
 ```
+
+### lifecycle — Managed Node Introspection and Control
+
+**Terminology:** Lifecycle nodes are also called **managed nodes**. Use `lifecycle` commands whenever the user mentions "managed node", "lifecycle node", "configure the node", "activate the node", or similar lifecycle-related requests.
+
+Requires `lifecycle_msgs` to be installed: `sudo apt install ros-${ROS_DISTRO}-lifecycle-msgs`
+
+```bash
+# List all managed (lifecycle) nodes
+python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes
+
+# List available states and transitions for a specific node
+python3 {baseDir}/scripts/ros2_cli.py lifecycle list /my_lifecycle_node
+python3 {baseDir}/scripts/ros2_cli.py lifecycle ls /my_lifecycle_node
+
+# List states and transitions for ALL managed nodes (no argument)
+python3 {baseDir}/scripts/ros2_cli.py lifecycle list
+python3 {baseDir}/scripts/ros2_cli.py lifecycle ls
+
+# Get the current lifecycle state
+python3 {baseDir}/scripts/ros2_cli.py lifecycle get /my_lifecycle_node
+
+# Trigger a transition by label (preferred)
+python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node configure
+python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node activate
+python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node deactivate
+python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node cleanup
+python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node shutdown
+
+# Trigger a transition by numeric ID
+python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node 3
+```
+
+**Common lifecycle workflow:**
+```bash
+# 1. Find managed nodes
+python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes
+
+# 2. Check available transitions from current state
+python3 {baseDir}/scripts/ros2_cli.py lifecycle list /my_lifecycle_node
+
+# 3. Get current state
+python3 {baseDir}/scripts/ros2_cli.py lifecycle get /my_lifecycle_node
+
+# 4. Trigger transition
+python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node configure
+```
+
+Options: `--timeout SECONDS` (default 5) — applies to `list`, `get`, and `set`; `nodes` takes no options
 
 ### params list / get / set
 

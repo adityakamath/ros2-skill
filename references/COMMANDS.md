@@ -1553,3 +1553,210 @@ python3 scripts/ros2_cli.py topics subscribe /odom --type odom
 
 Aliases work with all commands that accept message types: `topics message`, `topics publish`, `topics subscribe`, `topics find`, etc.
 
+---
+
+## lifecycle nodes
+
+List all managed (lifecycle) nodes in the ROS 2 graph. Discovers nodes by scanning for services of type `lifecycle_msgs/srv/GetState`.
+
+**Aliases:** none
+
+**ROS 2 CLI equivalent:** `ros2 lifecycle nodes`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| (none) | — | No arguments needed |
+
+Example:
+```bash
+python3 scripts/ros2_cli.py lifecycle nodes
+```
+
+Output:
+```json
+{
+  "managed_nodes": [
+    "/lifecycle_node",
+    "/camera_driver"
+  ],
+  "count": 2
+}
+```
+
+Output (no managed nodes found):
+```json
+{"managed_nodes": [], "count": 0}
+```
+
+---
+
+## lifecycle list
+
+List available states and transitions for one or all managed (lifecycle) nodes.
+
+**Aliases:** `lifecycle ls`
+
+**ROS 2 CLI equivalent:** `ros2 lifecycle list <node>`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `node` | No | Node name (e.g. `/my_lifecycle_node`). If omitted, queries all managed nodes. |
+| `--timeout` | No | Timeout per node in seconds (default: 5) |
+
+Examples:
+```bash
+# Single node
+python3 scripts/ros2_cli.py lifecycle list /my_lifecycle_node
+python3 scripts/ros2_cli.py lifecycle ls /my_lifecycle_node
+
+# All managed nodes (no argument)
+python3 scripts/ros2_cli.py lifecycle list
+python3 scripts/ros2_cli.py lifecycle ls
+```
+
+Output (single node):
+```json
+{
+  "node": "/my_lifecycle_node",
+  "available_states": [
+    {"id": 0, "label": "unknown"},
+    {"id": 1, "label": "unconfigured"},
+    {"id": 2, "label": "inactive"},
+    {"id": 3, "label": "active"},
+    {"id": 4, "label": "finalized"}
+  ],
+  "available_transitions": [
+    {
+      "id": 1,
+      "label": "configure",
+      "start_state": {"id": 1, "label": "unconfigured"},
+      "goal_state": {"id": 2, "label": "inactive"}
+    },
+    {
+      "id": 5,
+      "label": "shutdown",
+      "start_state": {"id": 1, "label": "unconfigured"},
+      "goal_state": {"id": 4, "label": "finalized"}
+    }
+  ]
+}
+```
+
+Output (all nodes — no argument):
+```json
+{
+  "nodes": [
+    {
+      "node": "/lifecycle_node",
+      "available_states": [...],
+      "available_transitions": [...]
+    }
+  ]
+}
+```
+
+Output (error):
+```json
+{"node": "/my_lifecycle_node", "error": "Lifecycle service not available for /my_lifecycle_node"}
+```
+
+---
+
+## lifecycle get
+
+Get the current lifecycle state of a managed node.
+
+**Aliases:** none
+
+**ROS 2 CLI equivalent:** `ros2 lifecycle get <node>`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `node` | Yes | Node name (e.g. `/my_lifecycle_node`) |
+| `--timeout` | No | Timeout in seconds (default: 5) |
+
+Example:
+```bash
+python3 scripts/ros2_cli.py lifecycle get /my_lifecycle_node
+```
+
+Output:
+```json
+{"node": "/my_lifecycle_node", "state_id": 1, "state_label": "unconfigured"}
+```
+
+Common state IDs:
+| ID | Label |
+|----|-------|
+| 0 | unknown |
+| 1 | unconfigured |
+| 2 | inactive |
+| 3 | active |
+| 4 | finalized |
+
+Output (error):
+```json
+{"error": "Lifecycle service not available for /my_lifecycle_node. Is it a managed node?"}
+```
+
+---
+
+## lifecycle set
+
+Trigger a lifecycle state transition on a managed node. Accepts a transition by label (preferred) or numeric ID.
+
+When a label is given, the node's available transitions are queried first to resolve the correct numeric ID. This ensures correctness because the `ChangeState` service dispatches on ID, not label. Numeric IDs bypass the extra lookup.
+
+**Aliases:** none
+
+**ROS 2 CLI equivalent:** `ros2 lifecycle set <node> <transition>`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `node` | Yes | Node name (e.g. `/my_lifecycle_node`) |
+| `transition` | Yes | Transition label (e.g. `configure`) or numeric ID (e.g. `1`) |
+| `--timeout` | No | Timeout in seconds (default: 5) |
+
+Common transition labels:
+
+| Label | Typical start state | Goal state |
+|-------|-------------------|------------|
+| `configure` | unconfigured | inactive |
+| `activate` | inactive | active |
+| `deactivate` | active | inactive |
+| `cleanup` | inactive | unconfigured |
+| `shutdown` | unconfigured / inactive / active | finalized |
+
+Examples:
+```bash
+# By label (preferred) — resolves to the correct transition ID automatically
+python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node configure
+python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node activate
+python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node deactivate
+python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node cleanup
+python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node shutdown
+
+# By numeric ID — no extra round-trip to the node
+python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node 3
+```
+
+Output (success):
+```json
+{"node": "/my_lifecycle_node", "transition": "configure", "success": true}
+```
+
+Output (failure — invalid transition for current state):
+```json
+{"node": "/my_lifecycle_node", "transition": "activate", "success": false}
+```
+
+Output (error — node not reachable):
+```json
+{"error": "Lifecycle service not available for /my_lifecycle_node. Is it a managed node?"}
+```
+
+Output (error — unknown label, with available options):
+```json
+{"error": "Unknown transition 'go'. Available: ['configure', 'unconfigured_shutdown']"}
+```
+

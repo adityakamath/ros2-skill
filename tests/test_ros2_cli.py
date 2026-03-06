@@ -125,6 +125,85 @@ class TestBuildParser(unittest.TestCase):
         self.assertEqual(args.action, "/turtle1/rotate_absolute")
         self.assertEqual(args.goal, '{"theta":3.14}')
 
+    def test_lifecycle_nodes(self):
+        args = self.parser.parse_args(["lifecycle", "nodes"])
+        self.assertEqual(args.command, "lifecycle")
+        self.assertEqual(args.subcommand, "nodes")
+
+    def test_lifecycle_list_with_node(self):
+        args = self.parser.parse_args(["lifecycle", "list", "/my_lifecycle_node"])
+        self.assertEqual(args.command, "lifecycle")
+        self.assertEqual(args.subcommand, "list")
+        self.assertEqual(args.node, "/my_lifecycle_node")
+
+    def test_lifecycle_list_no_node(self):
+        args = self.parser.parse_args(["lifecycle", "list"])
+        self.assertEqual(args.subcommand, "list")
+        self.assertIsNone(args.node)
+
+    def test_lifecycle_ls_alias(self):
+        args = self.parser.parse_args(["lifecycle", "ls", "/my_lifecycle_node"])
+        self.assertEqual(args.subcommand, "ls")
+        self.assertEqual(args.node, "/my_lifecycle_node")
+
+    def test_lifecycle_ls_no_node(self):
+        args = self.parser.parse_args(["lifecycle", "ls"])
+        self.assertEqual(args.subcommand, "ls")
+        self.assertIsNone(args.node)
+
+    def test_lifecycle_get(self):
+        args = self.parser.parse_args(["lifecycle", "get", "/my_lifecycle_node"])
+        self.assertEqual(args.command, "lifecycle")
+        self.assertEqual(args.subcommand, "get")
+        self.assertEqual(args.node, "/my_lifecycle_node")
+
+    def test_lifecycle_set_by_label(self):
+        args = self.parser.parse_args(["lifecycle", "set", "/my_lifecycle_node", "configure"])
+        self.assertEqual(args.command, "lifecycle")
+        self.assertEqual(args.subcommand, "set")
+        self.assertEqual(args.node, "/my_lifecycle_node")
+        self.assertEqual(args.transition, "configure")
+
+    def test_lifecycle_set_by_numeric_id(self):
+        args = self.parser.parse_args(["lifecycle", "set", "/my_lifecycle_node", "3"])
+        self.assertEqual(args.node, "/my_lifecycle_node")
+        self.assertEqual(args.transition, "3")
+
+    def test_lifecycle_list_default_timeout(self):
+        args = self.parser.parse_args(["lifecycle", "list", "/my_lifecycle_node"])
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_lifecycle_list_custom_timeout(self):
+        args = self.parser.parse_args(["lifecycle", "list", "/my_lifecycle_node", "--timeout", "10"])
+        self.assertEqual(args.timeout, 10.0)
+
+    def test_lifecycle_get_default_timeout(self):
+        args = self.parser.parse_args(["lifecycle", "get", "/my_lifecycle_node"])
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_lifecycle_set_default_timeout(self):
+        args = self.parser.parse_args(["lifecycle", "set", "/my_lifecycle_node", "activate"])
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_lifecycle_set_custom_timeout(self):
+        args = self.parser.parse_args([
+            "lifecycle", "set", "/my_lifecycle_node", "activate", "--timeout", "10"
+        ])
+        self.assertEqual(args.timeout, 10.0)
+
+    def test_lifecycle_get_custom_timeout(self):
+        args = self.parser.parse_args(["lifecycle", "get", "/my_node", "--timeout", "15"])
+        self.assertEqual(args.timeout, 15.0)
+
+    def test_lifecycle_get_namespaced_node(self):
+        args = self.parser.parse_args(["lifecycle", "get", "/robot/camera_driver"])
+        self.assertEqual(args.node, "/robot/camera_driver")
+
+    def test_lifecycle_set_namespaced_node(self):
+        args = self.parser.parse_args(["lifecycle", "set", "/robot/sensor_node", "activate"])
+        self.assertEqual(args.node, "/robot/sensor_node")
+        self.assertEqual(args.transition, "activate")
+
 
 class TestDispatchTable(unittest.TestCase):
     @classmethod
@@ -149,6 +228,9 @@ class TestDispatchTable(unittest.TestCase):
             ("nodes", "list"), ("nodes", "details"),
             ("params", "list"), ("params", "get"), ("params", "set"),
             ("actions", "list"), ("actions", "details"), ("actions", "send"),
+            # lifecycle
+            ("lifecycle", "nodes"), ("lifecycle", "list"), ("lifecycle", "ls"),
+            ("lifecycle", "get"), ("lifecycle", "set"),
         ]
         for key in expected_keys:
             self.assertIn(key, self.ros2_cli.DISPATCH, f"Missing dispatch key: {key}")
@@ -441,6 +523,71 @@ class TestMessageTypeAliases(unittest.TestCase):
         for alias in nav_aliases:
             self.assertIn(alias, self.ros2_cli.MSG_ALIASES)
             self.assertTrue(self.ros2_cli.MSG_ALIASES[alias].startswith('nav_msgs/'))
+
+
+class TestLifecycleParsing(unittest.TestCase):
+    """Lifecycle-specific structural and dispatch-wiring tests.
+
+    Parser argument tests live in TestBuildParser (the canonical location for
+    all parser coverage).  This class holds the remaining tests that are unique
+    to lifecycle: structural edge cases and DISPATCH table wiring.
+
+    All tests gracefully skip if ROS 2 / rclpy is not available, matching
+    the pattern used throughout this test suite.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    # ------------------------------------------------------------------
+    # Structural edge cases
+    # ------------------------------------------------------------------
+
+    def test_lifecycle_nodes_no_extra_args(self):
+        """nodes subcommand exposes no 'node' attribute (or None) on its namespace."""
+        args = self.parser.parse_args(["lifecycle", "nodes"])
+        self.assertIsNone(getattr(args, "node", None))
+
+    def test_lifecycle_nodes_rejects_extra_positional(self):
+        """nodes subcommand must reject extra positional arguments."""
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["lifecycle", "nodes", "/extra"])
+
+    # ------------------------------------------------------------------
+    # Dispatch table wiring
+    # ------------------------------------------------------------------
+
+    def test_lifecycle_dispatch_keys_present(self):
+        """All five lifecycle (category, subcommand) keys must be in DISPATCH."""
+        expected = [
+            ("lifecycle", "nodes"),
+            ("lifecycle", "list"),
+            ("lifecycle", "ls"),
+            ("lifecycle", "get"),
+            ("lifecycle", "set"),
+        ]
+        for key in expected:
+            self.assertIn(key, self.ros2_cli.DISPATCH,
+                          f"Missing DISPATCH key: {key}")
+
+    def test_lifecycle_ls_maps_to_same_handler_as_list(self):
+        """ls alias must route to the same handler as list."""
+        self.assertIs(
+            self.ros2_cli.DISPATCH[("lifecycle", "ls")],
+            self.ros2_cli.DISPATCH[("lifecycle", "list")],
+        )
+
+    def test_lifecycle_handlers_are_callable(self):
+        lifecycle_keys = [k for k in self.ros2_cli.DISPATCH if k[0] == "lifecycle"]
+        self.assertTrue(len(lifecycle_keys) > 0, "No lifecycle keys found in DISPATCH")
+        for key in lifecycle_keys:
+            self.assertTrue(callable(self.ros2_cli.DISPATCH[key]),
+                            f"Handler for {key} is not callable")
 
 
 if __name__ == "__main__":
