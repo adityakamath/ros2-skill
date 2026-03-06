@@ -103,7 +103,7 @@ Emergency stop for mobile robots. Auto-detects the velocity command topic and me
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--topic TOPIC` | auto-detect | Override velocity topic (detects from `/cmd_vel`, `/cmd_vel_nav`, etc.) |
+| `--topic TOPIC` | auto-detect | Override velocity topic (auto-detected by scanning for `Twist`/`TwistStamped` topics; prefers `cmd_vel`-named topics when multiple exist) |
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py estop

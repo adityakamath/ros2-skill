@@ -142,13 +142,21 @@ python3 scripts/discord_tools.py send-image --path artifacts/test.jpg --channel-
 
 ```
 ros2-skill/
-├── SKILL.md              # Skill document (loaded into agent's system prompt)
+├── SKILL.md                   # Skill document (loaded into agent's system prompt)
 ├── scripts/
-│   └── ros2_cli.py       # Standalone CLI tool (all ROS 2 operations)
+│   ├── ros2_cli.py            # Entry point — parser, dispatch table, re-exports
+│   ├── ros2_utils.py          # Shared infrastructure (ROS2CLI node, output, msg helpers)
+│   ├── ros2_topic.py          # Topic commands + estop
+│   ├── ros2_node.py           # Node commands
+│   ├── ros2_param.py          # Parameter commands
+│   ├── ros2_service.py        # Service commands
+│   ├── ros2_action.py         # Action commands
+│   ├── ros2_lifecycle.py      # Lifecycle (managed node) commands
+│   └── discord_tools.py       # Discord integration
 ├── references/
-│   └── COMMANDS.md       # Full command reference with output examples
+│   └── COMMANDS.md            # Full command reference with output examples
 └── tests/
-    └── test_ros2_cli.py   # Unit tests
+    └── test_ros2_cli.py       # Unit tests
 ```
 
 ## Requirements
