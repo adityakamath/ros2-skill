@@ -34,6 +34,16 @@ Refactored the CLI into separate domain modules and added two new command domain
 - `control set-hardware-component-state` / `shcs` — drive a hardware component through its lifecycle (`unconfigured`, `inactive`, `active`, `finalized`)
 - `control switch-controllers` / `sc` — atomically activate and/or deactivate multiple controllers in a single `SwitchController` call; `--strictness STRICT|BEST_EFFORT`
 - `control view-controller-chains` / `vcc` — generate a Graphviz DOT diagram of loaded chained controllers, render to PDF in `artifacts/`, optionally send to Discord
+- `control configure-controller` / `cc` — explicitly configure a loaded controller (`unconfigured → inactive`) via the `ConfigureController` service; surfaces `on_configure()` errors that `SwitchController`'s silent auto-configure hides
+
+### Fixes
+
+- `control set-hardware-component-state` (`shcs`) — fixed `AttributeError`: response field is `state` (not `actual_state`) in all distros; `actual_state` key still present in JSON output
+- `lifecycle set` — added suffix matching so short form `shutdown` resolves to the correct state-specific transition label (`unconfigured_shutdown` ID 5, `inactive_shutdown` ID 6, `active_shutdown` ID 7) based on the node's current state; suffix matching works generically for any state-prefixed transition label
+
+### Utilities
+
+- `resolve_output_path()` added to `ros2_utils.py` — shared helper for `--output` arguments; plain filename → `artifacts/` (created if absent), explicit path → used as-is
 
 ---
 
