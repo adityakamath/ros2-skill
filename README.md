@@ -46,8 +46,6 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 - "Move the robot forward 1 meter"
 - "Trigger the emergency stop"
 
-See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
-
 ## Supported Commands
 
 | Category | Commands |
@@ -84,24 +82,6 @@ python3 scripts/ros2_cli.py topics message geometry_msgs/Twist
 ```
 
 See [Message Type Aliases](references/COMMANDS.md#message-type-aliases) for the full list.
-
----
-
-## Configuration
-
-Discord integration requires a config file with the following structure:
-
-```json
-{
-  "channels": {
-    "discord": {
-      "token": "YOUR_DISCORD_BOT_TOKEN"
-    }
-  }
-}
-```
-
-**Important:** Both the config file path (`--config`) and Discord channel ID (`--channel-id`) must be provided by the agent as CLI arguments. The agent should pass the correct values based on the deployment environment and where the user's request originated.
 
 ---
 
