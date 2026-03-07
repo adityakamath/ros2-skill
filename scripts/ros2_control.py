@@ -254,10 +254,10 @@ def cmd_control_set_hardware_component_state(args):
         if err:
             return output(err)
         out = {"component": args.name, "ok": result.ok}
-        # actual_state was added in later versions of controller_manager_msgs;
-        # guard with hasattr for compatibility with older distros.
-        if hasattr(result, "actual_state"):
-            out["actual_state"] = msg_to_dict(result.actual_state)
+        # The response field is 'state' (not 'actual_state') in all distros.
+        # Guard with hasattr for safety against any future API changes.
+        if hasattr(result, "state"):
+            out["actual_state"] = msg_to_dict(result.state)
         output(out)
     except Exception as e:
         output({"error": str(e)})
