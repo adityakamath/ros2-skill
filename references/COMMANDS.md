@@ -2045,7 +2045,7 @@ Output (error):
 
 Atomically activate and/or deactivate multiple controllers in a single call.
 
-**Alias:** `sc`
+**Aliases:** `sc`, `swc`
 
 | Option | Required | Description |
 |--------|----------|-------------|

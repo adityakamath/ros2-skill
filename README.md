@@ -60,7 +60,7 @@ See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
 | Parameters | `list`, `ls`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
 | Actions | `list`, `ls`, `details`, `info`, `type`, `send`, `send-goal`, `cancel`, `echo`, `find` |
 | Lifecycle | `nodes`, `list`, `ls`, `get`, `set` |
-| Control | `list-controller-types`, `lct`, `list-controllers`, `lc`, `list-hardware-components`, `lhc`, `list-hardware-interfaces`, `lhi`, `load-controller`, `load`, `unload-controller`, `unload`, `reload-controller-libraries`, `rcl`, `set-controller-state`, `scs`, `set-hardware-component-state`, `shcs`, `switch-controllers`, `sc`, `view-controller-chains`, `vcc` |
+| Control | `list-controller-types`, `lct`, `list-controllers`, `lc`, `list-hardware-components`, `lhc`, `list-hardware-interfaces`, `lhi`, `load-controller`, `load`, `unload-controller`, `unload`, `reload-controller-libraries`, `rcl`, `set-controller-state`, `scs`, `set-hardware-component-state`, `shcs`, `switch-controllers`, `sc`, `swc`, `view-controller-chains`, `vcc` |
 | Discord | `send-image` (in `discord_tools.py`) |
 
 All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`references/COMMANDS.md`](references/COMMANDS.md) for full details with examples.

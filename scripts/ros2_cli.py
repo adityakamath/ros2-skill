@@ -333,6 +333,7 @@ Examples:
   control switch-controllers [--activate CTRL ...] [--deactivate CTRL ...]
                              [--strictness BEST_EFFORT|STRICT] [--activate-asap]
   control sc
+  control swc
     Atomically switch multiple controllers in one call.
     $ python3 ros2_cli.py control switch-controllers \
         --activate joint_trajectory_controller --deactivate cartesian_controller
@@ -757,7 +758,7 @@ def build_parser():
                        help="Target lifecycle state")
         _add_cm_args(p)
 
-    for _name in ("switch-controllers", "sc"):
+    for _name in ("switch-controllers", "sc", "swc"):
         p = csub.add_parser(_name,
             help="Switch controllers in the controller manager"
             if _name == "switch-controllers" else "Alias for switch-controllers")
@@ -959,6 +960,7 @@ DISPATCH = {
     ("control", "scs"):   cmd_control_set_controller_state,
     ("control", "shcs"):  cmd_control_set_hardware_component_state,
     ("control", "sc"):    cmd_control_switch_controllers,
+    ("control", "swc"):   cmd_control_switch_controllers,
     ("control", "vcc"):   cmd_control_view_controller_chains,
     # params — canonical
     ("params", "list"): cmd_params_list,

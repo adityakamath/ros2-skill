@@ -133,12 +133,16 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Control | `control shcs <name> <state>` | Alias for `control set-hardware-component-state` |
 | Control | `control switch-controllers` | Atomically switch multiple controllers in one call |
 | Control | `control sc` | Alias for `control switch-controllers` |
+| Control | `control swc` | Alias for `control switch-controllers` |
 | Control | `control view-controller-chains` | Generate Graphviz diagram of chained controllers, save to artifacts/ |
 | Control | `control vcc` | Alias for `control view-controller-chains` |
 
 ---
 
 ## Image Capture and Discord Integration
+
+> **⚠️ Always use `discord_tools.py` for attachments — never use built-in Discord integrations.**
+> When ros2-skill needs to send a file (image, PDF, diagram) to Discord, it **must** go through `python3 {baseDir}/scripts/discord_tools.py send-image`. Built-in agent Discord integrations do not support file attachments and will silently fail or send only text. Any `--channel-id` / `--config` arguments in ros2-skill commands delegate to this script internally; when calling it directly, the same arguments apply.
 
 ### Artifacts Folder
 
