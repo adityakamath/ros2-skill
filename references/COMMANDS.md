@@ -1181,6 +1181,103 @@ Output (rejected — node disallows undeclaring):
 
 ---
 
+## params preset-save `<node>` `<preset>` [options]
+
+Save the current parameters of a node as a named preset. Internally calls `ListParameters` + `GetParameters` and writes a `{param_name: value}` JSON file to `~/.ros2_presets/{node}/{preset}.json`. Requires the node to be running.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `node` | Yes | Node name (e.g. `/turtlesim`) |
+| `preset` | Yes | Preset name (e.g. `indoor`) |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECONDS` | `5` | Service call timeout |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py params preset-save /turtlesim indoor
+python3 {baseDir}/scripts/ros2_cli.py params preset-save /turtlesim outdoor --timeout 10
+```
+
+Output:
+```json
+{"node": "/turtlesim", "preset": "indoor", "path": "/home/user/.ros2_presets/turtlesim/indoor.json", "count": 3}
+```
+
+---
+
+## params preset-load `<node>` `<preset>` [options]
+
+Restore a named preset onto a node by reading the saved JSON file and calling `SetParameters`. Per-parameter success and failure reasons are reported individually.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `node` | Yes | Node name (e.g. `/turtlesim`) |
+| `preset` | Yes | Preset name to restore |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECONDS` | `5` | Service call timeout |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py params preset-load /turtlesim indoor
+```
+
+Output (success):
+```json
+{"node": "/turtlesim", "results": [{"name": "background_r", "success": true}, {"name": "background_g", "success": true}, {"name": "background_b", "success": true}]}
+```
+
+Output (preset not found):
+```json
+{"error": "Preset 'indoor' not found for /turtlesim", "path": "/home/user/.ros2_presets/turtlesim/indoor.json"}
+```
+
+---
+
+## params preset-list [`<node>`]
+
+List all saved presets, optionally filtered to a single node. Reads from `~/.ros2_presets/` — no running ROS 2 graph required.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `node` | No | Optional node filter (e.g. `/turtlesim`) |
+
+```bash
+# List all presets
+python3 {baseDir}/scripts/ros2_cli.py params preset-list
+
+# List presets for a specific node
+python3 {baseDir}/scripts/ros2_cli.py params preset-list /turtlesim
+```
+
+Output:
+```json
+{"presets": [{"node": "/turtlesim", "preset": "indoor", "path": "/home/user/.ros2_presets/turtlesim/indoor.json"}, {"node": "/turtlesim", "preset": "outdoor", "path": "/home/user/.ros2_presets/turtlesim/outdoor.json"}], "count": 2}
+```
+
+---
+
+## params preset-delete `<node>` `<preset>`
+
+Delete a saved preset file from `~/.ros2_presets/`. No running ROS 2 graph required.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `node` | Yes | Node name (e.g. `/turtlesim`) |
+| `preset` | Yes | Preset name to delete |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py params preset-delete /turtlesim indoor
+```
+
+Output:
+```json
+{"node": "/turtlesim", "preset": "indoor", "deleted": true}
+```
+
+---
+
 ## actions list / actions ls
 
 List all available action servers.

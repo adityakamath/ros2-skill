@@ -474,6 +474,10 @@ from ros2_param import (
     cmd_params_dump,
     cmd_params_load,
     cmd_params_delete,
+    cmd_params_preset_save,
+    cmd_params_preset_load,
+    cmd_params_preset_list,
+    cmd_params_preset_delete,
 )
 
 from ros2_service import (
@@ -930,6 +934,22 @@ def build_parser():
                    help="Additional parameter names to delete")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p = psub.add_parser("preset-save", help="Save node parameters as a named preset")
+    p.add_argument("node", help="Node name (e.g. /turtlesim)")
+    p.add_argument("preset", help="Preset name (e.g. indoor)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout in seconds (default: 5)")
+    p = psub.add_parser("preset-load", help="Restore a named preset onto a node")
+    p.add_argument("node", help="Node name (e.g. /turtlesim)")
+    p.add_argument("preset", help="Preset name (e.g. indoor)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout in seconds (default: 5)")
+    p = psub.add_parser("preset-list", help="List all saved presets")
+    p.add_argument("node", nargs="?", default=None,
+                   help="Optional node filter (e.g. /turtlesim)")
+    p = psub.add_parser("preset-delete", help="Delete a saved preset")
+    p.add_argument("node", help="Node name (e.g. /turtlesim)")
+    p.add_argument("preset", help="Preset name to delete")
 
     # ------------------------------------------------------------------
     # actions
@@ -1142,6 +1162,10 @@ DISPATCH = {
     ("params", "dump"): cmd_params_dump,
     ("params", "load"): cmd_params_load,
     ("params", "delete"): cmd_params_delete,
+    ("params", "preset-save"):   cmd_params_preset_save,
+    ("params", "preset-load"):   cmd_params_preset_load,
+    ("params", "preset-list"):   cmd_params_preset_list,
+    ("params", "preset-delete"): cmd_params_preset_delete,
     # params — alias
     ("params", "ls"): cmd_params_list,
     # actions — canonical

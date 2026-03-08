@@ -235,6 +235,9 @@ class TestDispatchTable(unittest.TestCase):
             ("interface", "list"), ("interface", "ls"), ("interface", "show"),
             ("interface", "proto"),
             ("interface", "packages"), ("interface", "package"),
+            # params presets
+            ("params", "preset-save"), ("params", "preset-load"),
+            ("params", "preset-list"), ("params", "preset-delete"),
         ]
         for key in expected_keys:
             self.assertIn(key, self.ros2_cli.DISPATCH, f"Missing dispatch key: {key}")
@@ -905,6 +908,66 @@ class TestInterfaceParsing(unittest.TestCase):
         self.assertEqual(args.command, "interface")
         self.assertEqual(args.subcommand, "package")
         self.assertEqual(args.package, "std_msgs")
+
+
+class TestPresetParsing(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+
+    def setUp(self):
+        self.parser = self.ros2_cli.build_parser()
+
+    def test_preset_save_args(self):
+        args = self.parser.parse_args(["params", "preset-save", "/turtlesim", "indoor"])
+        self.assertEqual(args.command, "params")
+        self.assertEqual(args.subcommand, "preset-save")
+        self.assertEqual(args.node, "/turtlesim")
+        self.assertEqual(args.preset, "indoor")
+
+    def test_preset_save_default_timeout(self):
+        args = self.parser.parse_args(["params", "preset-save", "/turtlesim", "indoor"])
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_preset_save_custom_timeout(self):
+        args = self.parser.parse_args(
+            ["params", "preset-save", "/turtlesim", "indoor", "--timeout", "10"]
+        )
+        self.assertEqual(args.timeout, 10.0)
+
+    def test_preset_load_args(self):
+        args = self.parser.parse_args(["params", "preset-load", "/turtlesim", "indoor"])
+        self.assertEqual(args.command, "params")
+        self.assertEqual(args.subcommand, "preset-load")
+        self.assertEqual(args.node, "/turtlesim")
+        self.assertEqual(args.preset, "indoor")
+
+    def test_preset_list_no_filter(self):
+        args = self.parser.parse_args(["params", "preset-list"])
+        self.assertEqual(args.command, "params")
+        self.assertEqual(args.subcommand, "preset-list")
+        self.assertIsNone(args.node)
+
+    def test_preset_list_with_node_filter(self):
+        args = self.parser.parse_args(["params", "preset-list", "/turtlesim"])
+        self.assertEqual(args.subcommand, "preset-list")
+        self.assertEqual(args.node, "/turtlesim")
+
+    def test_preset_delete_args(self):
+        args = self.parser.parse_args(["params", "preset-delete", "/turtlesim", "indoor"])
+        self.assertEqual(args.command, "params")
+        self.assertEqual(args.subcommand, "preset-delete")
+        self.assertEqual(args.node, "/turtlesim")
+        self.assertEqual(args.preset, "indoor")
+
+    def test_preset_save_and_load_are_different_handlers(self):
+        self.assertIsNot(
+            self.ros2_cli.DISPATCH[("params", "preset-save")],
+            self.ros2_cli.DISPATCH[("params", "preset-load")],
+        )
 
 
 if __name__ == "__main__":

@@ -2,6 +2,23 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.3] - 2026-03-08
+
+Added parameter preset commands for saving and restoring named parameter snapshots per node.
+
+### Parameters
+
+- `params preset-save <node> <preset>` — save the current live parameters of a node to `~/.ros2_presets/{node}/{preset}.json`; uses `ListParameters` + `GetParameters` and writes a plain `{param_name: value}` JSON file
+- `params preset-load <node> <preset>` — restore a named preset onto a node via `SetParameters`; reports per-parameter success and failure reasons
+- `params preset-list [node]` — list all saved presets from `~/.ros2_presets/`; accepts an optional node filter; no running ROS 2 graph required
+- `params preset-delete <node> <preset>` — remove a saved preset file; no running ROS 2 graph required
+
+### Internal
+
+- Refactored `cmd_params_dump`: extracted `_dump_params(node_name, timeout) -> dict | None` helper so preset-save can reuse the dump logic without going through `output()`
+
+---
+
 ## [1.0.2] - 2026-03-07
 
 Added `doctor`, `wtf`, `multicast`, and `interface` commands for ROS 2 system health checking, UDP multicast diagnostics, and interface type discovery.

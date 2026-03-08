@@ -2,8 +2,10 @@
 """ROS 2 parameter commands."""
 
 import json
+import os
 import re
 import time
+import types
 
 import rclpy
 from rcl_interfaces.msg import Parameter, ParameterValue
@@ -318,58 +320,73 @@ def cmd_params_describe(args):
         output({"error": str(e)})
 
 
-def cmd_params_dump(args):
-    """Export all parameters of a node as a JSON dict."""
-    node_name = args.node
-    if not node_name.startswith('/'):
-        node_name = '/' + node_name
+def _dump_params(node_name, timeout):
+    """Fetch all parameters for a node and return them as a {name: value} dict.
 
+    Returns the dict on success (may be empty), or None on error.
+    On error, output() is called before returning None.
+    """
     try:
         from rcl_interfaces.srv import ListParameters, GetParameters
         rclpy.init()
         node = ROS2CLI()
 
         list_client = node.create_client(ListParameters, f"{node_name}/list_parameters")
-        if not list_client.wait_for_service(timeout_sec=args.timeout):
+        if not list_client.wait_for_service(timeout_sec=timeout):
             rclpy.shutdown()
-            return output({"error": f"Parameter service not available for {node_name}"})
+            output({"error": f"Parameter service not available for {node_name}"})
+            return None
 
         list_req = ListParameters.Request()
         future = list_client.call_async(list_req)
-        end_time = time.time() + args.timeout
+        end_time = time.time() + timeout
         while time.time() < end_time and not future.done():
             rclpy.spin_once(node, timeout_sec=0.1)
 
         if not future.done():
             rclpy.shutdown()
-            return output({"error": "Timeout listing parameters"})
+            output({"error": "Timeout listing parameters"})
+            return None
 
         names = future.result().result.names if future.result().result else []
         if not names:
             rclpy.shutdown()
-            return output({"node": node_name, "parameters": {}, "count": 0})
+            return {}
 
         get_client = node.create_client(GetParameters, f"{node_name}/get_parameters")
-        if not get_client.wait_for_service(timeout_sec=args.timeout):
+        if not get_client.wait_for_service(timeout_sec=timeout):
             rclpy.shutdown()
-            return output({"error": f"GetParameters service not available for {node_name}"})
+            output({"error": f"GetParameters service not available for {node_name}"})
+            return None
 
         get_req = GetParameters.Request()
         get_req.names = list(names)
         future2 = get_client.call_async(get_req)
-        end_time2 = time.time() + args.timeout
+        end_time2 = time.time() + timeout
         while time.time() < end_time2 and not future2.done():
             rclpy.spin_once(node, timeout_sec=0.1)
 
         rclpy.shutdown()
         if not future2.done():
-            return output({"error": "Timeout getting parameters"})
+            output({"error": "Timeout getting parameters"})
+            return None
 
         values = future2.result().values or []
-        params_dict = {n: _param_value_to_python(v) for n, v in zip(names, values)}
-        output({"node": node_name, "parameters": params_dict, "count": len(params_dict)})
+        return {n: _param_value_to_python(v) for n, v in zip(names, values)}
     except Exception as e:
         output({"error": str(e)})
+        return None
+
+
+def cmd_params_dump(args):
+    """Export all parameters of a node as a JSON dict."""
+    node_name = args.node
+    if not node_name.startswith('/'):
+        node_name = '/' + node_name
+
+    result = _dump_params(node_name, args.timeout)
+    if result is not None:
+        output({"node": node_name, "parameters": result, "count": len(result)})
 
 
 def cmd_params_load(args):
@@ -488,3 +505,89 @@ def cmd_params_delete(args):
         output({"node": node_name, "results": results, "count": len(param_names)})
     except Exception as e:
         output({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Parameter preset commands
+# Presets are stored as plain {param_name: value} JSON files under
+# ~/.ros2_presets/{node_clean}/{preset_name}.json
+# ---------------------------------------------------------------------------
+
+def cmd_params_preset_save(args):
+    """Save the current parameters of a node as a named preset."""
+    node_name = args.node
+    if not node_name.startswith('/'):
+        node_name = '/' + node_name
+    node_clean = node_name.lstrip('/').replace('/', '_')
+
+    params_dict = _dump_params(node_name, args.timeout)
+    if params_dict is None:
+        return  # _dump_params already called output({"error": ...})
+
+    preset_dir = os.path.expanduser(f"~/.ros2_presets/{node_clean}")
+    os.makedirs(preset_dir, exist_ok=True)
+    preset_path = os.path.join(preset_dir, f"{args.preset}.json")
+
+    with open(preset_path, 'w') as f:
+        json.dump(params_dict, f, indent=2)
+
+    output({"node": node_name, "preset": args.preset, "path": preset_path,
+            "count": len(params_dict)})
+
+
+def cmd_params_preset_load(args):
+    """Restore a named preset onto a node."""
+    node_name = args.node
+    if not node_name.startswith('/'):
+        node_name = '/' + node_name
+    node_clean = node_name.lstrip('/').replace('/', '_')
+
+    preset_path = os.path.expanduser(f"~/.ros2_presets/{node_clean}/{args.preset}.json")
+    if not os.path.exists(preset_path):
+        return output({"error": f"Preset '{args.preset}' not found for {node_name}",
+                       "path": preset_path})
+
+    load_args = types.SimpleNamespace(node=node_name, params=preset_path, timeout=args.timeout)
+    cmd_params_load(load_args)
+
+
+def cmd_params_preset_list(args):
+    """List all saved presets, optionally filtered by node."""
+    base_dir = os.path.expanduser("~/.ros2_presets")
+    node_filter = getattr(args, 'node', None)
+    if node_filter:
+        if not node_filter.startswith('/'):
+            node_filter = '/' + node_filter
+
+    presets = []
+    if os.path.isdir(base_dir):
+        for node_dir in sorted(os.listdir(base_dir)):
+            full_node = '/' + node_dir
+            if node_filter and full_node != node_filter:
+                continue
+            node_path = os.path.join(base_dir, node_dir)
+            if os.path.isdir(node_path):
+                for fname in sorted(os.listdir(node_path)):
+                    if fname.endswith('.json'):
+                        presets.append({
+                            "node": full_node,
+                            "preset": fname[:-5],
+                            "path": os.path.join(node_path, fname),
+                        })
+
+    output({"presets": presets, "count": len(presets)})
+
+
+def cmd_params_preset_delete(args):
+    """Delete a saved preset file."""
+    node_name = args.node
+    if not node_name.startswith('/'):
+        node_name = '/' + node_name
+    node_clean = node_name.lstrip('/').replace('/', '_')
+
+    preset_path = os.path.expanduser(f"~/.ros2_presets/{node_clean}/{args.preset}.json")
+    if not os.path.exists(preset_path):
+        return output({"error": f"Preset '{args.preset}' not found for {node_name}"})
+
+    os.remove(preset_path)
+    output({"node": node_name, "preset": args.preset, "deleted": True})

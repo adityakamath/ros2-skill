@@ -103,6 +103,10 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Params | `params dump <node>` | Export all parameters for a node as JSON |
 | Params | `params load <node> <json>` | Bulk-set parameters from JSON |
 | Params | `params delete <node> <param>` | Delete a parameter |
+| Params | `params preset-save <node> <name>` | Save node parameters as a named preset |
+| Params | `params preset-load <node> <name>` | Restore a named preset onto a node |
+| Params | `params preset-list [node]` | List all saved presets |
+| Params | `params preset-delete <node> <name>` | Delete a saved preset |
 | Actions | `actions list` | List action servers |
 | Actions | `actions ls` | Alias for `actions list` |
 | Actions | `actions details <action>` | Get action goal/result/feedback fields |
@@ -665,6 +669,27 @@ python3 {baseDir}/scripts/ros2_cli.py params load /turtlesim \
 
 # Delete a parameter
 python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r
+```
+
+### params preset — Parameter Presets
+
+**Terminology:** Use preset commands when the user wants to save a configuration ("save these settings as 'indoor'"), switch between named configurations, or restore a previous parameter state. Presets are stored as JSON files in `~/.ros2_presets/` — no ROS 2 graph required for `preset-list` and `preset-delete`.
+
+```bash
+# Save the current parameters of /turtlesim as the 'indoor' preset
+python3 {baseDir}/scripts/ros2_cli.py params preset-save /turtlesim indoor
+
+# List all saved presets (no node filter)
+python3 {baseDir}/scripts/ros2_cli.py params preset-list
+
+# List presets for a specific node
+python3 {baseDir}/scripts/ros2_cli.py params preset-list /turtlesim
+
+# Restore the 'indoor' preset onto /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py params preset-load /turtlesim indoor
+
+# Delete a preset
+python3 {baseDir}/scripts/ros2_cli.py params preset-delete /turtlesim indoor
 ```
 
 ### interface — Interface Type Discovery
