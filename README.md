@@ -54,10 +54,10 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 | -------- | -------- |
 | Connection | `version` |
 | Safety | `estop` |
-| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence`, `publish-until`, `hz`, `bw`, `delay`, `find`, `capture-image` |
+| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence`, `publish-until`, `hz`, `bw`, `delay`, `find`, `capture-image`★, `diag-list`★, `diag`★, `battery-list`★, `battery`★ |
 | Services | `list`, `type`, `details`, `call`, `find`, `echo` |
 | Nodes | `list`, `details` |
-| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
+| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete`, `preset-save`★, `preset-load`★, `preset-list`★, `preset-delete`★ |
 | Actions | `list`, `details`, `type`, `send`, `cancel`, `echo`, `find` |
 | Lifecycle | `nodes`, `list`, `get`, `set` |
 | Control | `list-controller-types`, `list-controllers`, `list-hardware-components`, `list-hardware-interfaces`, `load-controller`, `unload-controller`, `configure-controller`, `reload-controller-libraries`, `set-controller-state`, `set-hardware-component-state`, `switch-controllers`, `view-controller-chains` |
@@ -65,9 +65,24 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 | Wtf | alias for `doctor` — same commands |
 | Multicast | `send`, `receive` |
 | Interface | `list`, `show`, `proto`, `packages`, `package` |
-| Discord | `send-image` (in `discord_tools.py`) |
+| Discord | `send-image`★ (in `discord_tools.py`) |
+
+★ Agent-only feature — no equivalent in the standard `ros2` CLI. See [Agent Features](#agent-features) below.
 
 All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`references/COMMANDS.md`](references/COMMANDS.md) for full details with examples.
+
+### Agent Features
+
+Commands marked ★ have no equivalent in the standard `ros2` CLI. They are designed specifically for AI agents operating on mobile robots:
+
+| Feature | Command(s) | Description |
+|---------|------------|-------------|
+| **Image capture** | `topics capture-image` | Grab a frame from any ROS 2 image topic and save to `.artifacts/` |
+| **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token |
+| **Diagnostics monitoring** | `topics diag-list`, `topics diag` | Discover and read `DiagnosticArray` topics by type, with human-readable level names |
+| **Battery monitoring** | `topics battery-list`, `topics battery` | Discover and read `BatteryState` topics by type, with decoded status, health, and technology names |
+| **Publish-until** | `topics publish-until` | Publish a message repeatedly and stop automatically when a stop condition is met (supports Euclidean distance) |
+| **Parameter presets** | `params preset-save/load/list/delete` | Save and restore complete parameter sets for a node by name |
 
 ### Message Type Aliases
 

@@ -476,6 +476,8 @@ from ros2_topic import (
     cmd_topics_capture_image,
     cmd_topics_diag_list,
     cmd_topics_diag,
+    cmd_topics_battery_list,
+    cmd_topics_battery,
     cmd_services_echo,
     cmd_actions_echo,
 )
@@ -652,6 +654,18 @@ def build_parser():
                         help="Subscribe to diagnostic topics (auto-discovered by type)")
     p.add_argument("--topic", default=None,
                    help="Specific diagnostic topic (default: auto-discover all by type)")
+    p.add_argument("--duration", type=float, default=None,
+                   help="Collect for N seconds (default: one-shot)")
+    p.add_argument("--max-messages", dest="max_messages", type=int, default=1,
+                   help="Max messages per topic in --duration mode (default: 1)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Timeout waiting for messages (default: 10s)")
+    tsub.add_parser("battery-list",
+                    help="List all topics publishing BatteryState messages (by type)")
+    p = tsub.add_parser("battery",
+                        help="Subscribe to battery topics (auto-discovered by type)")
+    p.add_argument("--topic", default=None,
+                   help="Specific battery topic (default: auto-discover all by type)")
     p.add_argument("--duration", type=float, default=None,
                    help="Collect for N seconds (default: one-shot)")
     p.add_argument("--max-messages", dest="max_messages", type=int, default=1,
@@ -1124,6 +1138,8 @@ DISPATCH = {
     ("topics", "capture-image"): cmd_topics_capture_image,
     ("topics", "diag-list"): cmd_topics_diag_list,
     ("topics", "diag"): cmd_topics_diag,
+    ("topics", "battery-list"): cmd_topics_battery_list,
+    ("topics", "battery"): cmd_topics_battery,
     # topics — aliases
     ("topics", "echo"): cmd_topics_subscribe,
     ("topics", "sub"): cmd_topics_subscribe,

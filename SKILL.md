@@ -70,16 +70,18 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics pub <topic> <json>` | Alias for `topics publish` |
 | Topics | `topics publish-sequence <topic> <msgs> <durs>` | Publish message sequence |
 | Topics | `topics pub-seq <topic> <msgs> <durs>` | Alias for `topics publish-sequence` |
-| Topics | `topics publish-until <topic> <json>` | Publish while monitoring; stop on condition (supports `--euclidean` for N-D distance) |
+| Topics | `topics publish-until <topic> <json>` ★ | Publish while monitoring; stop on condition (supports `--euclidean` for N-D distance) |
 | Topics | `topics publish-continuous <topic> <json>` | Alias for `topics publish` |
 | Topics | `topics hz <topic>` | Measure topic publish rate |
 | Topics | `topics find <msg_type>` | Find topics by message type |
 | Topics | `topics bw <topic>` | Measure topic bandwidth (bytes/s) |
 | Topics | `topics delay <topic>` | Measure header-stamp end-to-end latency |
-| Topics | `topics capture-image` | Capture image from ROS 2 topic and save to .artifacts/ |
-| Topics | `topics diag-list` | List all topics publishing DiagnosticArray (by type) |
-| Topics | `topics diag` | Subscribe to diagnostic topics (auto-discovered by type) |
-| Discord | `send-image` (discord_tools.py) | Send image to Discord channel |
+| Topics | `topics capture-image` ★ | Capture image from ROS 2 topic and save to .artifacts/ |
+| Topics | `topics diag-list` ★ | List all topics publishing DiagnosticArray (by type) |
+| Topics | `topics diag` ★ | Subscribe to diagnostic topics (auto-discovered by type) |
+| Topics | `topics battery-list` ★ | List all topics publishing BatteryState (by type) |
+| Topics | `topics battery` ★ | Subscribe to battery topics (auto-discovered by type) |
+| Discord | `send-image`★ (discord_tools.py) | Send image to Discord channel |
 | Services | `services list` | List all available services |
 | Services | `services ls` | Alias for `services list` |
 | Services | `services type <service>` | Get service type |
@@ -105,10 +107,10 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Params | `params dump <node>` | Export all parameters for a node as JSON |
 | Params | `params load <node> <json>` | Bulk-set parameters from JSON |
 | Params | `params delete <node> <param>` | Delete a parameter |
-| Params | `params preset-save <node> <name>` | Save node parameters as a named preset |
-| Params | `params preset-load <node> <name>` | Restore a named preset onto a node |
-| Params | `params preset-list` | List all saved presets |
-| Params | `params preset-delete <name>` | Delete a saved preset |
+| Params | `params preset-save <node> <name>` ★ | Save node parameters as a named preset |
+| Params | `params preset-load <node> <name>` ★ | Restore a named preset onto a node |
+| Params | `params preset-list` ★ | List all saved presets |
+| Params | `params preset-delete <name>` ★ | Delete a saved preset |
 | Actions | `actions list` | List action servers |
 | Actions | `actions ls` | Alias for `actions list` |
 | Actions | `actions details <action>` | Get action goal/result/feedback fields |
@@ -154,6 +156,8 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Interface | `interface proto <type>` | Show default-value prototype; useful as a copy-paste template for publish payloads |
 | Interface | `interface packages` | List packages that define at least one interface type |
 | Interface | `interface package <pkg>` | List all interface types for a single package |
+
+★ Agent-only feature — no equivalent in the standard `ros2` CLI.
 
 ---
 
@@ -673,6 +677,26 @@ python3 {baseDir}/scripts/ros2_cli.py topics diag --duration 10 --max-messages 5
 ```
 
 Output from `topics diag` includes `level_name` (OK / WARN / ERROR / STALE), `name`, `message`, `hardware_id`, and `values` (key-value pairs) for each `DiagnosticStatus` entry in the array.
+
+### topics battery-list / topics battery — Battery monitoring ★
+
+Battery topics are discovered by **message type** (`sensor_msgs/BatteryState`), not by name. Works with `/battery_state`, `<robot>/battery_state`, or any other naming convention automatically.
+
+```bash
+# List all topics that publish BatteryState messages
+python3 {baseDir}/scripts/ros2_cli.py topics battery-list
+
+# Read one snapshot from all discovered battery topics
+python3 {baseDir}/scripts/ros2_cli.py topics battery
+
+# Read from a specific battery topic
+python3 {baseDir}/scripts/ros2_cli.py topics battery --topic /my_robot/battery_state
+
+# Collect 3 messages per topic over 5 seconds
+python3 {baseDir}/scripts/ros2_cli.py topics battery --duration 5 --max-messages 3
+```
+
+Output from `topics battery` includes `percentage` (0–100), `voltage`, `current`, `charge`, `capacity`, `design_capacity`, `temperature`, `present`, `status_name` (UNKNOWN/CHARGING/DISCHARGING/NOT_CHARGING/FULL), `health_name`, `technology_name`, `location`, and `serial_number`.
 
 ### params describe / dump / load / delete
 

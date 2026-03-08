@@ -4,9 +4,11 @@ Full reference for all `ros2_cli.py` commands with arguments, options, ROS 2 CLI
 
 All commands output JSON. Errors return `{"error": "..."}`.
 
+Commands marked ★ are agent-only features — they have no equivalent in the standard `ros2` CLI. They are: `topics capture-image`, `discord_tools.py send-image`, `topics diag-list`, `topics diag`, `topics battery-list`, `topics battery`, `topics publish-until`, and `params preset-*`.
+
 ---
 
-## topics capture-image
+## ★ topics capture-image
 
 Capture an image from a ROS 2 image topic and save to the .artifacts/ folder.
 
@@ -33,7 +35,7 @@ Output (error):
 
 ---
 
-## discord_tools.py send-image
+## ★ discord_tools.py send-image
 
 Send an image file to a Discord channel. The bot token is read from the config file specified by `--config` at `config["channels"]["discord"]["token"]`. Both the config path and channel ID must be provided as CLI arguments by the agent.
 
@@ -401,7 +403,7 @@ Error (array length mismatch):
 
 ---
 
-## topics publish-until `<topic>` `<json_message>` [options]
+## ★ topics publish-until `<topic>` `<json_message>` [options]
 
 Publish a message at a fixed rate while simultaneously monitoring a second topic. Stops as soon as a condition on the monitored field is satisfied, or after the safety timeout. Supports single-field conditions and N-dimensional Euclidean distance.
 
@@ -658,7 +660,7 @@ All delay values in seconds. Error if no `header.stamp`:
 
 ---
 
-## topics diag-list
+## ★ topics diag-list
 
 List all topics that publish `DiagnosticArray` messages, discovered by **type** rather than by name. Handles `/diagnostics`, `<node>/diagnostics`, `<namespace>/diagnostics`, or any other naming convention.
 
@@ -673,7 +675,7 @@ Output:
 
 ---
 
-## topics diag [options]
+## ★ topics diag [options]
 
 Subscribe to diagnostic topics and return parsed `DiagnosticStatus` entries with human-readable level names. Auto-discovers all diagnostic topics by type unless `--topic` is specified.
 
@@ -723,6 +725,79 @@ Output:
 ```
 
 Level values: `0` = OK, `1` = WARN, `2` = ERROR, `3` = STALE.
+
+---
+
+## ★ topics battery-list
+
+List all topics that publish `BatteryState` messages, discovered by **type** rather than by name. Handles `/battery_state`, `<robot>/battery_state`, or any other naming convention.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics battery-list
+```
+
+Output:
+```json
+{"topics": [{"topic": "/battery_state", "type": "sensor_msgs/msg/BatteryState"}], "count": 1}
+```
+
+---
+
+## ★ topics battery [options]
+
+Subscribe to battery topics and return a decoded `BatteryState` summary. Auto-discovers all battery topics by type unless `--topic` is specified.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--topic TOPIC` | auto-discover all | Specific battery topic to read from |
+| `--duration SEC` | one-shot | Collect messages for N seconds |
+| `--max-messages N` | `1` | Max messages per topic in `--duration` mode |
+| `--timeout SEC` | `10` | Timeout waiting for first message (one-shot mode) |
+
+```bash
+# One-shot: read latest battery state from all discovered topics
+python3 {baseDir}/scripts/ros2_cli.py topics battery
+
+# Read from a specific battery topic
+python3 {baseDir}/scripts/ros2_cli.py topics battery --topic /my_robot/battery_state
+
+# Collect 3 messages per topic over 5 seconds
+python3 {baseDir}/scripts/ros2_cli.py topics battery --duration 5 --max-messages 3
+```
+
+Output:
+```json
+{
+  "results": [
+    {
+      "topic": "/battery_state",
+      "battery": {
+        "percentage": 75.0,
+        "voltage": 12.4,
+        "current": -2.1,
+        "charge": 3.5,
+        "capacity": 5.0,
+        "design_capacity": 5.2,
+        "temperature": 25.0,
+        "present": true,
+        "power_supply_status": 2,
+        "status_name": "DISCHARGING",
+        "power_supply_health": 1,
+        "health_name": "GOOD",
+        "power_supply_technology": 3,
+        "technology_name": "LIPO",
+        "location": "slot_0",
+        "serial_number": "SN-001"
+      }
+    }
+  ],
+  "topic_count": 1
+}
+```
+
+`status_name` values: UNKNOWN, CHARGING, DISCHARGING, NOT_CHARGING, FULL.
+`health_name` values: UNKNOWN, GOOD, OVERHEAT, DEAD, OVERVOLTAGE, UNSPEC_FAILURE, COLD, WATCHDOG_TIMER_EXPIRE, SAFETY_TIMER_EXPIRE.
+`technology_name` values: UNKNOWN, NIMH, LION, LIPO, LIFE, NICD, LIMN.
 
 ---
 
@@ -1249,7 +1324,7 @@ Output (rejected — node disallows undeclaring):
 
 ---
 
-## params preset-save `<node>` `<preset>` [options]
+## ★ params preset-save `<node>` `<preset>` [options]
 
 Save the current parameters of a node as a named preset. Internally calls `ListParameters` + `GetParameters` and writes a `{param_name: value}` JSON file to `.presets/{preset}.json` (beside the skill directory, created automatically — flat storage, no subdirectories). Requires the node to be running.
 
@@ -1274,7 +1349,7 @@ Output:
 
 ---
 
-## params preset-load `<node>` `<preset>` [options]
+## ★ params preset-load `<node>` `<preset>` [options]
 
 Restore a named preset onto a node by reading the saved JSON file and calling `SetParameters`. Per-parameter success and failure reasons are reported individually.
 
@@ -1303,7 +1378,7 @@ Output (preset not found):
 
 ---
 
-## params preset-list
+## ★ params preset-list
 
 List all saved presets. Reads from `.presets/` (beside the skill directory) — no running ROS 2 graph required. Presets are stored flat; use descriptive names (e.g. `turtlesim_indoor`) to identify the node.
 
@@ -1318,7 +1393,7 @@ Output:
 
 ---
 
-## params preset-delete `<preset>`
+## ★ params preset-delete `<preset>`
 
 Delete a saved preset file from `.presets/`. No running ROS 2 graph required.
 

@@ -910,5 +910,146 @@ class TestDiagnosticsParsing(unittest.TestCase):
         self.assertEqual(result[1]["level_name"], "ERROR")
 
 
+class TestBatteryParsing(unittest.TestCase):
+    """Tests for 'topics battery-list' and 'topics battery' subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    # ------------------------------------------------------------------
+    # battery-list
+    # ------------------------------------------------------------------
+
+    def test_battery_list_command(self):
+        args = self.parser.parse_args(["topics", "battery-list"])
+        self.assertEqual(args.command, "topics")
+        self.assertEqual(args.subcommand, "battery-list")
+        self.assertFalse(hasattr(args, "topic"))  # battery-list takes no topic arg
+
+    # ------------------------------------------------------------------
+    # battery
+    # ------------------------------------------------------------------
+
+    def test_battery_defaults(self):
+        args = self.parser.parse_args(["topics", "battery"])
+        self.assertEqual(args.command, "topics")
+        self.assertEqual(args.subcommand, "battery")
+        self.assertIsNone(args.topic)
+        self.assertEqual(args.timeout, 10.0)
+        self.assertIsNone(args.duration)
+        self.assertEqual(args.max_messages, 1)
+
+    def test_battery_with_topic(self):
+        self.assertEqual(
+            self.parser.parse_args(["topics", "battery", "--topic", "/battery_state"]).topic,
+            "/battery_state")
+        self.assertEqual(
+            self.parser.parse_args(
+                ["topics", "battery", "--topic", "/robot/battery_state"]).topic,
+            "/robot/battery_state")
+
+    def test_battery_custom_options(self):
+        self.assertEqual(
+            self.parser.parse_args(["topics", "battery", "--timeout", "5"]).timeout, 5.0)
+        self.assertEqual(
+            self.parser.parse_args(["topics", "battery", "--duration", "3.5"]).duration, 3.5)
+        self.assertEqual(
+            self.parser.parse_args(["topics", "battery", "--max-messages", "5"]).max_messages, 5)
+
+    def test_battery_combined_options(self):
+        args = self.parser.parse_args([
+            "topics", "battery",
+            "--topic", "/my_robot/battery_state",
+            "--duration", "10",
+            "--max-messages", "20",
+        ])
+        self.assertEqual(args.topic, "/my_robot/battery_state")
+        self.assertEqual(args.duration, 10.0)
+        self.assertEqual(args.max_messages, 20)
+
+    # ------------------------------------------------------------------
+    # DISPATCH wiring + BATTERY_TYPES constant
+    # ------------------------------------------------------------------
+
+    def test_battery_dispatch_wiring(self):
+        """Both keys present, callable, and mapped to distinct handlers."""
+        for key in [("topics", "battery-list"), ("topics", "battery")]:
+            self.assertIn(key, self.ros2_cli.DISPATCH,
+                          f"Missing DISPATCH key: {key}")
+            self.assertTrue(callable(self.ros2_cli.DISPATCH[key]),
+                            f"Handler for {key} is not callable")
+        self.assertIsNot(
+            self.ros2_cli.DISPATCH[("topics", "battery-list")],
+            self.ros2_cli.DISPATCH[("topics", "battery")])
+
+    def test_battery_types_constant(self):
+        import ros2_topic
+        self.assertTrue(hasattr(ros2_topic, "BATTERY_TYPES"))
+        self.assertIn("sensor_msgs/msg/BatteryState", ros2_topic.BATTERY_TYPES)
+        self.assertIn("sensor_msgs/BatteryState", ros2_topic.BATTERY_TYPES)
+
+    # ------------------------------------------------------------------
+    # _parse_battery_state helper (pure Python — no rclpy needed for logic)
+    # ------------------------------------------------------------------
+
+    def test_parse_battery_state_codes(self):
+        """Status, health, and technology numeric codes map to correct names."""
+        import ros2_topic
+        # power_supply_status
+        for code, name in [(0, "UNKNOWN"), (1, "CHARGING"), (2, "DISCHARGING"),
+                           (3, "NOT_CHARGING"), (4, "FULL")]:
+            r = ros2_topic._parse_battery_state({"power_supply_status": code})
+            self.assertEqual(r["status_name"], name)
+        # power_supply_health
+        for code, name in [(0, "UNKNOWN"), (1, "GOOD"), (2, "OVERHEAT"), (3, "DEAD"),
+                           (4, "OVERVOLTAGE"), (5, "UNSPEC_FAILURE"), (6, "COLD"),
+                           (7, "WATCHDOG_TIMER_EXPIRE"), (8, "SAFETY_TIMER_EXPIRE")]:
+            r = ros2_topic._parse_battery_state({"power_supply_health": code})
+            self.assertEqual(r["health_name"], name)
+        # power_supply_technology
+        for code, name in [(0, "UNKNOWN"), (1, "NIMH"), (2, "LION"), (3, "LIPO"),
+                           (4, "LIFE"), (5, "NICD"), (6, "LIMN")]:
+            r = ros2_topic._parse_battery_state({"power_supply_technology": code})
+            self.assertEqual(r["technology_name"], name)
+
+    def test_parse_battery_state_fields(self):
+        """All standard BatteryState fields are extracted and percentage is scaled."""
+        import ros2_topic
+        msg = {
+            "percentage": 0.75,
+            "voltage": 12.4,
+            "current": -2.1,
+            "charge": 3.5,
+            "capacity": 5.0,
+            "design_capacity": 5.2,
+            "temperature": 25.0,
+            "present": True,
+            "power_supply_status": 2,
+            "power_supply_health": 1,
+            "power_supply_technology": 3,
+            "location": "slot_0",
+            "serial_number": "SN-001",
+        }
+        r = ros2_topic._parse_battery_state(msg)
+        self.assertAlmostEqual(r["percentage"], 75.0)
+        self.assertEqual(r["voltage"], 12.4)
+        self.assertEqual(r["current"], -2.1)
+        self.assertEqual(r["charge"], 3.5)
+        self.assertEqual(r["capacity"], 5.0)
+        self.assertEqual(r["design_capacity"], 5.2)
+        self.assertEqual(r["temperature"], 25.0)
+        self.assertTrue(r["present"])
+        self.assertEqual(r["status_name"], "DISCHARGING")
+        self.assertEqual(r["health_name"], "GOOD")
+        self.assertEqual(r["technology_name"], "LIPO")
+        self.assertEqual(r["location"], "slot_0")
+        self.assertEqual(r["serial_number"], "SN-001")
+
+
 if __name__ == "__main__":
     unittest.main()
