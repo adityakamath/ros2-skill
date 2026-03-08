@@ -82,6 +82,55 @@ def cmd_interface_show(args):
         output({"error": str(e)})
 
 
+def cmd_interface_proto(args):
+    """Show a prototype (default-value instance) of a message, service, or action type.
+
+    Unlike 'show' (which gives field type strings), 'proto' instantiates the type
+    with its default values — useful as a copy-paste template for topic publish payloads.
+    Uses rosidl_runtime_py.convert.message_to_ordereddict; no rclpy.init() needed.
+    """
+    try:
+        from rosidl_runtime_py.convert import message_to_ordereddict
+        type_str = args.type_str
+
+        cls = get_msg_type(type_str)
+        if cls is None:
+            cls = get_srv_type(type_str)
+        if cls is None:
+            cls = get_action_type(type_str)
+        if cls is None:
+            output({
+                "error": f"Unknown interface type: {type_str}",
+                "hint": "Use formats like std_msgs/msg/String, std_srvs/srv/SetBool, "
+                        "nav2_msgs/action/NavigateToPose, or shorthand std_msgs/String",
+            })
+            return
+
+        if hasattr(cls, "Goal") and hasattr(cls, "Result") and hasattr(cls, "Feedback"):
+            output({
+                "type": type_str,
+                "kind": "action",
+                "goal":     dict(message_to_ordereddict(cls.Goal())),
+                "result":   dict(message_to_ordereddict(cls.Result())),
+                "feedback": dict(message_to_ordereddict(cls.Feedback())),
+            })
+        elif hasattr(cls, "Request") and hasattr(cls, "Response"):
+            output({
+                "type": type_str,
+                "kind": "service",
+                "request":  dict(message_to_ordereddict(cls.Request())),
+                "response": dict(message_to_ordereddict(cls.Response())),
+            })
+        else:
+            output({
+                "type":  type_str,
+                "kind":  "message",
+                "proto": dict(message_to_ordereddict(cls())),
+            })
+    except Exception as e:
+        output({"error": str(e)})
+
+
 def cmd_interface_packages(args):
     """List all packages that define at least one ROS 2 interface."""
     try:

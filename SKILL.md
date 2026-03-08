@@ -145,6 +145,7 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Multicast | `multicast receive [--group GROUP] [--port PORT] [--timeout SECS]` | Listen for UDP multicast packets; return all received within timeout |
 | Interface | `interface list` | List all installed interface types (messages, services, actions) |
 | Interface | `interface show <type>` | Show field structure; accepts `pkg/msg/Name`, `pkg/srv/Name`, `pkg/action/Name`, or shorthand `pkg/Name` |
+| Interface | `interface proto <type>` | Show default-value prototype; useful as a copy-paste template for publish payloads |
 | Interface | `interface packages` | List packages that define at least one interface type |
 | Interface | `interface package <pkg>` | List all interface types for a single package |
 
@@ -678,6 +679,10 @@ python3 {baseDir}/scripts/ros2_cli.py interface list
 python3 {baseDir}/scripts/ros2_cli.py interface show std_msgs/msg/String
 python3 {baseDir}/scripts/ros2_cli.py interface show std_msgs/String   # shorthand also works
 
+# Show a prototype (default values) — useful as a publish payload template
+python3 {baseDir}/scripts/ros2_cli.py interface proto std_msgs/msg/String
+python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
+
 # Show a service's request and response structure
 python3 {baseDir}/scripts/ros2_cli.py interface show std_srvs/srv/SetBool
 
@@ -691,8 +696,13 @@ python3 {baseDir}/scripts/ros2_cli.py interface packages
 python3 {baseDir}/scripts/ros2_cli.py interface package std_msgs
 ```
 
-**Output format for `interface show`:**
+**Output format for `interface show`:** (field type strings)
 - `"kind": "message"` → `"fields": {"field_name": "field_type_string", ...}`
+- `"kind": "service"` → `"request": {...}`, `"response": {...}`
+- `"kind": "action"` → `"goal": {...}`, `"result": {...}`, `"feedback": {...}`
+
+**Output format for `interface proto`:** (default values — use as publish payload)
+- `"kind": "message"` → `"proto": {"field_name": <default_value>, ...}`
 - `"kind": "service"` → `"request": {...}`, `"response": {...}`
 - `"kind": "action"` → `"goal": {...}`, `"result": {...}`, `"feedback": {...}`
 

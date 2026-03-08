@@ -401,6 +401,13 @@ Examples:
     $ python3 ros2_cli.py interface show nav2_msgs/action/NavigateToPose
     $ python3 ros2_cli.py interface show std_msgs/String
 
+  interface proto <type>
+    Show a default-value prototype of a message, service, or action type.
+    Unlike 'show' (type strings), 'proto' returns instantiated default values —
+    useful as a copy-paste template for ros2 topic pub payloads.
+    $ python3 ros2_cli.py interface proto std_msgs/msg/String
+    $ python3 ros2_cli.py interface proto geometry_msgs/msg/Twist
+
   interface packages
     List all packages that define at least one interface type.
     $ python3 ros2_cli.py interface packages
@@ -503,6 +510,7 @@ from ros2_lifecycle import (
 from ros2_interface import (
     cmd_interface_list,
     cmd_interface_show,
+    cmd_interface_proto,
     cmd_interface_packages,
     cmd_interface_package,
 )
@@ -1032,6 +1040,10 @@ def build_parser():
                    help="Interface type, e.g. std_msgs/msg/String, std_srvs/srv/SetBool, "
                         "nav2_msgs/action/NavigateToPose, or shorthand std_msgs/String")
 
+    p = ifsub.add_parser("proto", help="Show default-value prototype of a message, service, or action")
+    p.add_argument("type_str", metavar="type",
+                   help="Interface type, e.g. std_msgs/msg/String, geometry_msgs/msg/Twist")
+
     ifsub.add_parser("packages", help="List packages that contain at least one interface")
 
     p = ifsub.add_parser("package", help="List all interface types for a single package")
@@ -1157,6 +1169,7 @@ DISPATCH = {
     ("interface", "list"):     cmd_interface_list,
     ("interface", "ls"):       cmd_interface_list,
     ("interface", "show"):     cmd_interface_show,
+    ("interface", "proto"):    cmd_interface_proto,
     ("interface", "packages"): cmd_interface_packages,
     ("interface", "package"):  cmd_interface_package,
 }

@@ -2476,6 +2476,55 @@ Output (unknown type):
 
 ---
 
+## interface proto `<type>`
+
+Show a default-value prototype of a message, service, or action type. Unlike `interface show` (which returns field type strings), `proto` instantiates the type with its default values — useful as a copy-paste template for `ros2 topic pub` payloads. Reads from the ament resource index — no running ROS 2 graph required.
+
+**ROS 2 CLI equivalent:** `ros2 interface proto <type>`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `type` | Yes | Interface type string |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py interface proto std_msgs/msg/String
+python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py interface proto std_srvs/srv/SetBool
+```
+
+Output (message):
+```json
+{
+  "type": "std_msgs/msg/String",
+  "kind": "message",
+  "proto": {"data": ""}
+}
+```
+
+Output (nested message):
+```json
+{
+  "type": "geometry_msgs/msg/Twist",
+  "kind": "message",
+  "proto": {
+    "linear":  {"x": 0.0, "y": 0.0, "z": 0.0},
+    "angular": {"x": 0.0, "y": 0.0, "z": 0.0}
+  }
+}
+```
+
+Output (service):
+```json
+{
+  "type": "std_srvs/srv/SetBool",
+  "kind": "service",
+  "request":  {"data": false},
+  "response": {"success": false, "message": ""}
+}
+```
+
+---
+
 ## interface packages
 
 List all packages that define at least one ROS 2 interface. Reads from the ament resource index — no running ROS 2 graph required.

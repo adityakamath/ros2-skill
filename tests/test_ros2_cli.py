@@ -233,6 +233,7 @@ class TestDispatchTable(unittest.TestCase):
             ("lifecycle", "get"), ("lifecycle", "set"),
             # interface
             ("interface", "list"), ("interface", "ls"), ("interface", "show"),
+            ("interface", "proto"),
             ("interface", "packages"), ("interface", "package"),
         ]
         for key in expected_keys:
@@ -887,6 +888,12 @@ class TestInterfaceParsing(unittest.TestCase):
     def test_interface_show_shorthand(self):
         args = self.parser.parse_args(["interface", "show", "std_msgs/String"])
         self.assertEqual(args.type_str, "std_msgs/String")
+
+    def test_interface_proto(self):
+        args = self.parser.parse_args(["interface", "proto", "std_msgs/msg/String"])
+        self.assertEqual(args.command, "interface")
+        self.assertEqual(args.subcommand, "proto")
+        self.assertEqual(args.type_str, "std_msgs/msg/String")
 
     def test_interface_packages(self):
         args = self.parser.parse_args(["interface", "packages"])

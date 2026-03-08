@@ -62,7 +62,7 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 | Doctor | `check` (default), `hello` |
 | Wtf | alias for `doctor` — same commands |
 | Multicast | `send`, `receive` |
-| Interface | `list`, `show`, `packages`, `package` |
+| Interface | `list`, `show`, `proto`, `packages`, `package` |
 | Discord | `send-image` (in `discord_tools.py`) |
 
 All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`references/COMMANDS.md`](references/COMMANDS.md) for full details with examples.
