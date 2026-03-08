@@ -584,3 +584,6 @@ FodyWeavers.xsd
 
 # Local planning / design docs — kept on disk, never committed
 docs/plans/
+
+# Git worktrees
+.worktrees/
