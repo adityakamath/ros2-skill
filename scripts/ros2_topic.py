@@ -24,6 +24,15 @@ VELOCITY_TYPES = {
     "geometry_msgs/Twist", "geometry_msgs/TwistStamped",
 }
 
+# Diagnostic message types (with and without /msg/ qualifier).
+DIAG_TYPES = {
+    "diagnostic_msgs/msg/DiagnosticArray",
+    "diagnostic_msgs/DiagnosticArray",
+}
+
+# Numeric level → human-readable name (mirrors DiagnosticStatus constants).
+_DIAG_LEVEL_NAMES = {0: "OK", 1: "WARN", 2: "ERROR", 3: "STALE"}
+
 
 # ---------------------------------------------------------------------------
 # estop
@@ -1285,5 +1294,172 @@ def cmd_actions_echo(args):
                         return
             rclpy.shutdown()
             output({"error": "Timeout waiting for action feedback"})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics
+# ---------------------------------------------------------------------------
+
+def _discover_diag_topics(node):
+    """Return [{topic, type}] for every DiagnosticArray topic in the graph."""
+    results = []
+    for name, types in node.get_topic_names_and_types():
+        for t in types:
+            if t in DIAG_TYPES:
+                results.append({"topic": name, "type": t})
+                break
+    return sorted(results, key=lambda x: x["topic"])
+
+
+def _parse_diag_array(msg_dict):
+    """Convert a msg_to_dict() DiagnosticArray into a clean status list."""
+    status_list = []
+    for s in msg_dict.get("status", []):
+        level = s.get("level", 0)
+        status_list.append({
+            "level": level,
+            "level_name": _DIAG_LEVEL_NAMES.get(level, str(level)),
+            "name": s.get("name", ""),
+            "message": s.get("message", ""),
+            "hardware_id": s.get("hardware_id", ""),
+            "values": [
+                {"key": kv.get("key", ""), "value": kv.get("value", "")}
+                for kv in s.get("values", [])
+            ],
+        })
+    return status_list
+
+
+def cmd_topics_diag_list(args):
+    """List all topics that publish DiagnosticArray messages (discovered by type)."""
+    try:
+        rclpy.init()
+        node = ROS2CLI()
+        topics = _discover_diag_topics(node)
+        rclpy.shutdown()
+        output({"topics": topics, "count": len(topics)})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_topics_diag(args):
+    """Subscribe to diagnostic topics, auto-discovered by type.
+
+    If --topic is given, use that specific topic.  Otherwise, find every topic
+    whose type is DiagnosticArray and subscribe to all of them simultaneously.
+    DiagnosticArray messages are decoded into a human-readable status list with
+    level_name (OK / WARN / ERROR / STALE), name, message, hardware_id and
+    key-value pairs.
+    """
+    try:
+        rclpy.init()
+        node = ROS2CLI("diag_temp")
+
+        if args.topic:
+            # Verify topic exists and resolve its type.
+            resolved_type = None
+            for name, types in node.get_topic_names_and_types():
+                if name == args.topic:
+                    resolved_type = types[0] if types else None
+                    break
+            if resolved_type is None:
+                rclpy.shutdown()
+                return output({
+                    "error": f"Could not detect type for topic '{args.topic}'",
+                    "hint": "Ensure the topic is active. Use 'topics type <topic>' to inspect it.",
+                })
+            diag_topics = [{"topic": args.topic, "type": resolved_type}]
+        else:
+            diag_topics = _discover_diag_topics(node)
+            if not diag_topics:
+                rclpy.shutdown()
+                return output({
+                    "error": "No diagnostic topics found",
+                    "hint": (
+                        "Ensure diagnostics-publishing nodes are running. "
+                        "Diagnostic topics may be named /diagnostics, "
+                        "<node>/diagnostics, or any other name — they are "
+                        "identified by their DiagnosticArray message type."
+                    ),
+                })
+
+        # Load the DiagnosticArray message class once.
+        diag_class = None
+        for t in ("diagnostic_msgs/msg/DiagnosticArray", "diagnostic_msgs/DiagnosticArray"):
+            diag_class = get_msg_type(t)
+            if diag_class:
+                break
+        if diag_class is None:
+            rclpy.shutdown()
+            return output({
+                "error": "Could not load diagnostic_msgs/DiagnosticArray",
+                "hint": (
+                    "Install the diagnostics package: "
+                    "sudo apt install ros-$ROS_DISTRO-diagnostics"
+                ),
+            })
+
+        # Subscribe to all discovered topics simultaneously.
+        executor = rclpy.executors.SingleThreadedExecutor()
+        subscribers = {}
+        for t in diag_topics:
+            sub = TopicSubscriber(t["topic"], t["type"], msg_class=diag_class)
+            subscribers[t["topic"]] = sub
+            executor.add_node(sub)
+
+        max_msgs = args.max_messages or 1
+        timeout_sec = args.timeout
+
+        if args.duration:
+            # Timed collection mode: spin for the given duration.
+            end_time = time.time() + args.duration
+            while time.time() < end_time:
+                executor.spin_once(timeout_sec=0.1)
+            rclpy.shutdown()
+            results = []
+            for topic_name, sub in subscribers.items():
+                with sub.lock:
+                    msgs = sub.messages[:max_msgs]
+                for msg_dict in msgs:
+                    results.append({
+                        "topic": topic_name,
+                        "stamp": msg_dict.get("header", {}).get("stamp", {}),
+                        "status": _parse_diag_array(msg_dict),
+                    })
+            output({"results": results, "topic_count": len(diag_topics)})
+        else:
+            # One-shot mode: wait until every topic has delivered ≥1 message,
+            # or until the timeout expires.
+            end_time = time.time() + timeout_sec
+            while time.time() < end_time:
+                executor.spin_once(timeout_sec=0.1)
+                all_received = all(
+                    len(subscribers[t["topic"]].messages) > 0
+                    for t in diag_topics
+                )
+                if all_received:
+                    break
+            rclpy.shutdown()
+            results = []
+            for t in diag_topics:
+                topic_name = t["topic"]
+                sub = subscribers[topic_name]
+                with sub.lock:
+                    msgs = sub.messages[:]
+                if msgs:
+                    msg_dict = msgs[0]
+                    results.append({
+                        "topic": topic_name,
+                        "stamp": msg_dict.get("header", {}).get("stamp", {}),
+                        "status": _parse_diag_array(msg_dict),
+                    })
+                else:
+                    results.append({
+                        "topic": topic_name,
+                        "error": "Timeout — no message received",
+                    })
+            output({"results": results, "topic_count": len(diag_topics)})
     except Exception as e:
         output({"error": str(e)})

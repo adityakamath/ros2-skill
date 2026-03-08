@@ -967,5 +967,173 @@ class TestPresetParsing(unittest.TestCase):
         )
 
 
+class TestDiagnosticsParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for topics diag-list and topics diag."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    # ------------------------------------------------------------------
+    # diag-list
+    # ------------------------------------------------------------------
+
+    def test_diag_list_command(self):
+        args = self.parser.parse_args(["topics", "diag-list"])
+        self.assertEqual(args.command, "topics")
+        self.assertEqual(args.subcommand, "diag-list")
+
+    def test_diag_list_no_args(self):
+        # diag-list takes no positional arguments
+        args = self.parser.parse_args(["topics", "diag-list"])
+        self.assertFalse(hasattr(args, "topic"))
+
+    # ------------------------------------------------------------------
+    # diag
+    # ------------------------------------------------------------------
+
+    def test_diag_no_args(self):
+        args = self.parser.parse_args(["topics", "diag"])
+        self.assertEqual(args.command, "topics")
+        self.assertEqual(args.subcommand, "diag")
+        self.assertIsNone(args.topic)
+
+    def test_diag_with_topic(self):
+        args = self.parser.parse_args(["topics", "diag", "--topic", "/diagnostics"])
+        self.assertEqual(args.topic, "/diagnostics")
+
+    def test_diag_with_namespaced_topic(self):
+        args = self.parser.parse_args(["topics", "diag", "--topic", "/robot/camera/diagnostics"])
+        self.assertEqual(args.topic, "/robot/camera/diagnostics")
+
+    def test_diag_default_timeout(self):
+        args = self.parser.parse_args(["topics", "diag"])
+        self.assertEqual(args.timeout, 10.0)
+
+    def test_diag_custom_timeout(self):
+        args = self.parser.parse_args(["topics", "diag", "--timeout", "5"])
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_diag_duration(self):
+        args = self.parser.parse_args(["topics", "diag", "--duration", "3.5"])
+        self.assertEqual(args.duration, 3.5)
+
+    def test_diag_default_duration_is_none(self):
+        args = self.parser.parse_args(["topics", "diag"])
+        self.assertIsNone(args.duration)
+
+    def test_diag_max_messages(self):
+        args = self.parser.parse_args(["topics", "diag", "--max-messages", "5"])
+        self.assertEqual(args.max_messages, 5)
+
+    def test_diag_default_max_messages(self):
+        args = self.parser.parse_args(["topics", "diag"])
+        self.assertEqual(args.max_messages, 1)
+
+    def test_diag_combined_options(self):
+        args = self.parser.parse_args([
+            "topics", "diag",
+            "--topic", "/my_node/diagnostics",
+            "--duration", "10",
+            "--max-messages", "20",
+        ])
+        self.assertEqual(args.topic, "/my_node/diagnostics")
+        self.assertEqual(args.duration, 10.0)
+        self.assertEqual(args.max_messages, 20)
+
+    # ------------------------------------------------------------------
+    # DISPATCH wiring
+    # ------------------------------------------------------------------
+
+    def test_diag_dispatch_keys_present(self):
+        for key in [("topics", "diag-list"), ("topics", "diag")]:
+            self.assertIn(key, self.ros2_cli.DISPATCH,
+                          f"Missing DISPATCH key: {key}")
+
+    def test_diag_handlers_are_callable(self):
+        for key in [("topics", "diag-list"), ("topics", "diag")]:
+            self.assertTrue(callable(self.ros2_cli.DISPATCH[key]),
+                            f"Handler for {key} is not callable")
+
+    def test_diag_list_and_diag_are_different_handlers(self):
+        self.assertIsNot(
+            self.ros2_cli.DISPATCH[("topics", "diag-list")],
+            self.ros2_cli.DISPATCH[("topics", "diag")],
+        )
+
+    # ------------------------------------------------------------------
+    # DIAG_TYPES constant
+    # ------------------------------------------------------------------
+
+    def test_diag_types_constant_exists(self):
+        import ros2_topic
+        self.assertTrue(hasattr(ros2_topic, "DIAG_TYPES"))
+
+    def test_diag_types_contains_expected_types(self):
+        import ros2_topic
+        self.assertIn("diagnostic_msgs/msg/DiagnosticArray", ros2_topic.DIAG_TYPES)
+        self.assertIn("diagnostic_msgs/DiagnosticArray", ros2_topic.DIAG_TYPES)
+
+    # ------------------------------------------------------------------
+    # _parse_diag_array helper (pure Python — no rclpy needed for logic)
+    # ------------------------------------------------------------------
+
+    def test_parse_diag_array_ok_level(self):
+        import ros2_topic
+        msg = {
+            "header": {"stamp": {"sec": 1, "nanosec": 0}, "frame_id": ""},
+            "status": [{"level": 0, "name": "cpu", "message": "OK",
+                        "hardware_id": "host", "values": [{"key": "load", "value": "0.1"}]}],
+        }
+        result = ros2_topic._parse_diag_array(msg)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["level_name"], "OK")
+        self.assertEqual(result[0]["name"], "cpu")
+        self.assertEqual(result[0]["values"][0]["key"], "load")
+
+    def test_parse_diag_array_warn_level(self):
+        import ros2_topic
+        msg = {"status": [{"level": 1, "name": "battery", "message": "Low",
+                            "hardware_id": "", "values": []}]}
+        result = ros2_topic._parse_diag_array(msg)
+        self.assertEqual(result[0]["level_name"], "WARN")
+
+    def test_parse_diag_array_error_level(self):
+        import ros2_topic
+        msg = {"status": [{"level": 2, "name": "motor", "message": "Fault",
+                            "hardware_id": "motor_1", "values": []}]}
+        result = ros2_topic._parse_diag_array(msg)
+        self.assertEqual(result[0]["level_name"], "ERROR")
+
+    def test_parse_diag_array_stale_level(self):
+        import ros2_topic
+        msg = {"status": [{"level": 3, "name": "sensor", "message": "Stale",
+                            "hardware_id": "", "values": []}]}
+        result = ros2_topic._parse_diag_array(msg)
+        self.assertEqual(result[0]["level_name"], "STALE")
+
+    def test_parse_diag_array_empty(self):
+        import ros2_topic
+        result = ros2_topic._parse_diag_array({"status": []})
+        self.assertEqual(result, [])
+
+    def test_parse_diag_array_multiple_statuses(self):
+        import ros2_topic
+        msg = {
+            "status": [
+                {"level": 0, "name": "cpu", "message": "OK", "hardware_id": "", "values": []},
+                {"level": 2, "name": "disk", "message": "Full", "hardware_id": "", "values": []},
+            ]
+        }
+        result = ros2_topic._parse_diag_array(msg)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["level_name"], "OK")
+        self.assertEqual(result[1]["level_name"], "ERROR")
+
+
 if __name__ == "__main__":
     unittest.main()

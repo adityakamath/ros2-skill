@@ -219,6 +219,23 @@ Commands:
     $ python3 ros2_cli.py topics delay /odom
     $ python3 ros2_cli.py topics delay /scan --window 20
 
+  topics diag-list
+    List all topics that publish DiagnosticArray messages, discovered by type
+    (not by name — works with /diagnostics, <node>/diagnostics, or any name).
+    $ python3 ros2_cli.py topics diag-list
+
+  topics diag [--topic TOPIC] [--duration SEC] [--max-messages N] [--timeout SEC]
+    Subscribe to diagnostic topics (auto-discovered by DiagnosticArray type) and
+    return human-readable status with level_name (OK/WARN/ERROR/STALE), name,
+    message, hardware_id, and key-value pairs.
+    --topic TOPIC         Subscribe to this specific topic only
+    --duration SEC        Collect for N seconds (default: one-shot)
+    --max-messages N      Max messages per topic in --duration mode (default: 1)
+    --timeout SEC         Timeout waiting for first message (default: 10)
+    $ python3 ros2_cli.py topics diag
+    $ python3 ros2_cli.py topics diag --topic /my_node/diagnostics
+    $ python3 ros2_cli.py topics diag --duration 5 --max-messages 3
+
   lifecycle nodes
     List all managed (lifecycle) nodes in the ROS 2 graph.
     $ python3 ros2_cli.py lifecycle nodes
@@ -457,6 +474,8 @@ from ros2_topic import (
     cmd_topics_bw,
     cmd_topics_delay,
     cmd_topics_capture_image,
+    cmd_topics_diag_list,
+    cmd_topics_diag,
     cmd_services_echo,
     cmd_actions_echo,
 )
@@ -627,6 +646,18 @@ def build_parser():
                    help="Number of messages to sample (default: 10)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Max wait time in seconds (default: 10)")
+    tsub.add_parser("diag-list",
+                    help="List all topics publishing DiagnosticArray messages (by type)")
+    p = tsub.add_parser("diag",
+                        help="Subscribe to diagnostic topics (auto-discovered by type)")
+    p.add_argument("--topic", default=None,
+                   help="Specific diagnostic topic (default: auto-discover all by type)")
+    p.add_argument("--duration", type=float, default=None,
+                   help="Collect for N seconds (default: one-shot)")
+    p.add_argument("--max-messages", dest="max_messages", type=int, default=1,
+                   help="Max messages per topic in --duration mode (default: 1)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Timeout waiting for messages (default: 10s)")
     for _pub_name in ("publish", "pub"):
         p = tsub.add_parser(_pub_name,
                             help="Publish a message" if _pub_name == "publish"
@@ -1091,6 +1122,8 @@ DISPATCH = {
     ("topics", "hz"): cmd_topics_hz,
     ("topics", "find"): cmd_topics_find,
     ("topics", "capture-image"): cmd_topics_capture_image,
+    ("topics", "diag-list"): cmd_topics_diag_list,
+    ("topics", "diag"): cmd_topics_diag,
     # topics — aliases
     ("topics", "echo"): cmd_topics_subscribe,
     ("topics", "sub"): cmd_topics_subscribe,

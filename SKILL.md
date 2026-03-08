@@ -77,6 +77,8 @@ python3 {baseDir}/scripts/ros2_cli.py version
 | Topics | `topics bw <topic>` | Measure topic bandwidth (bytes/s) |
 | Topics | `topics delay <topic>` | Measure header-stamp end-to-end latency |
 | Topics | `topics capture-image` | Capture image from ROS 2 topic and save to .artifacts/ |
+| Topics | `topics diag-list` | List all topics publishing DiagnosticArray (by type) |
+| Topics | `topics diag` | Subscribe to diagnostic topics (auto-discovered by type) |
 | Discord | `send-image` (discord_tools.py) | Send image to Discord channel |
 | Services | `services list` | List all available services |
 | Services | `services ls` | Alias for `services list` |
@@ -651,6 +653,26 @@ python3 {baseDir}/scripts/ros2_cli.py topics delay /scan --window 20
 ```
 
 Options: `--window N` (samples, default 10), `--timeout SEC` (default 10)
+
+### topics diag-list / topics diag — Diagnostics monitoring
+
+Diagnostic topics are discovered by **message type** (`diagnostic_msgs/DiagnosticArray`), not by name. This handles `/diagnostics`, `<node>/diagnostics`, `<namespace>/diagnostics`, or any other naming convention automatically.
+
+```bash
+# List all topics that publish DiagnosticArray messages
+python3 {baseDir}/scripts/ros2_cli.py topics diag-list
+
+# Read one snapshot from all discovered diagnostic topics
+python3 {baseDir}/scripts/ros2_cli.py topics diag
+
+# Read from a specific diagnostic topic
+python3 {baseDir}/scripts/ros2_cli.py topics diag --topic /my_node/diagnostics
+
+# Collect 5 messages per topic over 10 seconds
+python3 {baseDir}/scripts/ros2_cli.py topics diag --duration 10 --max-messages 5
+```
+
+Output from `topics diag` includes `level_name` (OK / WARN / ERROR / STALE), `name`, `message`, `hardware_id`, and `values` (key-value pairs) for each `DiagnosticStatus` entry in the array.
 
 ### params describe / dump / load / delete
 

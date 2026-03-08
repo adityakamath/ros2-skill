@@ -658,6 +658,74 @@ All delay values in seconds. Error if no `header.stamp`:
 
 ---
 
+## topics diag-list
+
+List all topics that publish `DiagnosticArray` messages, discovered by **type** rather than by name. Handles `/diagnostics`, `<node>/diagnostics`, `<namespace>/diagnostics`, or any other naming convention.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics diag-list
+```
+
+Output:
+```json
+{"topics": [{"topic": "/diagnostics", "type": "diagnostic_msgs/msg/DiagnosticArray"}, {"topic": "/camera/diagnostics", "type": "diagnostic_msgs/msg/DiagnosticArray"}], "count": 2}
+```
+
+---
+
+## topics diag [options]
+
+Subscribe to diagnostic topics and return parsed `DiagnosticStatus` entries with human-readable level names. Auto-discovers all diagnostic topics by type unless `--topic` is specified.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--topic TOPIC` | auto-discover all | Specific diagnostic topic to read from |
+| `--duration SEC` | one-shot | Collect messages for N seconds |
+| `--max-messages N` | `1` | Max messages per topic in `--duration` mode |
+| `--timeout SEC` | `10` | Timeout waiting for first message (one-shot mode) |
+
+```bash
+# One-shot: read latest diagnostics from all discovered topics
+python3 {baseDir}/scripts/ros2_cli.py topics diag
+
+# Read from a specific (non-standard) diagnostic topic
+python3 {baseDir}/scripts/ros2_cli.py topics diag --topic /my_node/diagnostics
+
+# Collect 5 messages per topic over 10 seconds
+python3 {baseDir}/scripts/ros2_cli.py topics diag --duration 10 --max-messages 5
+```
+
+Output:
+```json
+{
+  "results": [
+    {
+      "topic": "/diagnostics",
+      "stamp": {"sec": 1234567890, "nanosec": 0},
+      "status": [
+        {
+          "level": 0, "level_name": "OK",
+          "name": "motor_driver: left", "message": "OK",
+          "hardware_id": "motor_driver",
+          "values": [{"key": "temperature", "value": "38.5"}]
+        },
+        {
+          "level": 1, "level_name": "WARN",
+          "name": "battery", "message": "Low charge",
+          "hardware_id": "power_board",
+          "values": [{"key": "voltage", "value": "11.2"}]
+        }
+      ]
+    }
+  ],
+  "topic_count": 1
+}
+```
+
+Level values: `0` = OK, `1` = WARN, `2` = ERROR, `3` = STALE.
+
+---
+
 ## services list / services ls
 
 List all available services.

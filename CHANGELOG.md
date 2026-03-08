@@ -4,18 +4,25 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.3] - 2026-03-08
 
-Added parameter preset commands for saving and restoring named parameter snapshots. Presets are stored flat in `.presets/{preset}.json` (beside the skill directory, created automatically) — use descriptive names like `turtlesim_indoor` to identify node and configuration.
+Added parameter preset commands and diagnostics monitoring.
 
-### Parameters
+### Topics — Diagnostics
+
+- `topics diag-list` — list all topics publishing `DiagnosticArray` messages, discovered by **type** (not by name); works with `/diagnostics`, `<node>/diagnostics`, `<namespace>/diagnostics`, or any other convention
+- `topics diag` — subscribe to all discovered diagnostic topics simultaneously (or a specific `--topic`); returns parsed status with `level_name` (OK/WARN/ERROR/STALE), `name`, `message`, `hardware_id`, and key-value `values`; supports `--duration` + `--max-messages` for multi-message collection and `--timeout` for one-shot mode
+
+### Parameters — Presets
 
 - `params preset-save <node> <preset>` — save the current live parameters of a node to `.presets/{preset}.json`; uses `ListParameters` + `GetParameters` and writes a plain `{param_name: value}` JSON file
 - `params preset-load <node> <preset>` — restore a named preset onto a node via `SetParameters`; reports per-parameter success and failure reasons
 - `params preset-list` — list all saved presets from `.presets/`; no arguments; no running ROS 2 graph required
 - `params preset-delete <preset>` — remove a saved preset file by name only (no node arg needed); no running ROS 2 graph required
+- Presets stored flat as `.presets/{preset}.json` beside the skill directory; use descriptive names like `turtlesim_indoor` to identify node and configuration
 
 ### Internal
 
 - Refactored `cmd_params_dump`: extracted `_dump_params(node_name, timeout) -> dict | None` helper so preset-save can reuse the dump logic without going through `output()`
+- `resolve_output_path()` now writes to `.artifacts/` (hidden) instead of `artifacts/`
 
 ---
 
