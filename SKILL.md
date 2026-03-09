@@ -1,6 +1,6 @@
 ---
 name: ros2-skill
-description: "Controls ROS 2 robots directly via rclpy CLI. Use when the user asks about ROS 2 topics, services, nodes, parameters, actions, robot movement, sensor data, or any ROS 2 robot interaction."
+description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), diagnostics, battery, system health checks, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
 license: Apache-2.0
 compatibility: "Requires python3, rclpy, and ROS 2 environment sourced"
 user-invokable: true
@@ -16,6 +16,70 @@ Controls and monitors ROS 2 robots directly via rclpy.
 All commands output JSON. Errors contain `{"error": "..."}`.
 
 For full command reference with arguments, options, and output examples, see [references/COMMANDS.md](references/COMMANDS.md).
+
+---
+
+## Agent Behaviour Rules
+
+These rules are absolute and apply to every request involving a ROS 2 robot.
+
+### Rule 1 — Discover before you act, never ask
+
+**Never ask the user for names, types, or IDs that can be discovered from the live system.** This includes topic names, service names, action names, node names, parameter names, message types, and controller names. Always query the robot first.
+
+| What you need | How to discover it |
+|---|---|
+| Topic name | `topics list` or `topics find <msg_type>` |
+| Topic message type | `topics type <topic>` |
+| Service name | `services list` or `services find <srv_type>` |
+| Service request/response fields | `services details <service>` |
+| Action server name | `actions list` or `actions find <action_type>` |
+| Action goal/result/feedback fields | `actions details <action>` |
+| Node name | `nodes list` |
+| Node's topics, services, actions | `nodes details <node>` |
+| Parameter names on a node | `params list <node>` |
+| Parameter value | `params get <node:param>` |
+| Parameter type and constraints | `params describe <node:param>` |
+| Controller names and states | `control list-controllers` |
+| Hardware components | `control list-hardware-components` |
+| Message / service / action type fields | `interface show <type>` or `interface proto <type>` |
+
+**Only ask the user if**:
+1. The discovery command returns an empty result or an error, **and**
+2. There is genuinely no other way to determine the information from the live system.
+
+### Rule 2 — Use ros2-skill before saying you can't
+
+**Never tell the user you don't know how to do something with a ROS 2 robot without first checking whether ros2-skill has a command for it.** This skill covers the full range of ROS 2 operations: topics, services, actions, parameters, nodes, lifecycle, controllers, diagnostics, battery, images, interfaces, presets, and more.
+
+When a task seems unfamiliar, look it up in the quick reference tables below before responding. Common operations that agents sometimes miss:
+
+| Task | ros2-skill command |
+|---|---|
+| Capture a camera image | `topics capture-image --topic <topic> --output <file>` |
+| Read laser / camera / IMU / odom data | `topics subscribe <topic>` |
+| Call a ROS 2 service | `services call <service> <json>` |
+| Send a navigation or manipulation goal | `actions send <action> <json>` |
+| Change a node parameter at runtime | `params set <node:param> <value>` |
+| Save/restore a parameter configuration | `params preset-save` / `params preset-load` |
+| Activate or deactivate a controller | `control set-controller-state <name> active\|inactive` |
+| Run a health check | `doctor` |
+| Emergency stop | `estop` |
+| Check diagnostics | `topics diag` |
+| Check battery | `topics battery` |
+
+If you genuinely cannot find a matching command after checking both the quick reference and the COMMANDS.md reference, **say so clearly and explain what you checked** — do not silently guess or use a partial solution.
+
+### Rule 3 — Infer the goal, resolve the details
+
+When a user asks to do something, **infer what they want at the goal level, then resolve all concrete details (topic names, types, field paths) from the live system**.
+
+Examples:
+- "Take a picture" → find compressed image topics (`topics find sensor_msgs/msg/CompressedImage`), capture from the first active result
+- "Move the robot forward" → find velocity topic (`topics find geometry_msgs/msg/Twist` and `TwistStamped`), publish with the matching structure
+- "What is the battery level?" → `topics battery` (auto-discovers `BatteryState` topics)
+- "List available controllers" → `control list-controllers`
+- "What parameters does the camera node have?" → `nodes list` to find the camera node name, then `params list <node>`
 
 ---
 
@@ -72,6 +136,80 @@ python3 {baseDir}/scripts/ros2_cli.py services call /add_two_ints '{"a":1,"b":2}
 python3 {baseDir}/scripts/ros2_cli.py --timeout 10 --retries 3 services call /spawn '{}'
 python3 {baseDir}/scripts/ros2_cli.py services call /spawn '{}' --timeout 10 --retries 3
 ```
+
+---
+
+## Topic and Service Discovery
+
+**Never guess topic names. Never ask the user for a topic name.** Any time an operation involves a topic — subscribe, publish, capture, monitor, echo, find — discover the actual topic name from the live graph first, then act. This applies to every request, regardless of how obvious the topic name might seem.
+
+### General rule
+
+For any operation that involves a topic:
+1. Run `topics find <message_type>` to locate topics of the right type — this is faster than `topics list` and filters directly by type
+2. If multiple results, use `topics details <topic>` to check publisher/subscriber counts and pick the active one
+3. Then subscribe/publish/capture using the discovered topic name
+
+```bash
+# Step 1 — find topics of the right type
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Image
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+
+# Step 2 — if needed, inspect a candidate
+python3 {baseDir}/scripts/ros2_cli.py topics details /camera/image_raw
+
+# Step 3 — act on the discovered topic
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /camera/image_raw
+```
+
+### Images and camera topics
+
+When the user asks for an image, screenshot, camera view, or photo:
+
+1. **Always prefer compressed** — run `topics find sensor_msgs/msg/CompressedImage` first. Compressed topics use much less bandwidth and `capture-image` handles them natively.
+2. If no compressed topics exist, fall back to `topics find sensor_msgs/msg/Image` (raw).
+3. Use `topics capture-image --topic <discovered_topic>` — **never** `topics subscribe` for images.
+
+```bash
+# Step 1 — find compressed image topics
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
+# → e.g. returns ["/camera/image_raw/compressed", "/camera/color/image_raw/compressed"]
+
+# Step 2 — capture from the first (or most relevant) result
+python3 {baseDir}/scripts/ros2_cli.py topics capture-image \
+  --topic /camera/image_raw/compressed \
+  --output robot_view.jpg \
+  --type auto
+```
+
+### Velocity commands (Twist vs TwistStamped)
+
+Different robots use different velocity message types. **Always check which one is active before publishing.**
+
+```bash
+# Find Twist topics (most common — e.g. ROS 2 Nav2, turtlesim)
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+
+# Find TwistStamped topics (used by some hardware drivers, ros2_control)
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+```
+
+- If `Twist` is found → publish without a `header` field: `{"linear": {"x": 1.0}, "angular": {"z": 0.0}}`
+- If `TwistStamped` is found → wrap in a `header`: `{"header": {"stamp": {"sec": 0}, "frame_id": ""}, "twist": {"linear": {"x": 1.0}, "angular": {"z": 0.0}}}`
+- If both are found → prefer the one with active publishers (check with `topics details`)
+
+### Other common discovery patterns
+
+| User asks for | Run first | Then use |
+|---|---|---|
+| Image / camera view | `topics find sensor_msgs/msg/CompressedImage` (fallback: `.../Image`) | `topics capture-image --topic <result>` |
+| Laser scan / lidar | `topics find sensor_msgs/msg/LaserScan` | `topics subscribe <result>` |
+| Odometry / position | `topics find nav_msgs/msg/Odometry` | `topics subscribe <result>` |
+| IMU data | `topics find sensor_msgs/msg/Imu` | `topics subscribe <result>` |
+| Joint states | `topics find sensor_msgs/msg/JointState` | `topics subscribe <result>` |
+| Point cloud | `topics find sensor_msgs/msg/PointCloud2` | `topics subscribe <result>` |
+| Battery | `topics find sensor_msgs/msg/BatteryState` | `battery status` |
+| Move robot | `topics find geometry_msgs/msg/Twist` AND `topics find geometry_msgs/msg/TwistStamped` | `topics publish <result>` with the matching message structure |
 
 ---
 
@@ -224,11 +362,20 @@ The Discord bot token is read from a config file whose path is provided via the 
 
 ### Example Workflow: Capture and Send Image
 
-1. **Capture image from ROS 2 camera topic:**
+1. **Discover available image topics — always do this first:**
+
+```bash
+# Prefer compressed (lower bandwidth, natively supported)
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
+# If none found, fall back to raw
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Image
+```
+
+2. **Capture image using the discovered topic:**
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image \
-  --topic /camera/image_raw/compressed \
+  --topic /camera/image_raw/compressed \  # ← use actual topic from discovery step
   --output robot_view.jpg \  # plain filename → .artifacts/robot_view.jpg; or use a full path
   --timeout 5.0 \
   --type auto
@@ -752,6 +899,8 @@ python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r
 
 **Terminology:** Use preset commands when the user wants to save a configuration ("save these settings as 'indoor'"), switch between named configurations, or restore a previous parameter state. Presets are stored as flat JSON files in `.presets/{preset_name}.json` (beside the skill directory, created automatically) — no ROS 2 graph required for `preset-list` and `preset-delete`. Use descriptive preset names that identify the node (e.g. `turtlesim_indoor`) since there are no per-node subdirectories.
 
+**NEVER create, read, write, or delete preset files directly using file system tools.** Do not create directories named `params_presets`, `presets`, `.presets`, or anything similar yourself. ALL preset operations — save, load, list, delete — must go through the CLI commands below. The CLI manages the `.presets/` directory automatically.
+
 **IMPORTANT — do not confuse these two commands:**
 - `params load <node> <json>` — applies a raw JSON string or file directly to a node (one-shot, no saved file involved)
 - `params preset-load <node> <preset_name>` — restores a previously saved preset by name from `.presets/{preset_name}.json`
@@ -830,12 +979,22 @@ python3 {baseDir}/scripts/ros2_cli.py params list /robot_node
 
 ### 2. Move a Robot
 
-Always check the message structure first, then publish movement, and always stop after.
+Always discover the velocity topic and type first, then publish movement, and always stop after.
 
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+# Step 1 — find which velocity type this robot uses (check both)
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+
+# Step 2 — publish using the discovered topic and the matching message structure
+# If Twist (e.g. /cmd_vel):
 python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
+  '[2.0, 0.5]'
+
+# If TwistStamped (e.g. /cmd_vel):
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+  '[{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}},{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}]' \
   '[2.0, 0.5]'
 ```
 
