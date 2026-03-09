@@ -75,6 +75,80 @@ python3 {baseDir}/scripts/ros2_cli.py services call /spawn '{}' --timeout 10 --r
 
 ---
 
+## Topic and Service Discovery
+
+**Never guess topic names. Never ask the user for a topic name.** Any time an operation involves a topic — subscribe, publish, capture, monitor, echo, find — discover the actual topic name from the live graph first, then act. This applies to every request, regardless of how obvious the topic name might seem.
+
+### General rule
+
+For any operation that involves a topic:
+1. Run `topics find <message_type>` to locate topics of the right type — this is faster than `topics list` and filters directly by type
+2. If multiple results, use `topics details <topic>` to check publisher/subscriber counts and pick the active one
+3. Then subscribe/publish/capture using the discovered topic name
+
+```bash
+# Step 1 — find topics of the right type
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Image
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+
+# Step 2 — if needed, inspect a candidate
+python3 {baseDir}/scripts/ros2_cli.py topics details /camera/image_raw
+
+# Step 3 — act on the discovered topic
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /camera/image_raw
+```
+
+### Images and camera topics
+
+When the user asks for an image, screenshot, camera view, or photo:
+
+1. **Always prefer compressed** — run `topics find sensor_msgs/msg/CompressedImage` first. Compressed topics use much less bandwidth and `capture-image` handles them natively.
+2. If no compressed topics exist, fall back to `topics find sensor_msgs/msg/Image` (raw).
+3. Use `topics capture-image --topic <discovered_topic>` — **never** `topics subscribe` for images.
+
+```bash
+# Step 1 — find compressed image topics
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
+# → e.g. returns ["/camera/image_raw/compressed", "/camera/color/image_raw/compressed"]
+
+# Step 2 — capture from the first (or most relevant) result
+python3 {baseDir}/scripts/ros2_cli.py topics capture-image \
+  --topic /camera/image_raw/compressed \
+  --output robot_view.jpg \
+  --type auto
+```
+
+### Velocity commands (Twist vs TwistStamped)
+
+Different robots use different velocity message types. **Always check which one is active before publishing.**
+
+```bash
+# Find Twist topics (most common — e.g. ROS 2 Nav2, turtlesim)
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+
+# Find TwistStamped topics (used by some hardware drivers, ros2_control)
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+```
+
+- If `Twist` is found → publish without a `header` field: `{"linear": {"x": 1.0}, "angular": {"z": 0.0}}`
+- If `TwistStamped` is found → wrap in a `header`: `{"header": {"stamp": {"sec": 0}, "frame_id": ""}, "twist": {"linear": {"x": 1.0}, "angular": {"z": 0.0}}}`
+- If both are found → prefer the one with active publishers (check with `topics details`)
+
+### Other common discovery patterns
+
+| User asks for | Run first | Then use |
+|---|---|---|
+| Image / camera view | `topics find sensor_msgs/msg/CompressedImage` (fallback: `.../Image`) | `topics capture-image --topic <result>` |
+| Laser scan / lidar | `topics find sensor_msgs/msg/LaserScan` | `topics subscribe <result>` |
+| Odometry / position | `topics find nav_msgs/msg/Odometry` | `topics subscribe <result>` |
+| IMU data | `topics find sensor_msgs/msg/Imu` | `topics subscribe <result>` |
+| Joint states | `topics find sensor_msgs/msg/JointState` | `topics subscribe <result>` |
+| Point cloud | `topics find sensor_msgs/msg/PointCloud2` | `topics subscribe <result>` |
+| Battery | `topics find sensor_msgs/msg/BatteryState` | `battery status` |
+| Move robot | `topics find geometry_msgs/msg/Twist` AND `topics find geometry_msgs/msg/TwistStamped` | `topics publish <result>` with the matching message structure |
+
+---
+
 ## ROS 2 CLI Quick Reference
 
 | Category | Command | Description |
@@ -224,11 +298,20 @@ The Discord bot token is read from a config file whose path is provided via the 
 
 ### Example Workflow: Capture and Send Image
 
-1. **Capture image from ROS 2 camera topic:**
+1. **Discover available image topics — always do this first:**
+
+```bash
+# Prefer compressed (lower bandwidth, natively supported)
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
+# If none found, fall back to raw
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Image
+```
+
+2. **Capture image using the discovered topic:**
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image \
-  --topic /camera/image_raw/compressed \
+  --topic /camera/image_raw/compressed \  # ← use actual topic from discovery step
   --output robot_view.jpg \  # plain filename → .artifacts/robot_view.jpg; or use a full path
   --timeout 5.0 \
   --type auto
@@ -832,12 +915,22 @@ python3 {baseDir}/scripts/ros2_cli.py params list /robot_node
 
 ### 2. Move a Robot
 
-Always check the message structure first, then publish movement, and always stop after.
+Always discover the velocity topic and type first, then publish movement, and always stop after.
 
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+# Step 1 — find which velocity type this robot uses (check both)
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+
+# Step 2 — publish using the discovered topic and the matching message structure
+# If Twist (e.g. /cmd_vel):
 python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
+  '[2.0, 0.5]'
+
+# If TwistStamped (e.g. /cmd_vel):
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+  '[{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}},{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}]' \
   '[2.0, 0.5]'
 ```
 
