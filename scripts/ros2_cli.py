@@ -596,7 +596,7 @@ def build_parser():
              "for any command that supports --timeout",
     )
     parser.add_argument(
-        "--retries", type=int, default=1,
+        "--retries", type=int, default=1, dest="global_retries",
         metavar="N",
         help="Number of attempts for service/action calls before giving up "
              "(default: 1, no retry)",
@@ -779,6 +779,8 @@ def build_parser():
                         "e.g. std_srvs/srv/SetBool)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p.add_argument("--retries", type=int, default=None,
+                   help="Number of attempts before giving up (overrides global --retries)")
     p = ssub.add_parser("echo",
                         help="Echo service events (requires service introspection enabled)")
     p.add_argument("service")
@@ -1028,6 +1030,8 @@ def build_parser():
         p.add_argument("goal", help="JSON goal")
         p.add_argument("--timeout", type=float, default=30.0,
                        help="Timeout in seconds (default: 30)")
+        p.add_argument("--retries", type=int, default=None,
+                       help="Number of attempts before giving up (overrides global --retries)")
         p.add_argument("--feedback", action="store_true", default=False,
                        help="Collect and return feedback messages alongside the result")
     p = asub.add_parser("cancel",
@@ -1035,6 +1039,8 @@ def build_parser():
     p.add_argument("action", nargs="?")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p.add_argument("--retries", type=int, default=None,
+                   help="Number of attempts before giving up (overrides global --retries)")
     p = asub.add_parser("echo", help="Echo action feedback and status messages")
     p.add_argument("action")
     p.add_argument("--duration", type=float, default=None,
@@ -1269,16 +1275,21 @@ def _apply_global_overrides(args):
     write ``ros2_cli.py --timeout 30 services call …`` to raise the budget
     for a single invocation without editing every subcommand.
 
-    ``--retries`` is always present because it lives on the main parser, but
-    handlers imported from other modules (e.g. ros2_service.py) access it via
-    ``getattr(args, 'retries', 1)`` to stay resilient.
+    ``--retries``: some subparsers (services call, actions send/cancel) also
+    define ``--retries`` with ``default=None`` so the flag is accepted when
+    placed *after* the subcommand.  When the subparser value is None it means
+    the user did not pass the flag there, so we fall back to the global value
+    from the main parser (which defaults to 1).
     """
     if getattr(args, "global_timeout", None) is not None and hasattr(args, "timeout"):
         args.timeout = args.global_timeout
-    # Ensure retries is always available (main parser guarantees it, but belt
-    # and suspenders for handlers called directly in tests).
-    if not hasattr(args, "retries"):
-        args.retries = 1
+    # Resolve retries: subparsers that accept --retries use default=None so the
+    # flag works when placed *after* the subcommand.  When it is None (not given
+    # after the subcommand), fall back to the global value from the main parser
+    # (global_retries, default 1).  A subparser value of non-None takes priority.
+    global_retries = getattr(args, "global_retries", 1)
+    if getattr(args, "retries", None) is None:
+        args.retries = global_retries
 
 
 # ---------------------------------------------------------------------------

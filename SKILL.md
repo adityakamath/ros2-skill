@@ -51,17 +51,26 @@ python3 {baseDir}/scripts/ros2_cli.py version
 
 ## Global Options
 
-Place these **before** the command name. They apply to every command that makes service or action calls.
+`--timeout` and `--retries` are **global** flags that apply to every command making service or action calls.
+
+- **`--timeout` must be placed before the command name** (e.g. `--timeout 10 services call …`).
+- **`--retries` can be placed before the command name OR after it** for `services call`, `actions send`, and `actions cancel` — both positions work.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--timeout SECONDS` | per-command default | Override the per-command timeout globally (useful for slow networks) |
-| `--retries N` | `1` | Total attempts before giving up; `1` = no retry |
+| `--timeout SECONDS` | per-command default | Override the per-command timeout globally (useful for slow networks or retrying unavailable servers) |
+| `--retries N` | `1` | Total attempts before giving up; `1` = single attempt with no retry |
 
 ```bash
+# --timeout goes before the subcommand
 python3 {baseDir}/scripts/ros2_cli.py --timeout 30 params list /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py --timeout 10 services call /add_two_ints '{"a":1,"b":2}'
+
+# --retries can go before OR after the subcommand for services call / actions send / actions cancel
 python3 {baseDir}/scripts/ros2_cli.py --retries 3 lifecycle get /camera_driver
+python3 {baseDir}/scripts/ros2_cli.py services call /add_two_ints '{"a":1,"b":2}' --retries 3
 python3 {baseDir}/scripts/ros2_cli.py --timeout 10 --retries 3 services call /spawn '{}'
+python3 {baseDir}/scripts/ros2_cli.py services call /spawn '{}' --timeout 10 --retries 3
 ```
 
 ---
@@ -742,6 +751,12 @@ python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r
 ### params preset — Parameter Presets
 
 **Terminology:** Use preset commands when the user wants to save a configuration ("save these settings as 'indoor'"), switch between named configurations, or restore a previous parameter state. Presets are stored as flat JSON files in `.presets/{preset_name}.json` (beside the skill directory, created automatically) — no ROS 2 graph required for `preset-list` and `preset-delete`. Use descriptive preset names that identify the node (e.g. `turtlesim_indoor`) since there are no per-node subdirectories.
+
+**IMPORTANT — do not confuse these two commands:**
+- `params load <node> <json>` — applies a raw JSON string or file directly to a node (one-shot, no saved file involved)
+- `params preset-load <node> <preset_name>` — restores a previously saved preset by name from `.presets/{preset_name}.json`
+
+When the user says "apply preset", "restore preset", "load preset", "switch to preset", or "use preset" → **always use `params preset-load`**, never `params load`.
 
 ```bash
 # Save the current parameters of /turtlesim as the 'turtlesim_indoor' preset
