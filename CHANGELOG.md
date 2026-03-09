@@ -2,9 +2,21 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.3] - 2026-03-08
+## [1.0.3] - 2026-03-09
 
-Added parameter preset commands and diagnostics monitoring.
+Added parameter preset commands, diagnostics monitoring, battery monitoring, and global timeout/retry configuration.
+
+### Global Options
+
+- `--timeout SECONDS` — override the per-command timeout for every ROS 2 call in the session; accepted before any subcommand (e.g. `--timeout 10 params get /node param`)
+- `--retries N` — total number of attempts before giving up (default: `1`, i.e. no retry); applies to `wait_for_service`, `wait_for_server`, and async call spin loops across all command handlers
+- `_apply_global_overrides(args)` propagates the global values onto per-command `timeout`/`retries` attributes after argparse; commands that have no `--timeout` arg (e.g. `topics list`) are explicitly guarded with `hasattr`
+
+### Internal — Retry hardening
+
+- `future.cancel()` is now called before every retry `continue` in all spin loops (18 sites across `ros2_action`, `ros2_control`, `ros2_lifecycle`, `ros2_param`, `ros2_service`) — prevents stale futures from a timed-out attempt delivering results to the next attempt
+- `cmd_actions_send`: moved `wait_for_server` inside the retry loop so server unavailability is actually retried
+- `cmd_actions_cancel`: added full retry loop (was missing entirely)
 
 ### Topics — Diagnostics
 
