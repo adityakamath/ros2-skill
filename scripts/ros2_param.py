@@ -415,14 +415,14 @@ def _dump_params(node_name, timeout, retries=1):
                 return None
             get_req = GetParameters.Request()
             get_req.names = list(names)
-            future2 = get_client.call_async(get_req)
-            end_time2 = time.time() + timeout
-            while time.time() < end_time2 and not future2.done():
+            future = get_client.call_async(get_req)
+            end_time = time.time() + timeout
+            while time.time() < end_time and not future.done():
                 rclpy.spin_once(node, timeout_sec=0.1)
-            if future2.done():
-                values = future2.result().values or []
+            if future.done():
+                values = future.result().values or []
                 break
-            future2.cancel()
+            future.cancel()
             if not last_attempt:
                 continue
         if values is None:
