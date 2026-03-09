@@ -87,26 +87,34 @@ def cmd_params_list(args):
         service_name = f"{node_name}/list_parameters"
         client = node.create_client(ListParameters, service_name)
 
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Parameter service not available for {node_name}"})
+        retries = getattr(args, 'retries', 1)
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        request = ListParameters.Request()
-        future = client.call_async(request)
+            if not client.wait_for_service(timeout_sec=args.timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Parameter service not available for {node_name}"})
 
-        end_time = time.time() + args.timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            future = client.call_async(ListParameters.Request())
+            end_time = time.time() + args.timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
 
-        if future.done():
-            result = future.result()
-            names = result.result.names if result.result else []
-            formatted = [f"{node_name}:{n}" for n in names]
-            rclpy.shutdown()
-            output({"node": node_name, "parameters": formatted, "count": len(formatted)})
-        else:
-            rclpy.shutdown()
-            output({"error": "Timeout listing parameters"})
+            if future.done():
+                result = future.result()
+                names = result.result.names if result.result else []
+                formatted = [f"{node_name}:{n}" for n in names]
+                rclpy.shutdown()
+                output({"node": node_name, "parameters": formatted, "count": len(formatted)})
+                return
+
+            if not last_attempt:
+                continue
+
+        rclpy.shutdown()
+        output({"error": "Timeout listing parameters"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -132,46 +140,55 @@ def cmd_params_get(args):
         service_name = f"{node_name}/get_parameters"
         client = node.create_client(GetParameters, service_name)
 
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Parameter service not available for {node_name}"})
+        retries = getattr(args, 'retries', 1)
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        request = GetParameters.Request()
-        request.names = [param_name] if param_name else []
+            if not client.wait_for_service(timeout_sec=args.timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Parameter service not available for {node_name}"})
 
-        future = client.call_async(request)
+            request = GetParameters.Request()
+            request.names = [param_name] if param_name else []
+            future = client.call_async(request)
 
-        end_time = time.time() + args.timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            end_time = time.time() + args.timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
 
-        if future.done():
-            result = future.result()
-            values = result.values if result.values else []
-            value_str = ""
-            exists = False
-            if values:
-                v = values[0]
-                if v.type == 1:
-                    value_str = str(v.bool_value)
-                    exists = True
-                elif v.type == 2:
-                    value_str = str(v.integer_value)
-                    exists = True
-                elif v.type == 3:
-                    value_str = str(v.double_value)
-                    exists = True
-                elif v.type == 4:
-                    value_str = v.string_value
-                    exists = True
-                elif v.type in [5, 6, 7, 8, 9]:
-                    value_str = str(v)
-                    exists = True
-            rclpy.shutdown()
-            output({"name": full_name, "value": value_str, "exists": exists})
-        else:
-            rclpy.shutdown()
-            output({"error": "Timeout getting parameter"})
+            if future.done():
+                result = future.result()
+                values = result.values if result.values else []
+                value_str = ""
+                exists = False
+                if values:
+                    v = values[0]
+                    if v.type == 1:
+                        value_str = str(v.bool_value)
+                        exists = True
+                    elif v.type == 2:
+                        value_str = str(v.integer_value)
+                        exists = True
+                    elif v.type == 3:
+                        value_str = str(v.double_value)
+                        exists = True
+                    elif v.type == 4:
+                        value_str = v.string_value
+                        exists = True
+                    elif v.type in [5, 6, 7, 8, 9]:
+                        value_str = str(v)
+                        exists = True
+                rclpy.shutdown()
+                output({"name": full_name, "value": value_str, "exists": exists})
+                return
+
+            if not last_attempt:
+                continue
+
+        rclpy.shutdown()
+        output({"error": "Timeout getting parameter"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -199,14 +216,7 @@ def cmd_params_set(args):
         service_name = f"{node_name}/set_parameters"
         client = node.create_client(SetParameters, service_name)
 
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Parameter service not available for {node_name}"})
-
-        request = SetParameters.Request()
-
-        param = Parameter()
-        param.name = param_name
+        retries = getattr(args, 'retries', 1)
 
         pv = ParameterValue()
         try:
@@ -227,32 +237,48 @@ def cmd_params_set(args):
             pv.type = 4
             pv.string_value = value_str
 
-        param.value = pv
-        request.parameters = [param]
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        future = client.call_async(request)
+            if not client.wait_for_service(timeout_sec=args.timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Parameter service not available for {node_name}"})
 
-        end_time = time.time() + args.timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            request = SetParameters.Request()
+            param = Parameter()
+            param.name = param_name
+            param.value = pv
+            request.parameters = [param]
+
+            future = client.call_async(request)
+            end_time = time.time() + args.timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                rclpy.shutdown()
+                result = future.result()
+                if result.results and result.results[0].successful:
+                    output({"name": full_name, "value": value_str, "success": True})
+                else:
+                    reason = result.results[0].reason if result.results else ""
+                    reason_lc = reason.lower()
+                    if re.search(r'\b(read[- ]?only|readonly)\b', reason_lc):
+                        output({"name": full_name, "value": value_str, "success": False,
+                                "error": "Parameter is read-only and cannot be changed at runtime",
+                                "read_only": True})
+                    else:
+                        output({"name": full_name, "value": value_str, "success": False,
+                                "error": reason or "Parameter rejected by node"})
+                return
+
+            if not last_attempt:
+                continue
 
         rclpy.shutdown()
-        if future.done():
-            result = future.result()
-            if result.results and result.results[0].successful:
-                output({"name": full_name, "value": value_str, "success": True})
-            else:
-                reason = result.results[0].reason if result.results else ""
-                reason_lc = reason.lower()
-                if re.search(r'\b(read[- ]?only|readonly)\b', reason_lc):
-                    output({"name": full_name, "value": value_str, "success": False,
-                            "error": "Parameter is read-only and cannot be changed at runtime",
-                            "read_only": True})
-                else:
-                    output({"name": full_name, "value": value_str, "success": False,
-                            "error": reason or "Parameter rejected by node"})
-        else:
-            output({"error": "Timeout setting parameter"})
+        output({"error": "Timeout setting parameter"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -278,27 +304,39 @@ def cmd_params_describe(args):
         service_name = f"{node_name}/describe_parameters"
         client = node.create_client(DescribeParameters, service_name)
 
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Parameter service not available for {node_name}"})
+        retries = getattr(args, 'retries', 1)
+        desc_result = None
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        request = DescribeParameters.Request()
-        request.names = [param_name]
-        future = client.call_async(request)
+            if not client.wait_for_service(timeout_sec=args.timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Parameter service not available for {node_name}"})
 
-        end_time = time.time() + args.timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            request = DescribeParameters.Request()
+            request.names = [param_name]
+            future = client.call_async(request)
+
+            end_time = time.time() + args.timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                desc_result = future.result()
+                break
+            if not last_attempt:
+                continue
 
         rclpy.shutdown()
-        if not future.done():
+        if desc_result is None:
             return output({"error": "Timeout describing parameter"})
 
-        result = future.result()
-        if not result.descriptors:
+        if not desc_result.descriptors:
             return output({"error": f"Parameter '{param_name}' not found on {node_name}"})
 
-        d = result.descriptors[0]
+        d = desc_result.descriptors[0]
         out = {
             "name": full_name,
             "type": d.type,
@@ -320,11 +358,13 @@ def cmd_params_describe(args):
         output({"error": str(e)})
 
 
-def _dump_params(node_name, timeout):
+def _dump_params(node_name, timeout, retries=1):
     """Fetch all parameters for a node and return them as a {name: value} dict.
 
     Returns the dict on success (may be empty), or None on error.
     On error, output() is called before returning None.
+    ``retries`` (default 1) controls how many attempts are made for each
+    service call before giving up.
     """
     try:
         from rcl_interfaces.srv import ListParameters, GetParameters
@@ -332,46 +372,59 @@ def _dump_params(node_name, timeout):
         node = ROS2CLI()
 
         list_client = node.create_client(ListParameters, f"{node_name}/list_parameters")
-        if not list_client.wait_for_service(timeout_sec=timeout):
-            rclpy.shutdown()
-            output({"error": f"Parameter service not available for {node_name}"})
-            return None
-
-        list_req = ListParameters.Request()
-        future = list_client.call_async(list_req)
-        end_time = time.time() + timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
-
-        if not future.done():
+        names = None
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
+            if not list_client.wait_for_service(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                output({"error": f"Parameter service not available for {node_name}"})
+                return None
+            future = list_client.call_async(ListParameters.Request())
+            end_time = time.time() + timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+            if future.done():
+                names = future.result().result.names if future.result().result else []
+                break
+            if not last_attempt:
+                continue
+        if names is None:
             rclpy.shutdown()
             output({"error": "Timeout listing parameters"})
             return None
-
-        names = future.result().result.names if future.result().result else []
         if not names:
             rclpy.shutdown()
             return {}
 
         get_client = node.create_client(GetParameters, f"{node_name}/get_parameters")
-        if not get_client.wait_for_service(timeout_sec=timeout):
+        values = None
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
+            if not get_client.wait_for_service(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                output({"error": f"GetParameters service not available for {node_name}"})
+                return None
+            get_req = GetParameters.Request()
+            get_req.names = list(names)
+            future2 = get_client.call_async(get_req)
+            end_time2 = time.time() + timeout
+            while time.time() < end_time2 and not future2.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+            if future2.done():
+                values = future2.result().values or []
+                break
+            if not last_attempt:
+                continue
+        if values is None:
             rclpy.shutdown()
-            output({"error": f"GetParameters service not available for {node_name}"})
-            return None
-
-        get_req = GetParameters.Request()
-        get_req.names = list(names)
-        future2 = get_client.call_async(get_req)
-        end_time2 = time.time() + timeout
-        while time.time() < end_time2 and not future2.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
-
-        rclpy.shutdown()
-        if not future2.done():
             output({"error": "Timeout getting parameters"})
             return None
 
-        values = future2.result().values or []
+        rclpy.shutdown()
         return {n: _param_value_to_python(v) for n, v in zip(names, values)}
     except Exception as e:
         output({"error": str(e)})
@@ -384,7 +437,7 @@ def cmd_params_dump(args):
     if not node_name.startswith('/'):
         node_name = '/' + node_name
 
-    result = _dump_params(node_name, args.timeout)
+    result = _dump_params(node_name, args.timeout, getattr(args, 'retries', 1))
     if result is not None:
         output({"node": node_name, "parameters": result, "count": len(result)})
 
@@ -416,36 +469,47 @@ def cmd_params_load(args):
 
         service_name = f"{node_name}/set_parameters"
         client = node.create_client(SetParameters, service_name)
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Parameter service not available for {node_name}"})
+        retries = getattr(args, 'retries', 1)
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        request = SetParameters.Request()
-        params = []
-        for pname, pvalue in data.items():
-            p = Parameter()
-            p.name = pname
-            p.value = _infer_param_value(pvalue)
-            params.append(p)
-        request.parameters = params
+            if not client.wait_for_service(timeout_sec=args.timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Parameter service not available for {node_name}"})
 
-        future = client.call_async(request)
-        end_time = time.time() + args.timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            request = SetParameters.Request()
+            params = []
+            for pname, pvalue in data.items():
+                p = Parameter()
+                p.name = pname
+                p.value = _infer_param_value(pvalue)
+                params.append(p)
+            request.parameters = params
+
+            future = client.call_async(request)
+            end_time = time.time() + args.timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                rclpy.shutdown()
+                results_raw = future.result().results or []
+                results = []
+                for pname, r in zip(data.keys(), results_raw):
+                    entry = {"name": pname, "success": r.successful}
+                    if not r.successful and r.reason:
+                        entry["reason"] = r.reason
+                    results.append(entry)
+                output({"node": node_name, "results": results})
+                return
+
+            if not last_attempt:
+                continue
 
         rclpy.shutdown()
-        if not future.done():
-            return output({"error": "Timeout loading parameters"})
-
-        results_raw = future.result().results or []
-        results = []
-        for pname, r in zip(data.keys(), results_raw):
-            entry = {"name": pname, "success": r.successful}
-            if not r.successful and r.reason:
-                entry["reason"] = r.reason
-            results.append(entry)
-        output({"node": node_name, "results": results})
+        output({"error": "Timeout loading parameters"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -473,36 +537,47 @@ def cmd_params_delete(args):
 
         service_name = f"{node_name}/set_parameters"
         client = node.create_client(SetParameters, service_name)
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Parameter service not available for {node_name}"})
+        retries = getattr(args, 'retries', 1)
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        request = SetParameters.Request()
-        params = []
-        for pname in param_names:
-            p = _Param()
-            p.name = pname
-            p.value = _PV()  # type=0 == PARAMETER_NOT_SET
-            params.append(p)
-        request.parameters = params
+            if not client.wait_for_service(timeout_sec=args.timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Parameter service not available for {node_name}"})
 
-        future = client.call_async(request)
-        end_time = time.time() + args.timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            request = SetParameters.Request()
+            params = []
+            for pname in param_names:
+                p = _Param()
+                p.name = pname
+                p.value = _PV()  # type=0 == PARAMETER_NOT_SET
+                params.append(p)
+            request.parameters = params
+
+            future = client.call_async(request)
+            end_time = time.time() + args.timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                rclpy.shutdown()
+                results_raw = future.result().results or []
+                results = []
+                for pname, r in zip(param_names, results_raw):
+                    entry = {"name": pname, "success": r.successful}
+                    if not r.successful:
+                        entry["error"] = r.reason or "Node rejected deletion (parameter may be read-only or undeclaring is not allowed)"
+                    results.append(entry)
+                output({"node": node_name, "results": results, "count": len(param_names)})
+                return
+
+            if not last_attempt:
+                continue
 
         rclpy.shutdown()
-        if not future.done():
-            return output({"error": "Timeout deleting parameters"})
-
-        results_raw = future.result().results or []
-        results = []
-        for pname, r in zip(param_names, results_raw):
-            entry = {"name": pname, "success": r.successful}
-            if not r.successful:
-                entry["error"] = r.reason or "Node rejected deletion (parameter may be read-only or undeclaring is not allowed)"
-            results.append(entry)
-        output({"node": node_name, "results": results, "count": len(param_names)})
+        output({"error": "Timeout deleting parameters"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -527,7 +602,7 @@ def cmd_params_preset_save(args):
     if not node_name.startswith('/'):
         node_name = '/' + node_name
 
-    params_dict = _dump_params(node_name, args.timeout)
+    params_dict = _dump_params(node_name, args.timeout, getattr(args, 'retries', 1))
     if params_dict is None:
         return  # _dump_params already called output({"error": ...})
 
@@ -551,7 +626,10 @@ def cmd_params_preset_load(args):
         return output({"error": f"Preset '{args.preset}' not found",
                        "path": preset_path})
 
-    load_args = types.SimpleNamespace(node=node_name, params=preset_path, timeout=args.timeout)
+    load_args = types.SimpleNamespace(
+        node=node_name, params=preset_path, timeout=args.timeout,
+        retries=getattr(args, 'retries', 1),
+    )
     cmd_params_load(load_args)
 
 

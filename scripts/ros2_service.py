@@ -88,6 +88,8 @@ def cmd_services_call(args):
     except (json.JSONDecodeError, TypeError) as e:
         return output({"error": f"Invalid JSON request: {e}"})
 
+    retries = getattr(args, 'retries', 1)
+
     try:
         rclpy.init()
         node = ROS2CLI()
@@ -113,28 +115,36 @@ def cmd_services_call(args):
             return output({"error": f"Cannot load service type: {service_type}"})
 
         client = node.create_client(srv_class, args.service)
-
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Service not available: {args.service}"})
-
-        request = dict_to_msg(srv_class.Request, request_data)
-        future = client.call_async(request)
-
         timeout = args.timeout
-        end_time = time.time() + timeout
 
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        if future.done():
-            result_msg = future.result()
-            result_dict = msg_to_dict(result_msg)
-            rclpy.shutdown()
-            output({"service": args.service, "success": True, "result": result_dict})
-        else:
-            rclpy.shutdown()
-            output({"service": args.service, "success": False, "error": "Service call timeout"})
+            if not client.wait_for_service(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Service not available: {args.service}"})
+
+            request = dict_to_msg(srv_class.Request, request_data)
+            future = client.call_async(request)
+
+            end_time = time.time() + timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                result_msg = future.result()
+                result_dict = msg_to_dict(result_msg)
+                rclpy.shutdown()
+                output({"service": args.service, "success": True, "result": result_dict})
+                return
+
+            if not last_attempt:
+                continue
+
+        rclpy.shutdown()
+        output({"service": args.service, "success": False, "error": "Service call timeout"})
     except Exception as e:
         output({"error": str(e)})
 

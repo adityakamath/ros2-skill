@@ -6,6 +6,32 @@ All commands output JSON. Errors return `{"error": "..."}`.
 
 ---
 
+## Global Options
+
+These options are placed **before** the command name and apply to every command that makes service or action calls.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECONDS` | (per-command default) | Override the per-command timeout with a global value (e.g. `--timeout 30` for a slow network) |
+| `--retries N` | `1` | Total number of attempts for each service/action call before giving up. `1` means no retry |
+
+```bash
+# Override timeout globally for a slow ROS graph
+python3 {baseDir}/scripts/ros2_cli.py --timeout 30 params list /turtlesim
+
+# Retry up to 3 times on an unreliable network
+python3 {baseDir}/scripts/ros2_cli.py --retries 3 lifecycle get /camera_driver
+
+# Combine both: 10 s per attempt, 3 attempts
+python3 {baseDir}/scripts/ros2_cli.py --timeout 10 --retries 3 services call /spawn '{}'
+```
+
+**Notes:**
+- When `--timeout` is supplied globally, it overrides any per-command `--timeout` default. The per-command `--timeout` (placed after the command name) is used only when no global `--timeout` is set.
+- `--retries 1` (the default) means a single attempt with no retry — existing behaviour is preserved.
+
+---
+
 ## Agent Features
 
 Commands that go beyond standard `ros2` CLI parity — designed specifically for AI agents operating on mobile robots.

@@ -32,7 +32,7 @@ def cmd_lifecycle_nodes(args):
         output({"error": str(e)})
 
 
-def _lifecycle_query_node(rclpy_node, node_name, timeout):
+def _lifecycle_query_node(rclpy_node, node_name, timeout, retries=1):
     """Query available states and transitions for one lifecycle node."""
     from lifecycle_msgs.srv import GetAvailableStates, GetAvailableTransitions
 
@@ -43,32 +43,53 @@ def _lifecycle_query_node(rclpy_node, node_name, timeout):
 
     states_client = rclpy_node.create_client(GetAvailableStates, f"{node_name}/get_available_states")
     try:
-        if not states_client.wait_for_service(timeout_sec=timeout):
-            return {"node": node_name, "error": f"Lifecycle service not available for {node_name}. Is it a managed node?"}
-        states_future = states_client.call_async(GetAvailableStates.Request())
-        end_time = time.time() + timeout
-        while time.time() < end_time and not states_future.done():
-            rclpy.spin_once(rclpy_node, timeout_sec=0.1)
-        if not states_future.done():
+        states_result = None
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
+            if not states_client.wait_for_service(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                return {"node": node_name,
+                        "error": f"Lifecycle service not available for {node_name}. Is it a managed node?"}
+            states_future = states_client.call_async(GetAvailableStates.Request())
+            end_time = time.time() + timeout
+            while time.time() < end_time and not states_future.done():
+                rclpy.spin_once(rclpy_node, timeout_sec=0.1)
+            if states_future.done():
+                states_result = states_future.result()
+                break
+            if not last_attempt:
+                continue
+        if states_result is None:
             return {"node": node_name, "error": "Timeout querying available states"}
         result["available_states"] = [
             {"id": s.id, "label": s.label}
-            for s in states_future.result().available_states
+            for s in states_result.available_states
         ]
     finally:
         states_client.destroy()
 
     trans_client = rclpy_node.create_client(GetAvailableTransitions, f"{node_name}/get_available_transitions")
     try:
-        if not trans_client.wait_for_service(timeout_sec=timeout):
-            result["available_transitions"] = []
-            result["warning"] = f"get_available_transitions service not available for {node_name}"
-            return result
-        trans_future = trans_client.call_async(GetAvailableTransitions.Request())
-        end_time = time.time() + timeout
-        while time.time() < end_time and not trans_future.done():
-            rclpy.spin_once(rclpy_node, timeout_sec=0.1)
-        if not trans_future.done():
+        trans_result = None
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
+            if not trans_client.wait_for_service(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                result["available_transitions"] = []
+                result["warning"] = f"get_available_transitions service not available for {node_name}"
+                return result
+            trans_future = trans_client.call_async(GetAvailableTransitions.Request())
+            end_time = time.time() + timeout
+            while time.time() < end_time and not trans_future.done():
+                rclpy.spin_once(rclpy_node, timeout_sec=0.1)
+            if trans_future.done():
+                trans_result = trans_future.result()
+                break
+            if not last_attempt:
+                continue
+        if trans_result is None:
             result["available_transitions"] = []
             result["warning"] = "Timeout querying available transitions"
             return result
@@ -79,7 +100,7 @@ def _lifecycle_query_node(rclpy_node, node_name, timeout):
                 "start_state": {"id": td.start_state.id, "label": td.start_state.label},
                 "goal_state": {"id": td.goal_state.id, "label": td.goal_state.label},
             }
-            for td in trans_future.result().available_transitions
+            for td in trans_result.available_transitions
         ]
     finally:
         trans_client.destroy()
@@ -89,18 +110,20 @@ def _lifecycle_query_node(rclpy_node, node_name, timeout):
 
 def cmd_lifecycle_list(args):
     """List available states and transitions for one or all lifecycle nodes."""
+    retries = getattr(args, 'retries', 1)
     try:
         rclpy.init()
         node = ROS2CLI()
 
         if args.node:
             node_name = args.node if args.node.startswith('/') else '/' + args.node
-            info = _lifecycle_query_node(node, node_name, args.timeout)
+            info = _lifecycle_query_node(node, node_name, args.timeout, retries)
             rclpy.shutdown()
             output(info)
         else:
             managed_nodes = _get_managed_nodes(node)
-            results = [_lifecycle_query_node(node, mn, args.timeout) for mn in managed_nodes]
+            results = [_lifecycle_query_node(node, mn, args.timeout, retries)
+                       for mn in managed_nodes]
             rclpy.shutdown()
             output({"nodes": results})
     except Exception as e:
@@ -109,6 +132,7 @@ def cmd_lifecycle_list(args):
 
 def cmd_lifecycle_get(args):
     """Get the current lifecycle state of a managed node."""
+    retries = getattr(args, 'retries', 1)
     try:
         from lifecycle_msgs.srv import GetState
         rclpy.init()
@@ -117,28 +141,38 @@ def cmd_lifecycle_get(args):
         node_name = args.node if args.node.startswith('/') else '/' + args.node
         client = node.create_client(GetState, f"{node_name}/get_state")
 
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        future = client.call_async(GetState.Request())
-        end_time = time.time() + args.timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            if not client.wait_for_service(timeout_sec=args.timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
 
-        if future.done():
-            state = future.result().current_state
-            rclpy.shutdown()
-            output({"node": node_name, "state_id": state.id, "state_label": state.label})
-        else:
-            rclpy.shutdown()
-            output({"error": "Timeout getting lifecycle state"})
+            future = client.call_async(GetState.Request())
+            end_time = time.time() + args.timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                state = future.result().current_state
+                rclpy.shutdown()
+                output({"node": node_name, "state_id": state.id, "state_label": state.label})
+                return
+
+            if not last_attempt:
+                continue
+
+        rclpy.shutdown()
+        output({"error": "Timeout getting lifecycle state"})
     except Exception as e:
         output({"error": str(e)})
 
 
 def cmd_lifecycle_set(args):
     """Trigger a lifecycle state transition on a managed node."""
+    retries = getattr(args, 'retries', 1)
     try:
         from lifecycle_msgs.srv import ChangeState, GetAvailableTransitions
         from lifecycle_msgs.msg import Transition
@@ -153,19 +187,29 @@ def cmd_lifecycle_set(args):
             trans_client = node.create_client(
                 GetAvailableTransitions, f"{node_name}/get_available_transitions"
             )
-            if not trans_client.wait_for_service(timeout_sec=args.timeout):
-                trans_client.destroy()
-                rclpy.shutdown()
-                return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
-            trans_future = trans_client.call_async(GetAvailableTransitions.Request())
-            end_time = time.time() + args.timeout
-            while time.time() < end_time and not trans_future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
+            trans_result = None
+            for attempt in range(retries):
+                last_attempt = (attempt == retries - 1)
+                if not trans_client.wait_for_service(timeout_sec=args.timeout):
+                    if not last_attempt:
+                        continue
+                    trans_client.destroy()
+                    rclpy.shutdown()
+                    return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
+                trans_future = trans_client.call_async(GetAvailableTransitions.Request())
+                end_time = time.time() + args.timeout
+                while time.time() < end_time and not trans_future.done():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+                if trans_future.done():
+                    trans_result = trans_future.result()
+                    break
+                if not last_attempt:
+                    continue
             trans_client.destroy()
-            if not trans_future.done():
+            if trans_result is None:
                 rclpy.shutdown()
                 return output({"error": "Timeout querying available transitions"})
-            available_transitions = trans_future.result().available_transitions
+            available_transitions = trans_result.available_transitions
             # 1. Exact match  e.g. "configure", "activate", "cleanup"
             matching = [
                 td.transition.id
@@ -205,25 +249,36 @@ def cmd_lifecycle_set(args):
             transition_id = matching[0]
 
         client = node.create_client(ChangeState, f"{node_name}/change_state")
-        if not client.wait_for_service(timeout_sec=args.timeout):
-            rclpy.shutdown()
-            return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
 
-        request = ChangeState.Request()
-        transition = Transition()
-        transition.id = transition_id
-        request.transition = transition
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        future = client.call_async(request)
-        end_time = time.time() + args.timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            if not client.wait_for_service(timeout_sec=args.timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
 
-        if future.done():
-            rclpy.shutdown()
-            output({"node": node_name, "transition": args.transition, "success": future.result().success})
-        else:
-            rclpy.shutdown()
-            output({"error": "Timeout triggering lifecycle transition"})
+            request = ChangeState.Request()
+            transition = Transition()
+            transition.id = transition_id
+            request.transition = transition
+
+            future = client.call_async(request)
+            end_time = time.time() + args.timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                rclpy.shutdown()
+                output({"node": node_name, "transition": args.transition,
+                        "success": future.result().success})
+                return
+
+            if not last_attempt:
+                continue
+
+        rclpy.shutdown()
+        output({"error": "Timeout triggering lifecycle transition"})
     except Exception as e:
         output({"error": str(e)})

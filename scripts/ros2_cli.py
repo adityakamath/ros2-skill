@@ -589,6 +589,18 @@ def build_parser():
     parser = argparse.ArgumentParser(
         description="ROS 2 Skill CLI - Control ROS 2 robots directly via rclpy"
     )
+    parser.add_argument(
+        "--timeout", type=float, default=None, dest="global_timeout",
+        metavar="SECONDS",
+        help="Global timeout override in seconds — overrides the per-command default "
+             "for any command that supports --timeout",
+    )
+    parser.add_argument(
+        "--retries", type=int, default=1,
+        metavar="N",
+        help="Number of attempts for service/action calls before giving up "
+             "(default: 1, no retry)",
+    )
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("version", help="Detect ROS 2 version")
@@ -1246,12 +1258,37 @@ DISPATCH = {
 
 
 # ---------------------------------------------------------------------------
+# Global override helpers
+# ---------------------------------------------------------------------------
+
+def _apply_global_overrides(args):
+    """Apply top-level ``--timeout`` / ``--retries`` to the args namespace.
+
+    ``--timeout`` (stored as ``args.global_timeout``) overrides whatever
+    per-command ``--timeout`` default the subparser set.  This lets callers
+    write ``ros2_cli.py --timeout 30 services call …`` to raise the budget
+    for a single invocation without editing every subcommand.
+
+    ``--retries`` is always present because it lives on the main parser, but
+    handlers imported from other modules (e.g. ros2_service.py) access it via
+    ``getattr(args, 'retries', 1)`` to stay resilient.
+    """
+    if getattr(args, "global_timeout", None) is not None:
+        args.timeout = args.global_timeout
+    # Ensure retries is always available (main parser guarantees it, but belt
+    # and suspenders for handlers called directly in tests).
+    if not hasattr(args, "retries"):
+        args.retries = 1
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
+    _apply_global_overrides(args)
 
     if not args.command:
         parser.print_help()

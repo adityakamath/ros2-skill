@@ -84,6 +84,19 @@ Capabilities that go beyond standard `ros2` CLI parity — designed specifically
 | **Parameter presets** | `params preset-save/load/list/delete` | Save and restore complete parameter sets for a node by name |
 | **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token |
 
+### Global Options
+
+Place these **before** the command name to apply a setting to every service/action call:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECONDS` | per-command default | Override the per-command timeout (useful for slow networks) |
+| `--retries N` | `1` | Total attempts before giving up; `1` = no retry |
+
+```bash
+python3 scripts/ros2_cli.py --timeout 30 --retries 3 lifecycle get /camera_driver
+```
+
 ### Message Type Aliases
 
 The skill supports 50 message type aliases for commonly used ROS 2 message types. Use short names instead of full type names:

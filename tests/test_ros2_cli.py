@@ -1077,5 +1077,110 @@ class TestBatteryParsing(unittest.TestCase):
         self.assertIsNone(r["temperature"])
 
 
+class TestGlobalOverrides(unittest.TestCase):
+    """Tests for global --timeout / --retries args and _apply_global_overrides().
+
+    These cover:
+      1. Argparse integration — global args land in the right namespace attributes.
+      2. _apply_global_overrides() logic — correct propagation and fallback behaviour.
+
+    All tests skip if rclpy is not available, matching the pattern used throughout
+    this test suite.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+
+    def setUp(self):
+        self.parser = self.ros2_cli.build_parser()
+
+    # ------------------------------------------------------------------
+    # argparse integration
+    # ------------------------------------------------------------------
+
+    def test_global_timeout_arg(self):
+        """--timeout N (before subcommand) stores value in global_timeout."""
+        args = self.parser.parse_args(["--timeout", "30", "topics", "list"])
+        self.assertEqual(args.global_timeout, 30.0)
+
+    def test_global_timeout_float(self):
+        """--timeout accepts fractional seconds."""
+        args = self.parser.parse_args(["--timeout", "2.5", "params", "list", "/turtlesim"])
+        self.assertEqual(args.global_timeout, 2.5)
+
+    def test_global_timeout_default_none(self):
+        """global_timeout defaults to None (no override) when not supplied."""
+        args = self.parser.parse_args(["topics", "list"])
+        self.assertIsNone(args.global_timeout)
+
+    def test_retries_arg(self):
+        """--retries N stores value in retries attribute."""
+        args = self.parser.parse_args(["--retries", "3", "topics", "list"])
+        self.assertEqual(args.retries, 3)
+
+    def test_retries_default_1(self):
+        """retries defaults to 1 (no retry) when not supplied."""
+        args = self.parser.parse_args(["topics", "list"])
+        self.assertEqual(args.retries, 1)
+
+    def test_global_timeout_does_not_shadow_per_command_timeout(self):
+        """When global --timeout is set, per-command --timeout arg also exists."""
+        # The per-command timeout is still present before the override is applied
+        args = self.parser.parse_args(["--timeout", "30", "lifecycle", "get", "/node"])
+        self.assertEqual(args.global_timeout, 30.0)
+        # Per-command default (5.0 for lifecycle get) survives parse_args unchanged
+        self.assertEqual(args.timeout, 5.0)
+
+    # ------------------------------------------------------------------
+    # _apply_global_overrides() logic
+    # ------------------------------------------------------------------
+
+    def test_apply_global_overrides_sets_timeout(self):
+        """When global_timeout is set, _apply_global_overrides propagates it to timeout."""
+        from types import SimpleNamespace
+        args = SimpleNamespace(global_timeout=30.0, timeout=5.0, retries=1)
+        self.ros2_cli._apply_global_overrides(args)
+        self.assertEqual(args.timeout, 30.0)
+
+    def test_apply_global_overrides_no_op_when_not_set(self):
+        """When global_timeout is None, per-command timeout is left unchanged."""
+        from types import SimpleNamespace
+        args = SimpleNamespace(global_timeout=None, timeout=5.0, retries=1)
+        self.ros2_cli._apply_global_overrides(args)
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_apply_global_overrides_retries_fallback(self):
+        """When retries is absent, _apply_global_overrides sets it to 1."""
+        from types import SimpleNamespace
+        args = SimpleNamespace(global_timeout=None, timeout=5.0)
+        # No retries attribute on purpose
+        self.ros2_cli._apply_global_overrides(args)
+        self.assertEqual(args.retries, 1)
+
+    def test_apply_global_overrides_retries_preserved(self):
+        """When retries is already set, _apply_global_overrides does not change it."""
+        from types import SimpleNamespace
+        args = SimpleNamespace(global_timeout=None, timeout=5.0, retries=3)
+        self.ros2_cli._apply_global_overrides(args)
+        self.assertEqual(args.retries, 3)
+
+    def test_global_timeout_end_to_end(self):
+        """Full parse + override: global --timeout replaces the per-command default."""
+        args = self.parser.parse_args(["--timeout", "30", "lifecycle", "get", "/node"])
+        self.ros2_cli._apply_global_overrides(args)
+        self.assertEqual(args.timeout, 30.0)
+
+    def test_global_timeout_end_to_end_no_override(self):
+        """Full parse + override: without global --timeout, per-command default survives."""
+        args = self.parser.parse_args(["lifecycle", "get", "/node"])
+        self.ros2_cli._apply_global_overrides(args)
+        # lifecycle get defaults to timeout=5.0
+        self.assertEqual(args.timeout, 5.0)
+
+
 if __name__ == "__main__":
     unittest.main()

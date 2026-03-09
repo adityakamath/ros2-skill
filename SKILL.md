@@ -49,6 +49,23 @@ python3 {baseDir}/scripts/ros2_cli.py version
 
 ---
 
+## Global Options
+
+Place these **before** the command name. They apply to every command that makes service or action calls.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECONDS` | per-command default | Override the per-command timeout globally (useful for slow networks) |
+| `--retries N` | `1` | Total attempts before giving up; `1` = no retry |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py --timeout 30 params list /turtlesim
+python3 {baseDir}/scripts/ros2_cli.py --retries 3 lifecycle get /camera_driver
+python3 {baseDir}/scripts/ros2_cli.py --timeout 10 --retries 3 services call /spawn '{}'
+```
+
+---
+
 ## ROS 2 CLI Quick Reference
 
 | Category | Command | Description |

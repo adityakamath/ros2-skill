@@ -10,28 +10,42 @@ import rclpy
 from ros2_utils import ROS2CLI, msg_to_dict, output, resolve_output_path
 
 
-def _call_cm_service(node, srv_type, cm_name, svc_suffix, request, timeout):
+def _call_cm_service(node, srv_type, cm_name, svc_suffix, request, timeout, retries=1):
     """Call one controller manager service and return (result, error_dict).
 
     Creates the client, waits for the service, fires the async call, spins
     until done or timeout, then destroys the client in a finally block.
     Returns (result, None) on success or (None, {"error": "..."}) on failure.
+
+    ``retries`` (default 1) controls how many total attempts are made before
+    giving up.  Pass ``getattr(args, 'retries', 1)`` from callers.
     """
     service_name = f"{cm_name}/{svc_suffix}"
     client = node.create_client(srv_type, service_name)
     try:
-        if not client.wait_for_service(timeout_sec=timeout):
-            return None, {
-                "error": f"Controller manager service not available: {service_name}. "
-                         "Is the controller manager running?"
-            }
-        future = client.call_async(request)
-        end_time = time.time() + timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
-        if not future.done():
-            return None, {"error": f"Timeout calling {service_name}"}
-        return future.result(), None
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
+
+            if not client.wait_for_service(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                return None, {
+                    "error": f"Controller manager service not available: {service_name}. "
+                             "Is the controller manager running?"
+                }
+
+            future = client.call_async(request)
+            end_time = time.time() + timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                return future.result(), None
+
+            if not last_attempt:
+                continue
+
+        return None, {"error": f"Timeout calling {service_name}"}
     finally:
         client.destroy()
 
@@ -44,7 +58,7 @@ def cmd_control_list_controller_types(args):
         node = ROS2CLI()
         result, err = _call_cm_service(
             node, ListControllerTypes, args.controller_manager,
-            "list_controller_types", ListControllerTypes.Request(), args.timeout,
+            "list_controller_types", ListControllerTypes.Request(), args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -66,7 +80,7 @@ def cmd_control_list_controllers(args):
         node = ROS2CLI()
         result, err = _call_cm_service(
             node, ListControllers, args.controller_manager,
-            "list_controllers", ListControllers.Request(), args.timeout,
+            "list_controllers", ListControllers.Request(), args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -85,7 +99,7 @@ def cmd_control_list_hardware_components(args):
         node = ROS2CLI()
         result, err = _call_cm_service(
             node, ListHardwareComponents, args.controller_manager,
-            "list_hardware_components", ListHardwareComponents.Request(), args.timeout,
+            "list_hardware_components", ListHardwareComponents.Request(), args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -104,7 +118,7 @@ def cmd_control_list_hardware_interfaces(args):
         node = ROS2CLI()
         result, err = _call_cm_service(
             node, ListHardwareInterfaces, args.controller_manager,
-            "list_hardware_interfaces", ListHardwareInterfaces.Request(), args.timeout,
+            "list_hardware_interfaces", ListHardwareInterfaces.Request(), args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -127,7 +141,7 @@ def cmd_control_load_controller(args):
         request.name = args.name
         result, err = _call_cm_service(
             node, LoadController, args.controller_manager,
-            "load_controller", request, args.timeout,
+            "load_controller", request, args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -147,7 +161,7 @@ def cmd_control_unload_controller(args):
         request.name = args.name
         result, err = _call_cm_service(
             node, UnloadController, args.controller_manager,
-            "unload_controller", request, args.timeout,
+            "unload_controller", request, args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -167,7 +181,7 @@ def cmd_control_configure_controller(args):
         request.name = args.name
         result, err = _call_cm_service(
             node, ConfigureController, args.controller_manager,
-            "configure_controller", request, args.timeout,
+            "configure_controller", request, args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -187,7 +201,7 @@ def cmd_control_reload_controller_libraries(args):
         request.force_kill = args.force_kill
         result, err = _call_cm_service(
             node, ReloadControllerLibraries, args.controller_manager,
-            "reload_controller_libraries", request, args.timeout,
+            "reload_controller_libraries", request, args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -218,7 +232,7 @@ def cmd_control_set_controller_state(args):
         request.timeout = Duration(sec=int(t), nanosec=int((t % 1) * 1_000_000_000))
         result, err = _call_cm_service(
             node, SwitchController, args.controller_manager,
-            "switch_controller", request, args.timeout,
+            "switch_controller", request, args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -248,7 +262,7 @@ def cmd_control_set_hardware_component_state(args):
         request.target_state = State(id=state_id, label=state_label)
         result, err = _call_cm_service(
             node, SetHardwareComponentState, args.controller_manager,
-            "set_hardware_component_state", request, args.timeout,
+            "set_hardware_component_state", request, args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -289,7 +303,7 @@ def cmd_control_switch_controllers(args):
         request.timeout = Duration(sec=int(t), nanosec=int((t % 1) * 1_000_000_000))
         result, err = _call_cm_service(
             node, SwitchController, args.controller_manager,
-            "switch_controller", request, args.timeout,
+            "switch_controller", request, args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
@@ -330,7 +344,7 @@ def cmd_control_view_controller_chains(args):
         node = ROS2CLI()
         svc_result, err = _call_cm_service(
             node, ListControllers, args.controller_manager,
-            "list_controllers", ListControllers.Request(), args.timeout,
+            "list_controllers", ListControllers.Request(), args.timeout, getattr(args, 'retries', 1),
         )
         rclpy.shutdown()
         if err:
