@@ -1273,7 +1273,7 @@ def _apply_global_overrides(args):
     handlers imported from other modules (e.g. ros2_service.py) access it via
     ``getattr(args, 'retries', 1)`` to stay resilient.
     """
-    if getattr(args, "global_timeout", None) is not None:
+    if getattr(args, "global_timeout", None) is not None and hasattr(args, "timeout"):
         args.timeout = args.global_timeout
     # Ensure retries is always available (main parser guarantees it, but belt
     # and suspenders for handlers called directly in tests).

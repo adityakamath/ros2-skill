@@ -114,15 +114,17 @@ def cmd_actions_send(args):
         timeout = args.timeout
         retries = getattr(args, 'retries', 1)
 
-        if not client.wait_for_server(timeout_sec=timeout):
-            rclpy.shutdown()
-            return output({"error": f"Action server not available: {args.action}"})
-
         goal_id = f"goal_{int(time.time() * 1000)}"
         collect_feedback = getattr(args, 'feedback', False)
 
         for attempt in range(retries):
             last_attempt = (attempt == retries - 1)
+
+            if not client.wait_for_server(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Action server not available: {args.action}"})
 
             feedback_msgs = []
             feedback_lock = threading.Lock()
@@ -143,6 +145,7 @@ def cmd_actions_send(args):
                 rclpy.spin_once(node, timeout_sec=0.1)
 
             if not future.done():
+                future.cancel()
                 if not last_attempt:
                     continue
                 rclpy.shutdown()
@@ -177,6 +180,7 @@ def cmd_actions_send(args):
                 output(out)
                 return
 
+            result_future.cancel()
             if not last_attempt:
                 continue
 
@@ -223,6 +227,7 @@ def cmd_actions_cancel(args):
 
     action = args.action.rstrip('/')
     timeout = args.timeout
+    retries = getattr(args, 'retries', 1)
 
     try:
         from action_msgs.srv import CancelGoal
@@ -233,30 +238,41 @@ def cmd_actions_cancel(args):
         service_name = action + '/_action/cancel_goal'
         client = node.create_client(CancelGoal, service_name)
 
-        if not client.wait_for_service(timeout_sec=timeout):
-            rclpy.shutdown()
-            return output({"error": f"Action server '{action}' not available"})
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
 
-        request = CancelGoal.Request()
-        request.goal_info.goal_id.uuid = [0] * 16
-        request.goal_info.stamp = BuiltinTime(sec=0, nanosec=0)
+            if not client.wait_for_service(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                rclpy.shutdown()
+                return output({"error": f"Action server '{action}' not available"})
 
-        future = client.call_async(request)
-        end_time = time.time() + timeout
-        while time.time() < end_time and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
+            request = CancelGoal.Request()
+            request.goal_info.goal_id.uuid = [0] * 16
+            request.goal_info.stamp = BuiltinTime(sec=0, nanosec=0)
+
+            future = client.call_async(request)
+            end_time = time.time() + timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                rclpy.shutdown()
+                result = future.result()
+                cancelled = [str(bytes(g.goal_id.uuid)) for g in (result.goals_canceling or [])]
+                output({
+                    "action": action,
+                    "return_code": result.return_code,
+                    "cancelled_goals": len(cancelled),
+                })
+                return
+
+            future.cancel()
+            if not last_attempt:
+                continue
 
         rclpy.shutdown()
-        if not future.done():
-            return output({"error": f"Timeout cancelling goals on '{action}'"})
-
-        result = future.result()
-        cancelled = [str(bytes(g.goal_id.uuid)) for g in (result.goals_canceling or [])]
-        output({
-            "action": action,
-            "return_code": result.return_code,
-            "cancelled_goals": len(cancelled),
-        })
+        output({"error": f"Timeout cancelling goals on '{action}'"})
     except Exception as e:
         output({"error": str(e)})
 

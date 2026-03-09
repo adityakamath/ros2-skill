@@ -1182,5 +1182,190 @@ class TestGlobalOverrides(unittest.TestCase):
         self.assertEqual(args.timeout, 5.0)
 
 
+class TestRetryBehavior(unittest.TestCase):
+    """Behavioral tests for retry loops in service/action/param handlers.
+
+    These tests mock the ROS 2 layer so they run without a live ROS 2
+    environment, exercising only the retry and timeout logic.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+
+    def _make_future(self, result_value=None, done=True):
+        """Return a MagicMock that behaves like a rclpy Future."""
+        f = MagicMock()
+        f.done.return_value = done
+        f.result.return_value = result_value
+        return f
+
+    # ------------------------------------------------------------------
+    # ros2_service.py  – cmd_services_call
+    # ------------------------------------------------------------------
+
+    @patch("ros2_service.rclpy")
+    @patch("ros2_service.output")
+    def test_service_call_retries_on_server_unavailable(self, mock_output, mock_rclpy):
+        """cmd_services_call should retry when wait_for_service times out."""
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+        import ros2_service
+
+        mock_node = MagicMock()
+        mock_rclpy.init = MagicMock()
+        mock_rclpy.shutdown = MagicMock()
+        mock_rclpy.spin_once = MagicMock()
+
+        mock_client = MagicMock()
+        # Fail on first attempt, succeed on second
+        mock_client.wait_for_service.side_effect = [False, True]
+        future = self._make_future(result_value=MagicMock())
+        future.done.return_value = True
+        mock_client.call_async.return_value = future
+        mock_node.create_client.return_value = mock_client
+        mock_rclpy.init.return_value = None
+
+        with patch("ros2_service.ROS2CLI", return_value=mock_node), \
+             patch("ros2_service.get_message", return_value=MagicMock()), \
+             patch("ros2_service.time") as mock_time:
+            mock_time.time.return_value = 0  # immediately past end_time so spin exits
+
+            from types import SimpleNamespace
+            args = SimpleNamespace(
+                service="/test_svc",
+                srv_type="std_srvs/srv/Empty",
+                request="{}",
+                timeout=1.0,
+                retries=2,
+                global_timeout=None,
+            )
+            ros2_service.cmd_services_call(args)
+
+        # wait_for_service called twice (once per attempt)
+        self.assertEqual(mock_client.wait_for_service.call_count, 2)
+
+    @patch("ros2_service.rclpy")
+    @patch("ros2_service.output")
+    def test_service_call_gives_up_after_all_retries(self, mock_output, mock_rclpy):
+        """cmd_services_call emits error after exhausting all retries."""
+        import ros2_service
+
+        mock_node = MagicMock()
+        mock_rclpy.init = MagicMock()
+        mock_rclpy.shutdown = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = False  # always fails
+        mock_node.create_client.return_value = mock_client
+
+        with patch("ros2_service.ROS2CLI", return_value=mock_node), \
+             patch("ros2_service.get_message", return_value=MagicMock()):
+            from types import SimpleNamespace
+            args = SimpleNamespace(
+                service="/test_svc",
+                srv_type="std_srvs/srv/Empty",
+                request="{}",
+                timeout=1.0,
+                retries=3,
+                global_timeout=None,
+            )
+            ros2_service.cmd_services_call(args)
+
+        # All 3 attempts exhausted
+        self.assertEqual(mock_client.wait_for_service.call_count, 3)
+        # Error emitted
+        mock_output.assert_called_once()
+        call_args = mock_output.call_args[0][0]
+        self.assertIn("error", call_args)
+
+    # ------------------------------------------------------------------
+    # ros2_action.py  – cmd_actions_cancel
+    # ------------------------------------------------------------------
+
+    @patch("ros2_action.rclpy")
+    @patch("ros2_action.output")
+    def test_action_cancel_retries_on_server_unavailable(self, mock_output, mock_rclpy):
+        """cmd_actions_cancel should retry when wait_for_service times out."""
+        import ros2_action
+
+        mock_node = MagicMock()
+        mock_rclpy.init = MagicMock()
+        mock_rclpy.shutdown = MagicMock()
+        mock_rclpy.spin_once = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.side_effect = [False, True]
+
+        cancel_response = MagicMock()
+        cancel_response.goals_canceling = []
+        future = self._make_future(result_value=cancel_response)
+        future.done.return_value = True
+        mock_client.call_async.return_value = future
+        mock_node.create_client.return_value = mock_client
+
+        with patch("ros2_action.ROS2CLI", return_value=mock_node), \
+             patch("ros2_action.time") as mock_time:
+            mock_time.time.return_value = 0
+
+            from types import SimpleNamespace
+            args = SimpleNamespace(
+                action="/test_action",
+                goal_id=None,
+                timeout=1.0,
+                retries=2,
+                global_timeout=None,
+            )
+            ros2_action.cmd_actions_cancel(args)
+
+        self.assertEqual(mock_client.wait_for_service.call_count, 2)
+
+    @patch("ros2_action.rclpy")
+    @patch("ros2_action.output")
+    def test_action_cancel_gives_up_after_all_retries(self, mock_output, mock_rclpy):
+        """cmd_actions_cancel emits error after exhausting all retries."""
+        import ros2_action
+
+        mock_node = MagicMock()
+        mock_rclpy.init = MagicMock()
+        mock_rclpy.shutdown = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = False
+        mock_node.create_client.return_value = mock_client
+
+        with patch("ros2_action.ROS2CLI", return_value=mock_node):
+            from types import SimpleNamespace
+            args = SimpleNamespace(
+                action="/test_action",
+                goal_id=None,
+                timeout=1.0,
+                retries=3,
+                global_timeout=None,
+            )
+            ros2_action.cmd_actions_cancel(args)
+
+        self.assertEqual(mock_client.wait_for_service.call_count, 3)
+        mock_output.assert_called_once()
+        call_args = mock_output.call_args[0][0]
+        self.assertIn("error", call_args)
+
+    # ------------------------------------------------------------------
+    # _apply_global_overrides – guard for missing timeout attr
+    # ------------------------------------------------------------------
+
+    def test_apply_global_overrides_no_timeout_attr(self):
+        """Global timeout must NOT inject args.timeout when attr is absent."""
+        import ros2_cli
+        from types import SimpleNamespace
+        # Simulate a command (e.g. topics list) that has no --timeout arg
+        args = SimpleNamespace(global_timeout=99.0, retries=1)
+        ros2_cli._apply_global_overrides(args)
+        # timeout must NOT have been injected
+        self.assertFalse(hasattr(args, "timeout"),
+                         "global_timeout should not inject args.timeout when attr is absent")
+
+
 if __name__ == "__main__":
     unittest.main()

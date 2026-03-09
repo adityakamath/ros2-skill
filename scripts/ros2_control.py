@@ -42,6 +42,7 @@ def _call_cm_service(node, srv_type, cm_name, svc_suffix, request, timeout, retr
             if future.done():
                 return future.result(), None
 
+            future.cancel()
             if not last_attempt:
                 continue
 

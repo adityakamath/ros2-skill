@@ -58,6 +58,7 @@ def _lifecycle_query_node(rclpy_node, node_name, timeout, retries=1):
             if states_future.done():
                 states_result = states_future.result()
                 break
+            states_future.cancel()
             if not last_attempt:
                 continue
         if states_result is None:
@@ -87,6 +88,7 @@ def _lifecycle_query_node(rclpy_node, node_name, timeout, retries=1):
             if trans_future.done():
                 trans_result = trans_future.result()
                 break
+            trans_future.cancel()
             if not last_attempt:
                 continue
         if trans_result is None:
@@ -161,6 +163,7 @@ def cmd_lifecycle_get(args):
                 output({"node": node_name, "state_id": state.id, "state_label": state.label})
                 return
 
+            future.cancel()
             if not last_attempt:
                 continue
 
@@ -203,6 +206,7 @@ def cmd_lifecycle_set(args):
                 if trans_future.done():
                     trans_result = trans_future.result()
                     break
+                trans_future.cancel()
                 if not last_attempt:
                     continue
             trans_client.destroy()
@@ -275,6 +279,7 @@ def cmd_lifecycle_set(args):
                         "success": future.result().success})
                 return
 
+            future.cancel()
             if not last_attempt:
                 continue
 

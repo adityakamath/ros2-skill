@@ -110,6 +110,7 @@ def cmd_params_list(args):
                 output({"node": node_name, "parameters": formatted, "count": len(formatted)})
                 return
 
+            future.cancel()
             if not last_attempt:
                 continue
 
@@ -184,6 +185,7 @@ def cmd_params_get(args):
                 output({"name": full_name, "value": value_str, "exists": exists})
                 return
 
+            future.cancel()
             if not last_attempt:
                 continue
 
@@ -274,6 +276,7 @@ def cmd_params_set(args):
                                 "error": reason or "Parameter rejected by node"})
                 return
 
+            future.cancel()
             if not last_attempt:
                 continue
 
@@ -326,6 +329,7 @@ def cmd_params_describe(args):
             if future.done():
                 desc_result = future.result()
                 break
+            future.cancel()
             if not last_attempt:
                 continue
 
@@ -388,6 +392,7 @@ def _dump_params(node_name, timeout, retries=1):
             if future.done():
                 names = future.result().result.names if future.result().result else []
                 break
+            future.cancel()
             if not last_attempt:
                 continue
         if names is None:
@@ -417,6 +422,7 @@ def _dump_params(node_name, timeout, retries=1):
             if future2.done():
                 values = future2.result().values or []
                 break
+            future2.cancel()
             if not last_attempt:
                 continue
         if values is None:
@@ -505,6 +511,7 @@ def cmd_params_load(args):
                 output({"node": node_name, "results": results})
                 return
 
+            future.cancel()
             if not last_attempt:
                 continue
 
@@ -573,6 +580,7 @@ def cmd_params_delete(args):
                 output({"node": node_name, "results": results, "count": len(param_names)})
                 return
 
+            future.cancel()
             if not last_attempt:
                 continue
 

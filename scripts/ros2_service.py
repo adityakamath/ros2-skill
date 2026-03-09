@@ -140,6 +140,7 @@ def cmd_services_call(args):
                 output({"service": args.service, "success": True, "result": result_dict})
                 return
 
+            future.cancel()
             if not last_attempt:
                 continue
 
