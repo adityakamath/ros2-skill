@@ -598,6 +598,53 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
 
 ---
 
+## Quick Examples
+
+### 1. Explore a Robot System
+```bash
+python3 {baseDir}/scripts/ros2_cli.py version
+python3 {baseDir}/scripts/ros2_cli.py topics list
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+python3 {baseDir}/scripts/ros2_cli.py services list
+```
+
+### 2. Move a Robot
+```bash
+# Discover velocity topic
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
+# Publish: move 2s then stop
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+  '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
+  '[2.0, 0.5]'
+```
+
+### 3. Read Sensors
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
+```
+
+### 4. Call a Service
+```bash
+python3 {baseDir}/scripts/ros2_cli.py services list
+python3 {baseDir}/scripts/ros2_cli.py services call /reset '{}'
+```
+
+### 5. Send an Action
+```bash
+python3 {baseDir}/scripts/ros2_cli.py actions list
+python3 {baseDir}/scripts/ros2_cli.py actions send /navigate_to_pose '{"pose":{"header":{"stamp":{"sec":0}},"pose":{"position":{"x":1.0,"y":0.0,"z":0.0},"orientation":{"x":0.0,"y":0.0,"z":0.0,"w":1.0}}}}'
+```
+
+### 6. Move Forward N Meters
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
+  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+```
+
+---
+
 ## Safety Notes
 
 **Destructive commands** (can move the robot or change state):
