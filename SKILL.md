@@ -49,6 +49,251 @@ python3 {baseDir}/scripts/ros2_cli.py version
 
 ---
 
+## Quick Decision Card
+
+**Every user request follows this pattern:**
+
+```
+User: "do X"
+Agent thinks:
+  1. Is X about reading data? → Use TOPICS SUBSCRIBE
+  2. Is X about controlling/moving? → Use TOPICS PUBLISH
+  3. Is X a one-time trigger? → Use SERVICES CALL or ACTIONS SEND
+  4. Is X about system info? → Use LIST commands
+
+Agent does:
+  1. EXPLORE: Run topics/services/actions list
+  2. SEARCH: Run find command for relevant message type
+  3. STRUCTURE: Get message structure
+  4. LIMITS: Get params (for movement)
+  5. EXECUTE: Run the command
+```
+
+**Never skip steps 1-4. Always explore first.**
+
+---
+
+## Agent Decision Framework (MANDATORY)
+
+**RULE: NEVER ask the user anything that can be discovered from the ROS 2 graph.**
+
+### Step 1: Understand User Intent
+
+| User says... | Agent interprets as... | Agent must... |
+|--------------|----------------------|---------------|
+| "What topics exist?" | List topics | Run `topics list` |
+| "What nodes exist?" | List nodes | Run `nodes list` |
+| "What services exist?" | List services | Run `services list` |
+| "What actions exist?" | List actions | Run `actions list` |
+| "Read the LiDAR/scan" | Subscribe to LaserScan | Find LaserScan topic → subscribe |
+| "Read odometry/position" | Subscribe to Odometry | Find Odometry topic → subscribe |
+| "Read camera/image" | Subscribe to Image/CompressedImage | Find Image topics → subscribe |
+| "Read joint states/positions" | Subscribe to JointState | Find JointState topic → subscribe |
+| "Read IMU/accelerometer" | Subscribe to Imu | Find Imu topic → subscribe |
+| "Read battery/power" | Subscribe to BatteryState | Find BatteryState topic → subscribe |
+| "Read joystick/gamepad" | Subscribe to Joy | Find Joy topic → subscribe |
+| "Check robot diagnostics/health" | Subscribe to diagnostics | Find /diagnostics topic → subscribe |
+| "Check TF/transforms" | Check TF topics | Find /tf, /tf_static topics → subscribe |
+| "Move/drive/turn (mobile robot)" | Publish Twist | Find Twist/TwistStamped topics → publish |
+| "Move arm/joint (manipulator)" | Publish JointTrajectory | Find JointTrajectory topic → publish |
+| "Control gripper" | Publish GripperCommand or JointTrajectory | Find gripper topic → publish |
+| "Move forward/back N meters" | Publish with feedback | Find odom → publish-until |
+| "Stop the robot" | Publish zero velocity | Find Twist → publish zeros |
+| "Emergency stop" | Publish zero velocity | Run `estop` command |
+| "Call /reset" | Call service | Find service → call |
+| "Navigate to..." | Send action | Find action → send goal |
+| "Execute trajectory" | Send action | Find FollowJointTrajectory or ExecuteTrajectory → send |
+| "What controllers?" | List controllers | Run `control list-controllers` |
+| "What hardware?" | List hardware | Run `control list-hardware-components` |
+| "What lifecycle nodes?" | List managed nodes | Run `lifecycle nodes` |
+| "Check lifecycle state" | Get node state | Run `lifecycle get <node>` |
+| "Configure/activate lifecycle node" | Set lifecycle state | Run `lifecycle set <node> <transition>` |
+| "Run diagnostics/health check" | Run doctor | Run `doctor check` |
+| "Test connectivity" | Run multicast test | Run `doctor hello` |
+| "What parameters?" | List params | Find node → `params list` |
+| "What is the max speed?" | Get params | Find controller → get velocity limits |
+
+### Step 2: Find What Exists
+
+**ALWAYS start by exploring what's available:**
+
+```bash
+# These 4 commands tell you EVERYTHING about the system
+python3 {baseDir}/scripts/ros2_cli.py topics list      # All topics
+python3 {baseDir}/scripts/ros2_cli.py services list    # All services
+python3 {baseDir}/scripts/ros2_cli.py actions list    # All actions
+python3 {baseDir}/scripts/ros2_cli.py nodes list      # All nodes
+```
+
+### Step 3: Search by Message Type
+
+**To find a topic/service/action, search by what you need:**
+
+| Need to find... | Search command... |
+|-----------------|------------------|
+| Velocity command topic (mobile) | `topics find geometry_msgs/Twist` AND `topics find geometry_msgs/TwistStamped` |
+| Position/odom topic | `topics find nav_msgs/Odometry` |
+| Joint positions | `topics find sensor_msgs/JointState` |
+| Joint trajectory (arm control) | `topics find trajectory_msgs/JointTrajectory` |
+| LiDAR data | `topics find sensor_msgs/LaserScan` |
+| Camera feed | `topics find sensor_msgs/Image` OR `topics find sensor_msgs/CompressedImage` |
+| IMU data | `topics find sensor_msgs/Imu` |
+| Joystick | `topics find sensor_msgs/Joy` |
+| Battery/power | `topics find sensor_msgs/BatteryState` |
+| Temperature | `topics find sensor_msgs/Temperature` |
+| Point clouds | `topics find sensor_msgs/PointCloud2` |
+| TF transforms | Subscribe to `/tf` or `/tf_static` |
+| Diagnostics | Subscribe to `/diagnostics` |
+| Clock (simulated time) | Subscribe to `/clock` |
+| Service by type | `services find <service_type>` |
+| Action by type | `actions find <action_type>` |
+
+### Step 4: Get Message Structure
+
+**Before publishing or calling, always get the structure:**
+
+```bash
+# Get field structure (for building payloads)
+python3 {baseDir}/scripts/ros2_cli.py topics message <message_type>
+
+# Get default values (copy-paste template)
+python3 {baseDir}/scripts/ros2_cli.py interface proto <message_type>
+
+# Get service/action request structure
+python3 {baseDir}/scripts/ros2_cli.py services details <service_name>
+python3 {baseDir}/scripts/ros2_cli.py actions details <action_name>
+```
+
+### Step 5: Get Safety Limits (for movement)
+
+**ALWAYS check for velocity limits before publishing movement commands:**
+
+```bash
+# Find controller nodes first
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+
+# Common controller nodes to check:
+# /diff_drive_controller, /base_controller, /velocity_controller, /mobile_base
+
+# List their parameters
+python3 {baseDir}/scripts/ros2_cli.py params list /diff_drive_controller
+python3 {baseDir}/scripts/ros2_cli.py params list /base_controller
+
+# Get velocity limit parameters (if they exist)
+python3 {baseDir}/scripts/ros2_cli.py params get /diff_drive_controller:max_velocity
+python3 {baseDir}/scripts/ros2_cli.py params get /diff_drive_controller:max_linear_velocity
+python3 {baseDir}/scripts/ros2_cli.py params get /diff_drive_controller:max_angular_velocity
+```
+
+---
+
+## EXECUTION RULES (MUST FOLLOW)
+
+### Rule 1: Never Ask User for These
+
+The agent MUST discover these automatically:
+
+| User might ask... | Agent must... |
+|-------------------|---------------|
+| "What topic do I use?" | Use `topics find <type>` to discover |
+| "What message type?" | Use `topics type <topic>` or `topics find <type>` |
+| "What is the message structure?" | Use `topics message <type>` or `interface show <type>` |
+| "What are the safety limits?" | Use `params list` on controller nodes |
+| "Is there odometry?" | Use `topics find nav_msgs/Odometry` |
+
+### Rule 2: Only Ask User After ALL Discovery Fails
+
+**ONLY ask the user when:**
+1. `topics find geometry_msgs/Twist` AND `topics find geometry_msgs/TwistStamped` both return empty
+2. `topics find nav_msgs/Odometry` returns empty (and you need odometry for distance)
+3. You've checked params on ALL controller nodes and found NO velocity limits
+4. The service/action the user mentions doesn't exist in `services list` / `actions list`
+
+### Rule 3: Movement Requires Feedback
+
+**For "move N meters" commands:**
+1. First try: Find Odometry → use `publish-until` with `--delta N`
+2. If no Odometry: Calculate time = distance / velocity → use `publish-sequence`
+3. ALWAYS apply safety limits: `velocity = min(requested, max_velocity)`
+
+### Rule 4: Always Stop After Movement
+
+**Every movement command MUST end with zero velocity:**
+
+```bash
+# WRONG: Move forward without stopping
+topics publish /cmd_vel '{"linear":{"x":1.0}}'
+
+# CORRECT: Include stop command
+topics publish-sequence /cmd_vel \
+  '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
+  '[2.0, 0.5]'
+```
+
+### Rule 5: Handle Multiple Same-Type Topics
+
+**When multiple topics of the same type exist (e.g., 2 cameras, 3 LiDARs):**
+
+1. **List all candidates:**
+   ```bash
+   python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/Image
+   # Returns: ["/camera_front/image_raw", "/camera_rear/image_raw", ...]
+   ```
+
+2. **Select based on context or naming convention:**
+   - Front camera: prefer topics with `front`, `rgb`, `color` in name
+   - Rear camera: prefer topics with `rear`, `back` in name
+   - Primary LiDAR: prefer topics with `front`, `base`, `main` in name
+   - Default: use first topic in the list
+
+3. **Let user know which one you're using:**
+   - "Found 3 camera topics. Using /camera_front/image_raw."
+
+---
+
+## Error Recovery
+
+**When commands fail, follow this recovery process:**
+
+### Subscribe Timeouts
+
+| Error | Recovery |
+|-------|----------|
+| `Timeout waiting for message` | 1. Check `topics details <topic>` to verify publisher exists<br>2. Try a different topic if multiple exist<br>3. Increase `--duration` or `--timeout` |
+| No messages received | 1. Verify publisher is running: `topics details <topic>`<br>2. Check if topic requires subscription to trigger |
+
+### Publish Failures
+
+| Error | Recovery |
+|-------|----------|
+| `Could not load message type` | 1. Verify type: `topics type <topic>`<br>2. Ensure ROS workspace is built |
+| `Failed to create publisher` | 1. Check topic exists: `topics list`<br>2. Verify node has permission to publish |
+
+### Service/Action Failures
+
+| Error | Recovery |
+|-------|----------|
+| Service not found | 1. Verify service exists: `services list`<br>2. Check service type: `services type <service>` |
+| Action not found | 1. Verify action exists: `actions list`<br>2. Check action type: `actions type <action>` |
+| Service call timeout | 1. Increase `--timeout`<br>2. Verify service server is running |
+| Action goal rejected | 1. Check action details for goal requirements<br>2. Verify robot is in correct state |
+
+### Parameter Failures
+
+| Error | Recovery |
+|-------|----------|
+| Node not found | 1. Verify node exists: `nodes list`<br>2. Check namespace |
+| Parameter not found | 1. List params: `params list <node>`<br>2. Parameter may not exist on this node |
+
+### Retry Strategy
+
+**Always retry failed operations:**
+- Use `--retries 3` for unreliable services
+- Use `--timeout 30` for slow operations
+- Wait 1-2 seconds between retries
+
+---
+
 ## Command Quick Reference
 
 | Category | Command | Description |
@@ -207,508 +452,7 @@ The `--delete` flag removes the image after successfully sending it to Discord.
 
 ---
 
-## Key Commands
-
-### Message Type Aliases
-
-The ROS 2 skill supports message type aliases for commonly used message types. Instead of using the full message type name (e.g., `geometry_msgs/Twist`), you can use a short alias (e.g., `twist`). Aliases are case-insensitive and work with all commands that accept message types.
-
-**Common aliases:**
-- `twist` → `geometry_msgs/Twist`
-- `odom` / `odometry` → `nav_msgs/Odometry`
-- `laserscan` → `sensor_msgs/LaserScan`
-- `image` → `sensor_msgs/Image`
-- `pose` → `geometry_msgs/Pose`
-- `imu` → `sensor_msgs/Imu`
-- `pointcloud2` → `sensor_msgs/PointCloud2`
-
-For the complete list of 50 supported aliases, see [Message Type Aliases](references/COMMANDS.md#message-type-aliases) in COMMANDS.md.
-
-**Examples:**
-```bash
-# Using alias instead of full type
-python3 {baseDir}/scripts/ros2_cli.py topics message twist
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --type odom
-```
-
-### version
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py version
-```
-
-### topics list / type / details / message
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics list
-python3 {baseDir}/scripts/ros2_cli.py topics type /turtle1/cmd_vel
-python3 {baseDir}/scripts/ros2_cli.py topics details /turtle1/cmd_vel
-python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
-```
-
-### topics subscribe / echo / sub
-
-`echo` and `sub` are aliases for `subscribe`. Without `--duration`: returns first message. With `--duration`: collects multiple messages.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /turtle1/pose
-python3 {baseDir}/scripts/ros2_cli.py topics echo /odom
-python3 {baseDir}/scripts/ros2_cli.py topics sub /odom --duration 10 --max-messages 50
-```
-
-### topics publish / pub / publish-continuous
-
-`pub` and `publish-continuous` are aliases for `publish`. Without `--duration` / `--timeout`: single-shot. With `--duration` or `--timeout` (equivalent): publishes repeatedly at `--rate` Hz for the specified seconds, then stops. **Use `--duration` for velocity commands** — most robot controllers stop if they don't receive continuous `cmd_vel` messages.
-
-```bash
-# Single-shot
-python3 {baseDir}/scripts/ros2_cli.py topics publish /trigger '{"data": ""}'
-
-# Move forward 3 seconds (velocity — use --duration or --timeout)
-python3 {baseDir}/scripts/ros2_cli.py topics pub /cmd_vel \
-  '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
-
-# Equivalent with --timeout
-python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
-  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --timeout 5
-
-# Stop
-python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
-  '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
-```
-
-Options: `--duration SECONDS` (or `--timeout SECONDS` — identical), `--rate HZ` (default 10)
-
-Output when `--duration`/`--timeout` is used includes `stopped_by: "timeout" | "keyboard_interrupt"`.
-
-### topics publish-sequence / pub-seq
-
-`pub-seq` is an alias for `publish-sequence`. Publish a sequence of messages, each repeated at `--rate` Hz for its corresponding duration. Arrays must have the same length.
-
-```bash
-# Forward 3s then stop
-python3 {baseDir}/scripts/ros2_cli.py topics pub-seq /cmd_vel \
-  '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
-  '[3.0, 0.5]'
-
-# Draw a square (turtlesim)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
-  '[{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":0},"angular":{"z":0}}]' \
-  '[1,1,1,1,1,1,1,1,0.5]'
-```
-
-Options: `--rate HZ` (default 10)
-
-### topics publish-until
-
-Publish to a topic at a fixed rate while monitoring a second topic. Stops when a condition on the monitored field is satisfied, or after the safety timeout.
-
-```bash
-# Single-field: move forward until odometry x increases by 1.0 m
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
-  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
-
-# Euclidean: move until 2 m traveled in XY plane (true path distance)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.3}}' \
-  --monitor /odom \
-  --field pose.pose.position.x pose.pose.position.y \
-  --euclidean --delta 2.0 --timeout 60
-
-# Stop when lidar range at index 0 drops below 0.5 m
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
-  --monitor /scan --field ranges.0 --below 0.5 --timeout 60
-```
-
-Required: `--monitor <topic>`, `--field <path> [<path2>...]`, and exactly one of `--delta N`, `--above N`, `--below N`, `--equals V`
-
-`--euclidean`: compute Euclidean distance across all `--field` paths; requires `--delta` (threshold = distance from start). Works for any number of numeric fields (2D XY, 3D XYZ, joint-space, etc.)
-
-Options: `--rate HZ` (default 10), `--timeout SECONDS` (default 60), `--msg-type TYPE`, `--monitor-msg-type TYPE`
-
-### topics publish-continuous
-
-Alias for `topics publish`. Use `topics publish --timeout SECONDS` instead.
-
-```bash
-# Preferred
-python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
-  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --timeout 5
-
-# Also works (identical behaviour)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-continuous /cmd_vel \
-  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --timeout 5
-```
-
-### topics hz
-
-Measure the publish rate of a topic. Reports rate (Hz), min/max delta, and standard deviation.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics hz /turtle1/pose
-python3 {baseDir}/scripts/ros2_cli.py topics hz /scan --window 20 --timeout 15
-```
-
-Options: `--window N` (intervals to sample, default 10), `--timeout SEC` (default 10)
-
-### topics find
-
-Find all topics publishing a specific message type. Accepts both `/msg/` and short formats.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
-```
-
-### topics message / message-structure / message-struct
-
-`message-structure` and `message-struct` are aliases for `message`. Get the field structure of a ROS 2 message type.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics message-structure sensor_msgs/LaserScan
-python3 {baseDir}/scripts/ros2_cli.py topics message-struct nav_msgs/Odometry
-```
-
-### services list / type / details / info
-
-`info` is an alias for `details`.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services list
-python3 {baseDir}/scripts/ros2_cli.py services type /spawn
-python3 {baseDir}/scripts/ros2_cli.py services details /spawn
-python3 {baseDir}/scripts/ros2_cli.py services info /spawn
-```
-
-### services call
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services call /reset '{}'
-python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
-  '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
-```
-
-### services find
-
-Find all services of a specific type. Accepts both `/srv/` and short formats.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/srv/Empty
-python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/Empty
-```
-
-### services echo
-
-Echo service events (request/response pairs). Requires service introspection to be enabled on the server or client via `configure_introspection(clock, qos, ServiceIntrospectionState.METADATA)`. Returns an error with a hint if introspection is not active.
-
-Always collects **all** events within the collection window and returns them together. A single service call produces at least 2 events (client request + server response).
-
-**When to use this pattern** (natural language triggers):
-- "Call /X and show me what events were fired"
-- "Echo the /X service while triggering a call"
-- "I want to observe what happens when /X is called"
-- "Monitor /X service events while I trigger it"
-- "Capture the /X service request and response"
-
-**Agent workflow — always run as a single bash block.** The background PID must stay in scope between echo start, service call, and wait. Split Bash tool calls will lose the PID. Include `sleep 1` so the rclpy subscriber has time to connect before the service fires (VOLATILE durability = no replay of missed events):
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services echo /emergency_stop --timeout 30 > /tmp/svc_echo.json &
-ECHO_PID=$!
-sleep 1   # wait for subscriber to connect before firing the service
-python3 {baseDir}/scripts/ros2_cli.py services call /emergency_stop '{}'
-wait $ECHO_PID
-cat /tmp/svc_echo.json
-```
-
-Stop early after receiving exactly one request+response pair (2 events):
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --max-messages 2 > /tmp/svc_echo.json &
-ECHO_PID=$!
-sleep 1
-python3 {baseDir}/scripts/ros2_cli.py services call /spawn '{"x": 3.0, "y": 3.0, "theta": 0.0, "name": "turtle2"}'
-wait $ECHO_PID
-cat /tmp/svc_echo.json
-```
-
-Options: `--timeout SECONDS` (collection window, default 30), `--duration SECONDS` (same, takes precedence), `--max-messages N` (stop early after N events, default: unlimited)
-
-### nodes list / details / info
-
-`info` is an alias for `details`. Output includes publishers, subscribers, services, action servers, and action clients.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py nodes list
-python3 {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
-python3 {baseDir}/scripts/ros2_cli.py nodes info /turtlesim
-```
-
-### lifecycle — Managed Node Introspection and Control
-
-**Terminology:** Lifecycle nodes are also called **managed nodes**. Use `lifecycle` commands whenever the user mentions "managed node", "lifecycle node", "configure the node", "activate the node", or similar lifecycle-related requests.
-
-> **Important — "shutdown" is a lifecycle transition, not a system command.** When the user says "shutdown the lifecycle node", "trigger shutdown", or "shutdown /my_node", this refers to the ROS 2 lifecycle `shutdown` transition that moves a node to the `finalized` state. It is **not** a system shutdown command and is safe to execute. Pass `shutdown` as the transition label — it resolves via suffix matching to the correct state-specific label (`unconfigured_shutdown` ID 5, `inactive_shutdown` ID 6, `active_shutdown` ID 7). Prefix matching also works: `unconfigured`, `inactive`, or `active` each resolve to their respective `_shutdown` transition. Exact match is tried first, then suffix, then prefix.
-
-Requires `lifecycle_msgs` to be installed: `sudo apt install ros-${ROS_DISTRO}-lifecycle-msgs`
-
-```bash
-# List all managed (lifecycle) nodes
-python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes
-
-# List available states and transitions for a specific node
-python3 {baseDir}/scripts/ros2_cli.py lifecycle list /my_lifecycle_node
-python3 {baseDir}/scripts/ros2_cli.py lifecycle ls /my_lifecycle_node
-
-# List states and transitions for ALL managed nodes (no argument)
-python3 {baseDir}/scripts/ros2_cli.py lifecycle list
-python3 {baseDir}/scripts/ros2_cli.py lifecycle ls
-
-# Get the current lifecycle state
-python3 {baseDir}/scripts/ros2_cli.py lifecycle get /my_lifecycle_node
-
-# Trigger a transition by label (preferred)
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node configure
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node activate
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node deactivate
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node cleanup
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node shutdown  # resolves via suffix match
-
-# Trigger a transition by numeric ID — no extra round-trip to the node
-# Common IDs: configure=1, cleanup=2, activate=3, deactivate=4
-# shutdown: unconfigured→finalized=5, inactive→finalized=6, active→finalized=7
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node 3   # activate
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node 5   # shutdown from unconfigured
-```
-
-**Common lifecycle workflow:**
-```bash
-# 1. Find managed nodes
-python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes
-
-# 2. Check available transitions from current state
-python3 {baseDir}/scripts/ros2_cli.py lifecycle list /my_lifecycle_node
-
-# 3. Get current state
-python3 {baseDir}/scripts/ros2_cli.py lifecycle get /my_lifecycle_node
-
-# 4. Trigger transition
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set /my_lifecycle_node configure
-```
-
-Options: `--timeout SECONDS` (default 5) — applies to `list`, `get`, and `set`; `nodes` takes no options
-
-### control — Controller Manager Operations
-
-**Terminology:** Use `control` commands whenever the user mentions "controller manager", "ros2_control", "load a controller", "activate a controller", "hardware component", "hardware interface", or switching controllers.
-
-Requires `controller_manager_msgs`: `sudo apt install ros-${ROS_DISTRO}-ros2-control`
-
-```bash
-# List available controller types (pluginlib registry)
-python3 {baseDir}/scripts/ros2_cli.py control list-controller-types
-
-# List loaded controllers and their current state
-python3 {baseDir}/scripts/ros2_cli.py control list-controllers
-
-# List hardware components and interfaces
-python3 {baseDir}/scripts/ros2_cli.py control list-hardware-components
-python3 {baseDir}/scripts/ros2_cli.py control list-hardware-interfaces
-
-# Load a controller plugin (brings it to unconfigured state)
-python3 {baseDir}/scripts/ros2_cli.py control load-controller joint_trajectory_controller
-
-# Configure a loaded controller (unconfigured → inactive)
-# Use this instead of relying on SwitchController's silent auto-configure — it surfaces on_configure() errors
-python3 {baseDir}/scripts/ros2_cli.py control configure-controller joint_trajectory_controller
-python3 {baseDir}/scripts/ros2_cli.py control cc joint_trajectory_controller  # alias
-
-# Recommended full workflow: load → configure → activate
-# python3 {baseDir}/scripts/ros2_cli.py control load-controller joint_trajectory_controller
-# python3 {baseDir}/scripts/ros2_cli.py control configure-controller joint_trajectory_controller
-# python3 {baseDir}/scripts/ros2_cli.py control set-controller-state joint_trajectory_controller active
-
-# Activate / deactivate a single controller (configure happens implicitly if controller is in unconfigured state,
-# but errors may be hidden — prefer explicit configure-controller first)
-python3 {baseDir}/scripts/ros2_cli.py control set-controller-state joint_trajectory_controller active
-python3 {baseDir}/scripts/ros2_cli.py control set-controller-state joint_trajectory_controller inactive
-
-# Atomically switch multiple controllers in one call
-python3 {baseDir}/scripts/ros2_cli.py control switch-controllers \
-  --activate joint_trajectory_controller --deactivate cartesian_controller
-
-# Unload a stopped controller
-python3 {baseDir}/scripts/ros2_cli.py control unload-controller joint_trajectory_controller
-
-# Drive a hardware component through its lifecycle
-python3 {baseDir}/scripts/ros2_cli.py control set-hardware-component-state my_robot active
-
-# Reload controller libraries (--force-kill stops running controllers first)
-python3 {baseDir}/scripts/ros2_cli.py control reload-controller-libraries --force-kill
-
-# Generate Graphviz diagram of chained controllers (saved to artifacts/)
-python3 {baseDir}/scripts/ros2_cli.py control view-controller-chains
-python3 {baseDir}/scripts/ros2_cli.py control view-controller-chains \
-  --output my_diagram.pdf \  # plain filename → artifacts/my_diagram.pdf; or use a full path
-  --channel-id 1234567890 --config ~/.nanobot/config.json
-```
-
-Options (all control commands): `--controller-manager NAME` (default: `/controller_manager`), `--timeout SECONDS` (default: 5)
-
-`set-hardware-component-state` accepts: `unconfigured`, `inactive`, `active`, `finalized`
-
-### params list / get / set
-
-Uses `node:param_name` format or space-separated `node param_name` format.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
-python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
-python3 {baseDir}/scripts/ros2_cli.py params get /base_controller base_frame_id
-python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
-python3 {baseDir}/scripts/ros2_cli.py params set /base_controller base_frame_id base_link_new
-```
-
-### actions list / details / info / type / send / send-goal
-
-`info` is an alias for `details`. `send-goal` is an alias for `send`.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions list
-python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
-python3 {baseDir}/scripts/ros2_cli.py actions info /turtle1/rotate_absolute
-python3 {baseDir}/scripts/ros2_cli.py actions type /turtle1/rotate_absolute
-python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
-  '{"theta":3.14}'
-python3 {baseDir}/scripts/ros2_cli.py actions send-goal /turtle1/rotate_absolute \
-  '{"theta":3.14}'
-```
-
-### actions send --feedback
-
-Add `--feedback` to collect feedback messages during goal execution. Feedback is included in the result as `feedback_msgs`.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
-  '{"theta":3.14}' --feedback
-```
-
-### actions cancel
-
-Cancel all in-flight goals on an action server.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions cancel /turtle1/rotate_absolute
-```
-
-Options: `--timeout SECONDS` (default 5)
-
-### actions echo
-
-Echo live action feedback and status messages for an action server. Subscribes to `/_action/feedback` and `/_action/status` topics. No introspection required — action feedback is always published on standard topics.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions echo /turtle1/rotate_absolute
-python3 {baseDir}/scripts/ros2_cli.py actions echo /navigate_to_pose --duration 30
-python3 {baseDir}/scripts/ros2_cli.py actions echo /robot/arm_move --max-messages 20
-```
-
-Options: `--duration SECONDS` (collect for N seconds), `--max-messages N` (default 100), `--timeout SECONDS` (default 5.0, wait for first message)
-
-### actions find
-
-Find all action servers offering a specific action type. Accepts both `/action/` and short formats.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions find turtlesim/action/RotateAbsolute
-python3 {baseDir}/scripts/ros2_cli.py actions find nav2_msgs/action/NavigateToPose
-```
-
-### topics bw
-
-Measure topic bandwidth. Reports bytes/s, bytes/msg, and rate.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics bw /camera/image_raw
-python3 {baseDir}/scripts/ros2_cli.py topics bw /scan --window 20 --timeout 15
-```
-
-Options: `--window N` (samples, default 10), `--timeout SEC` (default 10)
-
-### topics delay
-
-Measure end-to-end latency between `header.stamp` and wall clock. Requires messages with `header.stamp`.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics delay /odom
-python3 {baseDir}/scripts/ros2_cli.py topics delay /scan --window 20
-```
-
-Options: `--window N` (samples, default 10), `--timeout SEC` (default 10)
-
-### params describe / dump / load / delete
-
-Advanced parameter operations.
-
-```bash
-# Describe a parameter (type, constraints, read-only status)
-python3 {baseDir}/scripts/ros2_cli.py params describe /turtlesim:background_r
-
-# Export all parameters for a node
-python3 {baseDir}/scripts/ros2_cli.py params dump /turtlesim
-
-# Bulk-set parameters from JSON
-python3 {baseDir}/scripts/ros2_cli.py params load /turtlesim \
-  '{"background_r":255,"background_g":0,"background_b":0}'
-
-# Delete a parameter
-python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r
-```
-
-### interface — Interface Type Discovery
-
-**Terminology:** Use `interface` commands when the user asks "what fields does X message have?", "show me the structure of Y service", "what interfaces does std_msgs provide?", or when you need to discover a type's structure before calling a service or publishing a message. These commands read the local ament index — **no running ROS 2 graph required**.
-
-```bash
-# List every installed interface type on this system
-python3 {baseDir}/scripts/ros2_cli.py interface list
-
-# Show the fields of a message type
-python3 {baseDir}/scripts/ros2_cli.py interface show std_msgs/msg/String
-python3 {baseDir}/scripts/ros2_cli.py interface show std_msgs/String   # shorthand also works
-
-# Show a prototype (default values) — useful as a publish payload template
-python3 {baseDir}/scripts/ros2_cli.py interface proto std_msgs/msg/String
-python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
-
-# Show a service's request and response structure
-python3 {baseDir}/scripts/ros2_cli.py interface show std_srvs/srv/SetBool
-
-# Show an action's goal, result, and feedback structure
-python3 {baseDir}/scripts/ros2_cli.py interface show nav2_msgs/action/NavigateToPose
-
-# List all packages that define interfaces
-python3 {baseDir}/scripts/ros2_cli.py interface packages
-
-# List all interfaces provided by a specific package
-python3 {baseDir}/scripts/ros2_cli.py interface package std_msgs
-```
-
-**Output format for `interface show`:** (field type strings)
-- `"kind": "message"` → `"fields": {"field_name": "field_type_string", ...}`
-- `"kind": "service"` → `"request": {...}`, `"response": {...}`
-- `"kind": "action"` → `"goal": {...}`, `"result": {...}`, `"feedback": {...}`
-
-**Output format for `interface proto`:** (default values — use as publish payload)
-- `"kind": "message"` → `"proto": {"field_name": <default_value>, ...}`
-- `"kind": "service"` → `"request": {...}`, `"response": {...}`
-- `"kind": "action"` → `"goal": {...}`, `"result": {...}`, `"feedback": {...}`
-
----
-
-## Workflow Examples
+## Quick Examples
 
 ### 1. Explore a Robot System
 
@@ -725,47 +469,98 @@ python3 {baseDir}/scripts/ros2_cli.py params list /robot_node
 
 ### 2. Move a Robot
 
-Always check the message structure first, then publish movement, and always stop after.
+**ALWAYS use auto-discovery first** to find the correct velocity topic and message type. Never assume topic names.
 
 ```bash
+# Step 1: Discover velocity command topics
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
+
+# Step 2: Get the message structure (for constructing payloads)
 python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+
+# Step 3: Publish movement — use discovered topic from Step 1
+# Always include a stop command (all zeros) at the end
 python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
   '[2.0, 0.5]'
 ```
 
+**For emergency stop:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py estop
+```
+
 ### 3. Read Sensor Data
 
+**Always use auto-discovery first** to find the correct sensor topics.
+
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py topics type /scan
-python3 {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/LaserScan
+# Step 1: Discover sensor topics by message type
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/Odometry
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/JointState
+
+# Step 2: Subscribe to discovered topics
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 5
 ```
 
 ### 4. Use Services
 
+**Always use auto-discovery first** to find available services and their request/response structures.
+
 ```bash
+# Step 1: Discover available services
 python3 {baseDir}/scripts/ros2_cli.py services list
+
+# Step 2: Find services by type (optional)
+python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/srv/Empty
+python3 {baseDir}/scripts/ros2_cli.py services find turtlesim/srv/Spawn
+
+# Step 3: Get service request/response structure
 python3 {baseDir}/scripts/ros2_cli.py services details /spawn
+
+# Step 4: Call the service with properly-structured payload
 python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
   '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
 ```
 
 ### 5. Actions
 
+**Always use auto-discovery first** to find available actions and their goal/result structures.
+
 ```bash
+# Step 1: Discover available actions
 python3 {baseDir}/scripts/ros2_cli.py actions list
+
+# Step 2: Find actions by type (optional)
+python3 {baseDir}/scripts/ros2_cli.py actions find turtlesim/action/RotateAbsolute
+python3 {baseDir}/scripts/ros2_cli.py actions find nav2_msgs/action/NavigateToPose
+
+# Step 3: Get action goal/result structure
 python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
+
+# Step 4: Send goal with properly-structured payload
 python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
   '{"theta":1.57}'
 ```
 
 ### 6. Change Parameters
 
+**Always use auto-discovery first** to list available parameters for a node.
+
 ```bash
+# Step 1: Discover nodes
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+
+# Step 2: List parameters for a node
 python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
+
+# Step 3: Get current parameter value
 python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+
+# Step 4: Set parameter value
 python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
 python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_g 0
 python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_b 0
@@ -838,42 +633,17 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 
 
 **Composite field auto-expansion**: if a `--field` path resolves to a sub-message dict (e.g. `pose.pose.position` → `{x, y, z}`), `--euclidean` mode automatically expands it to all direct numeric children (sorted alphabetically: `x, y, z`). This lets you write `--field pose.pose.position --euclidean --delta 1.0` instead of listing every sub-field explicitly. Non-numeric children (strings, nested dicts) are skipped.
 
-#### Examples
-
+**Examples:**
 ```bash
-# "Drive forward 1 meter" — straight path, single axis
+# Move forward 1 meter
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
   --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
 
-# "Drive 2 meters in any direction" — curved/diagonal path, Euclidean XY (explicit fields)
+# Move 2 meters in any direction (Euclidean)
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.3}}' \
-  --monitor /odom \
-  --field pose.pose.position.x pose.pose.position.y \
-  --euclidean --delta 2.0 --timeout 60
-
-# "Drive 1 meter in any direction (3D)" — shorthand: auto-expands position to x,y,z
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
-  --monitor /odom \
-  --field pose.pose.position \
-  --euclidean --delta 1.0 --timeout 30
-
-# "Move arm until joint_3 reaches 1.5 rad" — joint index 2 (0-based)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /arm/cmd \
-  '{"joint_3_velocity":0.2}' \
-  --monitor /joint_states --field position.2 --equals 1.5 --timeout 20
-
-# "Stop when obstacle within 0.4 m"
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
-  --monitor /scan --field ranges.0 --below 0.4 --timeout 60
-
-# "Stop when temperature exceeds 50°C"
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /heater/cmd \
-  '{"power":1.0}' \
-  --monitor /temperature --field temperature --above 50.0 --timeout 120
+  '{"linear":{"x":0.2},"angular":{"z":0.3}}' \
+  --monitor /odom --field pose.pose.position --euclidean --delta 2.0 --timeout 60
 ```
 
 ---
@@ -898,9 +668,30 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /heater/cmd \
 
 **Always check JSON output for errors before proceeding.**
 
+**Use auto-discovery to avoid errors.** Before any publish/call/send operation:
+1. Use `topics find`, `services find`, `actions find` to locate relevant endpoints
+2. Use `topics type`, `services type`, `actions type` to get message types
+3. Use `topics message`, `services details`, `actions details` to understand field structures
+
+Never ask the user for topic names or message types — discover them from the live ROS 2 graph.
+
 ---
 
 ## Troubleshooting
+
+### Agent Self-Correction Rules
+
+| If Agent Asks... | Correction |
+|------------------|------------|
+| "What topic should I use?" | Use `topics find geometry_msgs/Twist` (and TwistStamped) |
+| "What message type?" | Use `topics type <topic>` to get it from the graph |
+| "How do I know the message structure?" | Use `topics message <type>` or `interface show <type>` |
+| "What are the velocity limits?" | Use `params list` on controller nodes |
+| "Do I need odometry?" | Always check with `topics find nav_msgs/Odometry` first |
+| "Is there a service called /X?" | Use `services list` to verify it exists |
+| "What controller parameters exist?" | Use `params list <controller_node>` |
+
+### Technical Troubleshooting
 
 | Problem | Cause | Solution |
 |---------|-------|----------|

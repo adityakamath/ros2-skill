@@ -48,6 +48,15 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 - "Move the robot forward 1 meter"
 - "Trigger the emergency stop"
 
+**Agent Workflow:** The agent automatically:
+1. Understands user intent (subscribe/publish/call/send)
+2. Discovers relevant topics, services, actions from the live graph
+3. Finds message types and structures
+4. Applies safety limits from parameters
+5. Executes the command
+
+No user clarification needed — the agent uses ros2-skill tools to answer all its own questions.
+
 ## Supported Commands
 
 | Category | Commands |
@@ -98,9 +107,16 @@ See [`EXAMPLES.md`](EXAMPLES.md) for usage examples including image capture and 
 1. The agent platform loads `SKILL.md` into the agent's system prompt
 2. The agent platform substitutes `{baseDir}` with the actual skill installation path
 3. User asks something like "move the robot forward"
-4. Agent executes: `python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel ...`
-5. `ros2_cli.py` uses rclpy to communicate with ROS 2 and returns JSON
-6. Agent parses the JSON and responds in natural language
+4. **Agent thinks:** "This requires publishing velocity commands. I need to find Twist topics, get the message structure, check safety limits, then publish."
+5. **Agent auto-discovers:**
+   - `topics find geometry_msgs/Twist` + `TwistStamped` → finds `/cmd_vel`
+   - `topics message geometry_msgs/Twist` → gets structure
+   - `params list /diff_drive_controller` → gets safety limits
+6. Agent executes: `python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel ...`
+7. `ros2_cli.py` uses rclpy to communicate with ROS 2 and returns JSON
+8. Agent parses the JSON and responds in natural language
+
+The agent never asks for clarification — it automatically discovers topics, services, actions, message types, topic names, and safety limits from the live ROS 2 graph.
 
 ## File Structure
 
