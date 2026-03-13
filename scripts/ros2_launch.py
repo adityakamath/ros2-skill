@@ -405,6 +405,7 @@ def cmd_launch_run(args):
     })
     
     output(result)
+    return result
 
 
 def cmd_launch_list(args):
@@ -446,7 +447,7 @@ def cmd_launch_list(args):
         
         sessions_info.append(info)
     
-    output({
+    return output({
         "all_sessions": all_sessions,
         "launch_sessions": launch_sessions,
         "launch_sessions_detail": sessions_info
@@ -492,7 +493,7 @@ def cmd_launch_kill(args):
     # Clean up session metadata
     _delete_session_metadata(session)
     
-    output({
+    return output({
         "success": True,
         "session": session,
         "message": f"Session '{session}' killed"
@@ -697,3 +698,4 @@ def cmd_launch_foxglove(args):
     })
     
     output(result)
+    return result
