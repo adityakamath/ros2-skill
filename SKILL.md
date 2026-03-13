@@ -85,7 +85,7 @@ Examples:
 
 **Once you have resolved what to run and validated the arguments, execute immediately. Never ask the user "Would you like me to run this now?" or any equivalent.** The user's original message is the approval. This applies to all commands, including `launch new`, `run new`, `tf static`, and any other command that starts a process.
 
-The only time to stop and ask is when there is genuine ambiguity about which package or launch file the user means — for example, multiple launch files match and you cannot determine which one. Argument ambiguity is never a reason to ask: always resolve arguments from `--show-args` and run.
+The only time to stop and ask is when there is genuine ambiguity that cannot be resolved — whether that is the package, the launch file, or an argument. If any of these cannot be confidently resolved, pause and ask the user. Once everything is resolved, execute immediately without asking for approval.
 
 ---
 
