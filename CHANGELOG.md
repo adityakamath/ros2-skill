@@ -4,7 +4,7 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.4] - TBD
 
-Added launch commands for running launch files in tmux sessions, and publish-until rotation support.
+Added launch commands for running launch files in tmux sessions.
 
 ### Launch Commands
 
@@ -14,13 +14,6 @@ Added launch commands for running launch files in tmux sessions, and publish-unt
 - `launch list` — list running launch sessions in tmux
 - `launch kill <session>` — kill a running launch session
 - Sessions are named `launch_<package>_<file>` for easy identification
-
-### Topics — Rotation Support
-
-- Added `--rotate` flag to `publish-until` for easy rotation commands
-- `--rotate N` — rotate by N radians (auto-detects orientation from odometry)
-- `--rotate N --degrees` — rotate by N degrees
-- Handles quaternion math internally, no manual calculation needed
 
 ### Internal
 
