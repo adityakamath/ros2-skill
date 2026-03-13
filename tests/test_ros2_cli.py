@@ -381,7 +381,7 @@ class TestGlobalOverrides(unittest.TestCase):
         # Argparse integration
         args = self.parser.parse_args(["--timeout", "30", "--retries", "3", "topics", "list"])
         self.assertEqual(args.global_timeout, 30.0)
-        self.assertEqual(args.retries, 3)
+        self.assertEqual(args.global_retries, 3)
         
         # Logic verification
         from types import SimpleNamespace
@@ -410,7 +410,7 @@ class TestGlobalOverrides(unittest.TestCase):
             mock_client.call_async.return_value = future
             
             from types import SimpleNamespace
-            args = SimpleNamespace(service="/s", srv_type="std_srvs/srv/Empty", request="{}", timeout=1.0, retries=3, global_timeout=None)
+            args = SimpleNamespace(service="/s", service_type="std_srvs/srv/Empty", extra_request=None, request="{}", timeout=1.0, retries=3, global_timeout=None)
             
             with patch("ros2_service.get_srv_type"), patch("ros2_service.time"):
                 ros2_service.cmd_services_call(args)
