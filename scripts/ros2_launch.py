@@ -13,14 +13,14 @@ from ros2_utils import (
     kill_session,
     check_session_alive,
     quote_path,
-    get_sessions_file,
-    load_sessions,
     save_session,
     get_session_metadata,
     delete_session_metadata,
     list_packages,
     package_exists,
     get_package_prefix,
+    list_sessions,
+    kill_session_cmd,
 )
 
 
@@ -348,94 +348,15 @@ def cmd_launch_run(args):
 
 def cmd_launch_list(args):
     """List running launch sessions in tmux."""
-    if not check_tmux():
-        return output({
-            "error": "tmux is not installed",
-            "running_sessions": []
-        })
-    
-    stdout, stderr, rc = run_cmd("tmux list-sessions -F '#{session_name}' 2>/dev/null")
-    
-    if rc != 0 or not stdout.strip():
-        return output({
-            "running_sessions": [],
-            "launch_sessions": []
-        })
-    
-    all_sessions = stdout.strip().split('\n')
-    
-    # Filter to launch sessions
-    launch_sessions = [s for s in all_sessions if s.startswith('launch_')]
-    
-    # Get details for each launch session
-    sessions_info = []
-    for session in launch_sessions:
-        info = {"session": session}
-        
-        # Get pane info
-        pane_cmd = f"tmux list-panes -t {session} -F '#{{pane_title}}' 2>/dev/null"
-        pane_out, _, _ = run_cmd(pane_cmd)
-        if pane_out:
-            info["command"] = pane_out.strip()
-        
-        # Check if still running
-        check_cmd = f"tmux has-session -t {session} 2>/dev/null && echo 'running' || echo 'stopped'"
-        status, _, _ = run_cmd(check_cmd)
-        info["status"] = status.strip() if status else "unknown"
-        
-        sessions_info.append(info)
-    
-    return output({
-        "all_sessions": all_sessions,
-        "launch_sessions": launch_sessions,
-        "launch_sessions_detail": sessions_info
-    })
+    result = list_sessions("launch_")
+    return output(result)
 
 
 def cmd_launch_kill(args):
     """Kill a running launch session."""
-    if not check_tmux():
-        return output({
-            "error": "tmux is not installed"
-        })
-    
     session = args.session
-    
-    # Validate session name starts with launch_
-    if not session.startswith('launch_'):
-        return output({
-            "error": f"Session '{session}' is not a launch session",
-            "hint": "Launch sessions start with 'launch_'"
-        })
-    
-    # Check if session exists
-    check_cmd = f"tmux has-session -t {session} 2>/dev/null"
-    _, _, rc = run_cmd(check_cmd)
-    
-    if rc != 0:
-        return output({
-            "error": f"Session '{session}' does not exist",
-            "available_sessions": []
-        })
-    
-    # Kill the session
-    kill_cmd = f"tmux kill-session -t {session}"
-    stdout, stderr, rc = run_cmd(kill_cmd)
-    
-    if rc != 0:
-        return output({
-            "error": f"Failed to kill session: {stderr}",
-            "session": session
-        })
-    
-    # Clean up session metadata
-    _delete_session_metadata(session)
-    
-    return output({
-        "success": True,
-        "session": session,
-        "message": f"Session '{session}' killed"
-    })
+    result = kill_session_cmd(session, "launch_")
+    return output(result)
 
 
 def cmd_launch_restart(args):
@@ -458,7 +379,7 @@ def cmd_launch_restart(args):
     if not session_exists(session):
         return output({
             "error": f"Session '{session}' does not exist",
-            "suggestion": "Use 'launch run' to start a new session",
+            "suggestion": "Use 'launch' to start a new session",
             "available_sessions": []
         })
     
@@ -468,7 +389,7 @@ def cmd_launch_restart(args):
     if not metadata:
         return output({
             "error": f"No metadata found for session '{session}'",
-            "suggestion": "Use 'launch run' to start a fresh session",
+            "suggestion": "Use 'launch' to start a fresh session",
             "session": session
         })
     
@@ -496,7 +417,7 @@ def cmd_launch_restart(args):
         if not package or not launch_file:
             return output({
                 "error": f"Incomplete metadata for session '{session}'",
-                "suggestion": "Use 'launch run' to start a fresh session"
+                "suggestion": "Use 'launch' to start a fresh session"
             })
         
         args_restart = type('Args', (), {
@@ -516,7 +437,7 @@ def cmd_launch_restart(args):
     else:
         return output({
             "error": f"Unknown session type for '{session}'",
-            "suggestion": "Use 'launch run' to start a fresh session"
+            "suggestion": "Use 'launch' to start a fresh session"
         })
 
 

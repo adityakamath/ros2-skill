@@ -630,3 +630,102 @@ def delete_session_metadata(session_name):
                 json.dump(sessions, f)
         except IOError:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Shared session command helpers for launch and run
+# ---------------------------------------------------------------------------
+
+def list_sessions(prefix):
+    """List running sessions filtered by prefix.
+    
+    Args:
+        prefix: Session name prefix to filter (e.g., 'launch_' or 'run_')
+    
+    Returns:
+        dict with all_sessions, sessions (filtered), and sessions_detail
+    """
+    if not check_tmux():
+        return {
+            "error": "tmux is not installed",
+            "running_sessions": []
+        }
+    
+    stdout, stderr, rc = run_cmd("tmux list-sessions -F '#{session_name}' 2>/dev/null")
+    
+    if rc != 0 or not stdout.strip():
+        return {
+            f"{prefix.strip('_')}_sessions": [],
+            "running_sessions": []
+        }
+    
+    all_sessions = stdout.strip().split('\n')
+    
+    # Filter by prefix
+    filtered_sessions = [s for s in all_sessions if s.startswith(prefix)]
+    
+    # Get details for each session
+    sessions_info = []
+    for session in filtered_sessions:
+        info = {"session": session}
+        
+        pane_cmd = f"tmux list-panes -t {session} -F '#{{pane_title}}' 2>/dev/null"
+        pane_out, _, _ = run_cmd(pane_cmd)
+        if pane_out:
+            info["command"] = pane_out.strip()
+        
+        check_cmd = f"tmux has-session -t {session} 2>/dev/null && echo 'running' || echo 'stopped'"
+        status, _, _ = run_cmd(check_cmd)
+        info["status"] = status.strip() if status else "unknown"
+        
+        sessions_info.append(info)
+    
+    return {
+        "all_sessions": all_sessions,
+        f"{prefix.strip('_')}_sessions": filtered_sessions,
+        f"{prefix.strip('_')}_sessions_detail": sessions_info
+    }
+
+
+def kill_session_cmd(session, prefix):
+    """Kill a session with prefix validation.
+    
+    Args:
+        session: Session name to kill
+        prefix: Expected prefix (e.g., 'launch_' or 'run_')
+    
+    Returns:
+        dict with success/error status
+    """
+    if not check_tmux():
+        return {"error": "tmux is not installed"}
+    
+    # Validate session name starts with prefix
+    if not session.startswith(prefix):
+        return {
+            "error": f"Session '{session}' is not a {prefix.strip('_')} session",
+            "hint": f"{prefix.strip('_').capitalize()} sessions start with '{prefix}'"
+        }
+    
+    # Check if session exists
+    if not session_exists(session):
+        return {
+            "error": f"Session '{session}' does not exist",
+            "available_sessions": []
+        }
+    
+    # Kill the session
+    if not kill_session(session):
+        return {
+            "error": f"Failed to kill session: {session}",
+            "session": session
+        }
+    
+    # Clean up session metadata
+    delete_session_metadata(session)
+    
+    return {
+        "success": True,
+        "session": session,
+        "message": f"Session '{session}' killed"
+    }

@@ -18,6 +18,9 @@ from ros2_utils import (
     delete_session_metadata,
     list_packages,
     package_exists,
+    get_package_prefix,
+    list_sessions,
+    kill_session_cmd,
 )
 
 
@@ -159,88 +162,15 @@ def cmd_run(args):
 
 def cmd_run_list(args):
     """List running run sessions in tmux."""
-    if not check_tmux():
-        return output({
-            "error": "tmux is not installed",
-            "running_sessions": []
-        })
-    
-    stdout, stderr, rc = run_cmd("tmux list-sessions -F '#{session_name}' 2>/dev/null")
-    
-    if rc != 0 or not stdout.strip():
-        return output({
-            "running_sessions": [],
-            "run_sessions": []
-        })
-    
-    all_sessions = stdout.strip().split('\n')
-    
-    # Filter to run sessions
-    run_sessions = [s for s in all_sessions if s.startswith('run_')]
-    
-    # Get details for each run session
-    sessions_info = []
-    for session in run_sessions:
-        info = {"session": session}
-        
-        # Get pane info
-        pane_cmd = f"tmux list-panes -t {session} -F '#{{pane_title}}' 2>/dev/null"
-        pane_out, _, _ = run_cmd(pane_cmd)
-        if pane_out:
-            info["command"] = pane_out.strip()
-        
-        # Check if still running
-        check_cmd = f"tmux has-session -t {session} 2>/dev/null && echo 'running' || echo 'stopped'"
-        status, _, _ = run_cmd(check_cmd)
-        info["status"] = status.strip() if status else "unknown"
-        
-        sessions_info.append(info)
-    
-    return output({
-        "all_sessions": all_sessions,
-        "run_sessions": run_sessions,
-        "run_sessions_detail": sessions_info
-    })
+    result = list_sessions("run_")
+    return output(result)
 
 
 def cmd_run_kill(args):
     """Kill a running run session."""
-    if not check_tmux():
-        return output({
-            "error": "tmux is not installed"
-        })
-    
     session = args.session
-    
-    # Validate session name starts with run_
-    if not session.startswith('run_'):
-        return output({
-            "error": f"Session '{session}' is not a run session",
-            "hint": "Run sessions start with 'run_'"
-        })
-    
-    # Check if session exists
-    if not session_exists(session):
-        return output({
-            "error": f"Session '{session}' does not exist",
-            "available_sessions": []
-        })
-    
-    # Kill the session
-    if not kill_session(session):
-        return output({
-            "error": f"Failed to kill session: {session}",
-            "session": session
-        })
-    
-    # Clean up session metadata
-    delete_session_metadata(session)
-    
-    return output({
-        "success": True,
-        "session": session,
-        "message": f"Session '{session}' killed"
-    })
+    result = kill_session_cmd(session, "run_")
+    return output(result)
 
 
 def cmd_run_restart(args):
