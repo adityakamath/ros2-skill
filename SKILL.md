@@ -144,10 +144,11 @@ Distance commands:
 ```bash
 topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta <N> --timeout 30
 ```
-Angle/rotation commands:
+Angle/rotation commands — **always use `--rotate`, never `--field` or `--yaw`**:
 ```bash
-topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --rotate <N> [--degrees] --timeout 30
+topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --rotate <N> --degrees --timeout 30
 ```
+`--rotate` extracts yaw from the odometry quaternion internally. There is no `--yaw` flag. Do not attempt to monitor orientation fields manually.
 Open-ended or fallback (stop is always the last message):
 ```bash
 topics publish-sequence <VEL_TOPIC> '[<move_payload>, <zero_payload>]' '[<duration>, 0.5]'
@@ -293,7 +294,7 @@ Agent does (for movement):
 | "Check TF/transforms" | Check TF topics | Find /tf, /tf_static topics → subscribe |
 | "Move/drive/turn (mobile robot)" | Open-ended movement, no target | Find Twist/TwistStamped → **publish-sequence** with stop |
 | "Move forward/back N meters" | Closed-loop distance → Movement Workflow Case A | Find odom → **publish-until** `--field pose.pose.position.x --delta N` |
-| "Rotate N degrees / turn N radians" | Closed-loop rotation → Movement Workflow Case B | Find odom → **publish-until** `--rotate N [--degrees]` |
+| "Rotate N degrees / turn left/right / turn N radians" | Closed-loop rotation → Movement Workflow Case B | Find odom → **publish-until** `--rotate N --degrees` (degrees) or `--rotate N` (radians). `--rotate` handles all yaw/heading tracking internally — never use `--field` or `--yaw` for rotation |
 | "Move arm/joint (manipulator)" | Publish JointTrajectory | Find JointTrajectory topic → publish |
 | "Control gripper" | Publish GripperCommand or JointTrajectory | Find gripper topic → publish |
 | "Stop the robot" | Publish zero velocity | Find Twist/TwistStamped → `topics type` to confirm → publish zeros in confirmed type |
@@ -1036,7 +1037,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
 
 #### Case B — Rotation specified, odometry available → `publish-until --rotate` (closed loop)
 
-`--rotate` automatically extracts orientation from odometry quaternion and handles angle wraparound. No field path needed.
+`--rotate` automatically extracts yaw from the odometry quaternion and handles angle wraparound. **There is no `--yaw` flag.** Do not use `--field` for rotation. Left turn = positive `angular.z`; right turn = negative `angular.z`.
 
 ```bash
 # Step 1 result: VEL_TOPIC = <discovered>
