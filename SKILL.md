@@ -50,7 +50,7 @@ This rule exists because:
 3. For each node, look for any parameter whose name contains `max`, `limit`, `vel`, `speed`, or `accel` (case-insensitive). These are candidates for velocity limits.
 4. Run `params get <NODE>:<param>` for every candidate found across all nodes
 5. Identify the binding ceiling: the **minimum across all discovered linear limit values** and the **minimum across all discovered angular/theta limit values**
-6. Cap your commanded velocity at that ceiling. If no limits are found on any node, use conservative defaults (0.1 m/s linear, 0.3 rad/s angular) and note this to the user.
+6. Cap your commanded velocity at that ceiling. If no limits are found on any node, use conservative defaults (0.2 m/s linear, 0.75 rad/s angular) and note this to the user.
 
 **Never hardcode or assume:**
 - ❌ Never use `/cmd_vel` without first discovering the velocity topic with `topics find`
@@ -468,7 +468,7 @@ python3 {baseDir}/scripts/ros2_cli.py params get <NODE>:<candidate_param>
 # Never exceed the ceiling. Use 50% of the ceiling if unsure of the appropriate fraction.
 ```
 
-**If no limits are found on any node:** use conservative defaults (0.1 m/s linear, 0.3 rad/s angular) and tell the user.
+**If no limits are found on any node:** use conservative defaults (0.2 m/s linear, 0.75 rad/s angular) and tell the user.
 
 ---
 
@@ -1109,7 +1109,7 @@ Compute the binding ceiling:
 - `linear_ceiling`  = minimum of all discovered linear-axis limit values
 - `angular_ceiling` = minimum of all discovered angular/theta limit values
 
-Cap all commanded velocities at these ceilings. If no limits are found on any node, use conservative defaults (0.1 m/s linear, 0.3 rad/s angular) and note this.
+Cap all commanded velocities at these ceilings. If no limits are found on any node, use conservative defaults (0.2 m/s linear, 0.75 rad/s angular) and note this.
 
 **Verify the velocity topic has active subscribers** (something must be listening — i.e., a controller):
 ```bash
