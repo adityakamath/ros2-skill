@@ -61,6 +61,38 @@ This rule exists because:
 
 **Introspection commands return discovered names. Use those names — not the ones you expect.**
 
+### Rule 0.1 — Session-start checks (run once per session, before any task)
+
+**Before executing any user command in a new session, run these checks.** They take seconds and catch the most common causes of silent failure.
+
+**Step 1 — Run a health check:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py doctor
+```
+If the doctor reports critical failures (DDS issues, missing packages, no nodes), stop and tell the user. Do not attempt to operate a robot that fails its health check.
+
+**Step 2 — Check for simulated time:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find rosgraph_msgs/msg/Clock
+```
+If `/clock` is found, simulated time is in use. Verify it is actively publishing before issuing any timed command:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /clock --max-messages 1 --timeout 3
+```
+If no message arrives: the simulator is paused or crashed — do not proceed with time-sensitive operations.
+
+**Step 3 — Check lifecycle nodes (if any):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes
+```
+If lifecycle-managed nodes exist, check their states:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py lifecycle get <node>
+```
+A node in `unconfigured` or `inactive` state will silently fail when its topics or services are used. Activate required nodes before proceeding.
+
+**These checks are session-level.** Do not re-run for every command. Re-run only if the user relaunches the robot or if nodes appear/disappear unexpectedly.
+
 ### Rule 0.5 — Never hallucinate commands, flags, or names
 
 **If you are not certain a command, flag, topic name, or argument exists — verify it before using it. Do not guess.**
@@ -987,7 +1019,11 @@ The confirmed type determines the payload:
 - Zero/stop — **Twist**: `{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}`
 - Zero/stop — **TwistStamped**: `{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}`
 
-If both find commands return results, run `topics type` on each to get the definitive type — do not guess from the topic name.
+If both find commands return results, run `topics type` on each to get the definitive type — do not guess from the topic name. Then choose using this priority order:
+1. Prefer the topic with an active subscriber (`topics details <topic>` → `subscriber_count > 0`) — a subscribed topic means a controller is listening.
+2. If both have subscribers, prefer the topic whose name contains `cmd_vel` or is at the root namespace (e.g. `/cmd_vel` over `/robot/cmd_vel_stamped`).
+3. If still ambiguous, prefer `TwistStamped` over `Twist` (more modern standard).
+Use the selected topic as `VEL_TOPIC` for the rest of the workflow.
 
 ### Step 2 — Discover the odometry topic
 
@@ -1000,6 +1036,18 @@ Take the result — this is `ODOM_TOPIC`.
 ### Step 2.5 — Verify topics are live, read safety limits, and capture start position
 
 Before executing, verify both topics are active, discover velocity limits from controller parameters, and record the starting position.
+
+**Check if the robot is already in motion** — do not command a moving robot:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 3
+```
+Inspect the `twist.twist.linear` and `twist.twist.angular` fields. If any value is significantly non-zero (> 0.01 m/s or rad/s), the robot is already moving. Do not publish new velocity commands — stop it first with `estop`, wait for motion to cease, then proceed.
+
+**Verify the odometry publish rate is adequate for closed-loop control:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics hz <ODOM_TOPIC>
+```
+The rate must be at least 10 Hz for reliable closed-loop control. If the rate is below 5 Hz: fall back to Case D (open-loop) and warn the user that odometry is too slow for safe closed-loop operation.
 
 **Discover velocity limits from controller parameters:**
 ```bash

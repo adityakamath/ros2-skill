@@ -2,6 +2,15 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.6] - 2026-03-13
+
+### Skill
+
+- Added Rule 0.1 — mandatory session-start checks before any task: health check (`doctor`), simulated time verification (`/clock` liveness), and lifecycle node state check. These run once per session and catch the most common silent-failure conditions.
+- Movement Workflow Step 2.5: added pre-motion check — read current odometry twist fields and abort if the robot is already moving (non-zero velocity); send `estop` and wait before issuing new velocity commands.
+- Movement Workflow Step 2.5: added odometry rate check (`topics hz`) — if rate is below 5 Hz, fall back to open-loop (Case D) and warn the user; 10 Hz minimum required for safe closed-loop control.
+- Movement Workflow Step 1: added velocity topic disambiguation rule for when both Twist and TwistStamped topics exist — prefer the topic with an active subscriber, then prefer `cmd_vel` naming, then prefer TwistStamped as a tiebreaker.
+
 ## [1.0.5] - 2026-03-13
 
 ### Skill
