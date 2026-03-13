@@ -358,13 +358,32 @@ class TopicPublisher(Node):
 # Condition monitor node (for publish-until)
 # ---------------------------------------------------------------------------
 
+def quaternion_to_yaw(q):
+    """Extract yaw (rotation around z-axis) from quaternion (x, y, z, w)."""
+    x, y, z, w = q
+    # Yaw (rotation around z-axis)
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+    return yaw
+
+
+def normalize_angle(angle):
+    """Normalize angle to [-pi, pi]."""
+    while angle > math.pi:
+        angle -= 2 * math.pi
+    while angle < -math.pi:
+        angle += 2 * math.pi
+    return angle
+
 class ConditionMonitor(Node):
     """Subscriber that evaluates a stop condition on every incoming message."""
 
     def __init__(self, topic, msg_type, field, operator, threshold, stop_event,
-                 euclidean=False):
+                 euclidean=False, rotate=None):
         super().__init__('condition_monitor')
         self.euclidean = euclidean
+        self.rotate = rotate  # Target rotation in radians
         if isinstance(field, list):
             self.fields = field
             self.field = field[0]
@@ -380,6 +399,10 @@ class ConditionMonitor(Node):
         self.start_values = None
         self.current_values = None
         self.euclidean_distance = None
+
+        # Rotation-specific
+        self.start_yaw = None
+        self.rotation_delta = None
 
         self.start_msg = None
         self.end_msg = None
@@ -446,6 +469,43 @@ class ConditionMonitor(Node):
                 if dist >= float(self.threshold):
                     self.end_msg = msg_dict
                     self.stop_event.set()
+
+            elif self.rotate is not None:
+                # Rotation monitoring: extract quaternion and compute yaw change
+                try:
+                    # Try to find quaternion in common odometry locations
+                    quat = None
+                    for path in ['pose.pose.orientation', 'pose.pose.orientation', 'orientation']:
+                        try:
+                            quat = resolve_field(msg_dict, path)
+                            if quat and isinstance(quat, dict):
+                                break
+                        except (KeyError, IndexError, TypeError):
+                            continue
+
+                    if not quat or not isinstance(quat, dict):
+                        self.field_error = "Could not find quaternion (pose.pose.orientation) in odometry message for rotation monitoring"
+                        self.stop_event.set()
+                        return
+
+                    current_yaw = quaternion_to_yaw(quat)
+
+                    if self.start_yaw is None:
+                        self.start_yaw = current_yaw
+                        self.start_msg = msg_dict
+
+                    # Compute angular difference, handling wraparound
+                    delta_yaw = normalize_angle(current_yaw - self.start_yaw)
+                    self.rotation_delta = abs(delta_yaw)
+
+                    if self.rotation_delta >= abs(self.rotate):
+                        self.end_msg = msg_dict
+                        self.stop_event.set()
+
+                except Exception as e:
+                    self.field_error = f"Rotation monitoring error: {e}"
+                    self.stop_event.set()
+                    return
 
             else:
                 try:
@@ -677,13 +737,30 @@ def cmd_topics_publish_until(args):
         return output({"error": "msg argument is required"})
     if not args.monitor:
         return output({"error": "--monitor argument is required"})
-    if not args.field:
-        return output({"error": "--field argument is required"})
 
-    field_paths = args.field
+    # Handle --rotate flag
+    rotate_angle = getattr(args, 'rotate', None)
+    use_degrees = getattr(args, 'degrees', False)
+
+    if rotate_angle is not None:
+        # --rotate specified: no --field needed, auto-detects orientation from odometry
+        if args.field:
+            return output({"error": "--rotate cannot be used with --field"})
+        if args.euclidean:
+            return output({"error": "--rotate cannot be used with --euclidean"})
+        if args.delta or args.above or args.below or args.equals:
+            return output({"error": "--rotate cannot be used with --delta, --above, --below, or --equals"})
+        if rotate_angle <= 0:
+            return output({"error": "--rotate must be > 0"})
+    else:
+        # Normal operation: --field is required
+        if not args.field:
+            return output({"error": "--field argument is required (or use --rotate for rotation)"})
+
+    field_paths = args.field if args.field else []
     euclidean = getattr(args, 'euclidean', False)
 
-    if len(field_paths) > 1 and not euclidean:
+    if rotate_angle is None and len(field_paths) > 1 and not euclidean:
         return output({"error": "Multiple --field paths require the --euclidean flag"})
 
     operator_map = {
@@ -693,12 +770,12 @@ def cmd_topics_publish_until(args):
         'equals': args.equals,
     }
     active = {k: v for k, v in operator_map.items() if v is not None}
-    if len(active) != 1:
-        return output({"error": "Specify exactly one of --delta, --above, --below, --equals"})
+    if rotate_angle is None and len(active) != 1:
+        return output({"error": "Specify exactly one of --delta, --above, --below, --equals (or --rotate for rotation)"})
 
-    if euclidean and next(iter(active)) != 'delta':
+    if euclidean and rotate_angle is None and next(iter(active)) != 'delta':
         return output({"error": "--euclidean requires --delta (threshold is the Euclidean distance from start)"})
-    operator, threshold = next(iter(active.items()))
+    operator, threshold = next(iter(active.items())) if active else (None, None)
     if euclidean and operator == 'delta' and threshold <= 0:
         return output({"error": "--delta must be > 0 when --euclidean is used"})
 
@@ -732,6 +809,15 @@ def cmd_topics_publish_until(args):
             rclpy.shutdown()
             return output(get_msg_error(pub_msg_type))
 
+        # Handle --rotate flag
+        rotate_angle = getattr(args, 'rotate', None)
+        use_degrees = getattr(args, 'degrees', False)
+        if rotate_angle is not None:
+            if use_degrees:
+                rotate_angle = math.radians(rotate_angle)  # Convert to radians
+            # For rotation, we don't need field paths - it's handled internally
+            field_paths = ['pose.pose.orientation']  # Required for quaternion extraction
+
         stop_event = threading.Event()
         publisher = TopicPublisher(args.topic, pub_msg_type)
         monitor = ConditionMonitor(
@@ -739,6 +825,7 @@ def cmd_topics_publish_until(args):
             field_paths if euclidean else field_paths[0],
             operator, threshold, stop_event,
             euclidean=euclidean,
+            rotate=rotate_angle,
         )
 
         if publisher.pub is None:
@@ -789,6 +876,18 @@ def cmd_topics_publish_until(args):
                     "start_values": monitor.start_values,
                     "end_values": monitor.current_values,
                     "euclidean_distance": monitor.euclidean_distance,
+                    "duration": elapsed,
+                    "published_count": published_count,
+                }
+            elif getattr(args, 'rotate', None) is not None:
+                base = {
+                    "topic": args.topic,
+                    "monitor_topic": args.monitor,
+                    "operator": "rotate",
+                    "target_rotation": args.rotate,
+                    "target_rotation_degrees": math.degrees(args.rotate) if args.rotate else None,
+                    "actual_rotation": monitor.rotation_delta,
+                    "actual_rotation_degrees": math.degrees(monitor.rotation_delta) if monitor.rotation_delta else None,
                     "duration": elapsed,
                     "published_count": published_count,
                 }

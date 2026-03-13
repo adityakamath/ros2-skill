@@ -74,7 +74,7 @@ Commands:
         '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
         '[3.0, 0.5]'
 
-  topics publish-until <topic> <json_msg> --monitor <topic> --field <path> [<path2> ...] (--delta|--above|--below|--equals) <value> [--euclidean]
+  topics publish-until <topic> <json_msg> --monitor <topic> (--delta|--above|--below|--equals|--rotate) <value> [--field <path>] [--euclidean] [--degrees]
     Publish a message at --rate Hz while monitoring a second topic. Stops as soon as the
     condition on the monitored field is satisfied, or after --timeout seconds (default: 60).
     --monitor TOPIC        Topic to monitor for the stop condition
@@ -731,6 +731,12 @@ def build_parser():
                    help="Stop when field < N (absolute threshold)")
     p.add_argument("--equals", default=None,
                    help="Stop when field == value (numeric or string)")
+    p.add_argument("--rotate", type=float, default=None,
+                   help="Rotate by N radians (or degrees with --degrees). "
+                        "Monitors odometry orientation and stops when rotation is complete. "
+                        "Requires --monitor with an odometry topic.")
+    p.add_argument("--degrees", action="store_true", default=False,
+                   help="Interpret --rotate angle in degrees instead of radians")
     p.add_argument("--rate", type=float, default=10.0,
                    help="Publish rate in Hz (default: 10)")
     p.add_argument("--timeout", type=float, default=60.0,

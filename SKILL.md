@@ -590,13 +590,20 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 
 | Move N m (any direction, 2D) | `/odom` | `pose.pose.position.x` `pose.pose.position.y` | `--euclidean --delta N` |
 | Move N m (any direction, 3D) | `/odom` | `pose.pose.position.x` `pose.pose.position.y` `pose.pose.position.z` | `--euclidean --delta N` |
 | Move N m (shorthand, auto-expanded) | `/odom` | `pose.pose.position` | `--euclidean --delta N` |
-| Rotate N rad | `/odom` | `pose.pose.orientation.z` | `--delta N` |
+| **Rotate N radians** | `/odom` | *(auto-detected)* | **`--rotate N`** |
+| **Rotate N degrees** | `/odom` | *(auto-detected)* | **`--rotate N --degrees`** |
 | Joint reach angle | `/joint_states` | `position.0` (index of joint) | `--equals A` or `--delta D` |
 | Multi-joint Euclidean distance | `/joint_states` | `position.0` `position.1` | `--euclidean --delta D` |
 | Stop near obstacle | `/scan` | `ranges.0` (front index) | `--below 0.5` |
 | Stop at range | `/range` | `range` | `--below D` |
 | Stop at temperature | `/temperature` | `temperature` | `--above T` |
 | Stop at battery level | `/battery` | `percentage` | `--below P` |
+
+**`--rotate` flag** (NEW): Rotate the robot by a specific angle without dealing with quaternion math.
+- `--rotate N` — rotate N radians (default)
+- `--rotate N --degrees` — rotate N degrees
+- Automatically extracts quaternion from odometry and monitors angular change
+- Handles angle wraparound correctly
 
 **`--euclidean`** takes any number of numeric fields, computes `sqrt(Σ(current_i - start_i)²)`, and stops when that distance ≥ the `--delta` threshold. Use it whenever the robot's path is not axis-aligned.
 
@@ -613,6 +620,21 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0.2},"angular":{"z":0.3}}' \
   --monitor /odom --field pose.pose.position --euclidean --delta 2.0 --timeout 60
+
+# Rotate 90 degrees (NEW!)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor /odom --rotate 1.5708 --timeout 30
+
+# Rotate 90 degrees using --degrees flag
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor /odom --rotate 90 --degrees --timeout 30
+
+# Rotate -45 degrees (clockwise)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":-0.5}}' \
+  --monitor /odom --rotate 45 --degrees --timeout 30
 ```
 
 ---
@@ -660,6 +682,19 @@ python3 {baseDir}/scripts/ros2_cli.py actions send /navigate_to_pose '{"pose":{"
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0.2},"angular":{"z":0}}' \
   --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+```
+
+### 7. Rotate N Degrees (NEW!)
+```bash
+# Rotate 90 degrees
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor /odom --rotate 90 --degrees --timeout 30
+
+# Rotate 180 degrees
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor /odom --rotate 3.14159 --timeout 30
 ```
 
 ---

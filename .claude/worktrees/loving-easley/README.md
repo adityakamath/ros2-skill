@@ -1,0 +1,110 @@
+# ROS 2 Skill
+
+![Status](https://img.shields.io/badge/Status-Active-green)
+[![ClawHub](https://img.shields.io/badge/ClawHub-ros2--skill-orange)](https://clawhub.ai/adityakamath/ros2-skill)
+![Static Badge](https://img.shields.io/badge/ROS%202-Supported-green)
+[![Repo](https://img.shields.io/badge/Repo-adityakamath%2Fros2--skill-purple)](https://github.com/adityakamath/ros2-skill)
+[![Blog](https://img.shields.io/badge/Blog-kamathrobotics.com-darkorange)](https://kamathrobotics.com)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Static Badge](https://img.shields.io/badge/License-Apache%202.0-blue)
+
+[Agent Skill](https://agentskills.io) for ROS 2 robot control via rclpy.
+
+```text
+Agent (LLM) → ros2_cli.py → rclpy → ROS 2
+```
+
+## Overview
+
+An AI agent skill that lets agents control ROS 2 robots through natural language. The agent reads `SKILL.md`, understands available commands, and executes `ros2_cli.py` to interact with ROS 2 directly via rclpy — no rosbridge required.
+
+## Quick Start (CLI)
+
+```bash
+# Source ROS 2 environment
+source /opt/ros/${ROS_DISTRO}/setup.bash
+
+# Run commands
+python3 scripts/ros2_cli.py version
+python3 scripts/ros2_cli.py topics list
+python3 scripts/ros2_cli.py nodes list
+
+# Move robot forward for 3 seconds
+python3 scripts/ros2_cli.py topics publish /cmd_vel \
+  '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
+
+# Read sensor data
+python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
+```
+
+## Quick Start (AI Agent)
+
+**ros2-skill** works with any AI agent that supports [Agent Skills](https://agentskills.io). For easy setup, we recommend [OpenClaw](https://github.com/openclaw/openclaw) — install **ros2-skill** from [ClawHub](https://clawhub.ai/adityakamath/ros2-skill) and talk to your robot:
+
+- "What topics are available?"
+- "Move the robot forward 1 meter"
+
+See the [OpenClaw tutorial](examples/openclaw.md) for full setup and usage.
+
+## Commands
+
+| Category | Commands |
+| -------- | -------- |
+| Connection | `version` |
+| Safety | `estop` |
+| Topics | `list`, `ls`, `type`, `details`, `info`, `message`, `message-structure`, `message-struct`, `subscribe`, `echo`, `sub`, `publish`, `pub`, `publish-sequence`, `pub-seq`, `publish-until`, `publish-continuous`, `hz`, `bw`, `delay`, `find` |
+| Services | `list`, `ls`, `type`, `details`, `info`, `call`, `find`, `echo` |
+| Nodes | `list`, `ls`, `details`, `info` |
+| Parameters | `list`, `ls`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
+| Actions | `list`, `ls`, `details`, `info`, `type`, `send`, `send-goal`, `cancel`, `echo`, `find` |
+
+All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`references/COMMANDS.md`](references/COMMANDS.md) for full details with examples.
+
+## How It Works
+
+1. The agent platform loads `SKILL.md` into the agent's system prompt
+2. `{baseDir}` in commands is replaced with the actual skill installation path
+3. User asks something like "move the robot forward"
+4. Agent executes: `python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel ...`
+5. `ros2_cli.py` uses rclpy to communicate with ROS 2 and returns JSON
+6. Agent parses the JSON and responds in natural language
+
+## File Structure
+
+```
+ros2-skill/
+├── SKILL.md              # Skill document (loaded into agent's system prompt)
+├── scripts/
+│   └── ros2_cli.py       # Standalone CLI tool (all ROS 2 operations)
+├── references/
+│   └── COMMANDS.md       # Full command reference with output examples
+├── examples/
+│   ├── turtlesim.md      # Turtlesim tutorial
+│   ├── sensor-monitor.md # Sensor monitoring workflows
+│   └── openclaw.md       # OpenClaw integration tutorial
+└── tests/
+    └── test_ros_cli.py   # Unit tests
+```
+
+## Requirements
+
+- Python 3.10+
+- ROS 2 environment sourced (`source /opt/ros/${ROS_DISTRO}/setup.bash`)
+- `rclpy` (included with ROS 2)
+
+## Testing
+
+```bash
+source /opt/ros/${ROS_DISTRO}/setup.bash
+python3 -m pytest tests/ -v
+```
+
+Note: Some tests require a running ROS 2 environment.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+Adapted from [ros-skill](https://github.com/lpigeon/ros-skill) by [@lpigeon](https://github.com/lpigeon).

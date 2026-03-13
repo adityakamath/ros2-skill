@@ -196,9 +196,10 @@ Publish a message at a fixed rate while simultaneously monitoring a second topic
 **ROS 2 CLI equivalent:** No equivalent (requires custom scripting)
 
 **Discovery workflow:** Before running, always introspect the robot:
-1. `topics find nav_msgs/msg/Odometry` — find the feedback topic
-2. `topics message nav_msgs/msg/Odometry` — inspect field paths
+1. `topics find nav_msgs/msg/Odometry` — find the feedback topic (for --rotate or --field)
+2. `topics message nav_msgs/msg/Odometry` — inspect field paths (for --field)
 3. `topics subscribe /odom --duration 2` — read current value (baseline for `--delta`)
+4. For rotation: just use `--rotate N` (no field paths needed, quaternion handled automatically)
 
 | Argument | Required | Description |
 |----------|----------|-------------|
@@ -208,7 +209,9 @@ Publish a message at a fixed rate while simultaneously monitoring a second topic
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `--monitor TOPIC` | Yes | — | Topic to watch for the stop condition |
-| `--field PATH [PATH...]` | Yes | — | One or more dot-separated field paths in the monitor message (e.g. `pose.pose.position.x`). Provide multiple paths with `--euclidean`. |
+| `--field PATH [PATH...]` | Yes (unless --rotate) | — | One or more dot-separated field paths in the monitor message (e.g. `pose.pose.position.x`). Provide multiple paths with `--euclidean`. |
+| `--rotate N` | Alternative to --field | — | Rotate by N radians. Automatically monitors odometry orientation and stops when rotation is complete. Handles quaternion math internally. |
+| `--degrees` | No | radians | Interpret --rotate angle in degrees instead of radians |
 | `--euclidean` | No | off | Compute Euclidean distance across all `--field` paths; requires `--delta`. Works for any number of numeric fields (2D, 3D, joint-space, etc.) |
 | `--delta N` | One required | — | Stop when field changes by ±N from first observed value; or when Euclidean distance ≥ N with `--euclidean` |
 | `--above N` | One required | — | Stop when field value > N (single-field only) |
@@ -218,6 +221,8 @@ Publish a message at a fixed rate while simultaneously monitoring a second topic
 | `--timeout SECONDS` | No | `60` | Safety stop if condition not met within this time |
 | `--msg-type TYPE` | No | auto-detect | Override publish topic message type |
 | `--monitor-msg-type TYPE` | No | auto-detect | Override monitor topic message type |
+
+**Note:** Either `--field` OR `--rotate` must be specified, but not both.
 
 **Move forward until x-position increases by 1 m (straight path):**
 ```bash
@@ -247,6 +252,20 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /arm/cmd \
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
   --monitor /scan --field ranges.0 --below 0.5 --timeout 60
+```
+
+**Rotate 90 degrees (using --rotate flag, no quaternion math needed):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor /odom --rotate 90 --degrees --timeout 30
+```
+
+**Rotate 180 degrees (using radians):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor /odom --rotate 3.14159 --timeout 30
 ```
 
 **Stop when temperature exceeds 50°C:**
