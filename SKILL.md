@@ -70,8 +70,26 @@ When a task seems unfamiliar, look it up in the quick reference tables below bef
 
 If you genuinely cannot find a matching command after checking both the quick reference and the COMMANDS.md reference, **say so clearly and explain what you checked** — do not silently guess or use a partial solution.
 
-### Rule 3 — Infer the goal, resolve the details
+### Rule 3 — Distance and angle commands require odometry feedback
 
+**Whenever the user asks the robot to move a specific distance or rotate a specific angle, odometry MUST be used as the feedback source. Never use timing or dead reckoning as the primary control method.**
+
+- "Move forward 1 metre" → find odometry topic, use `publish-until --delta 1.0`
+- "Rotate 90 degrees" → find odometry topic, use `publish-until --rotate 90 --degrees`
+- "Turn left by 45 degrees" → find odometry topic, use `publish-until --rotate 45 --degrees`
+- "Back up 0.5 metres" → find odometry topic, use `publish-until --delta -0.5`
+
+**Workflow:**
+1. Always run `topics find nav_msgs/Odometry` first.
+2. If odometry is found → use `publish-until` with `--monitor <odom_topic>` and the appropriate `--delta` or `--rotate` flag. Do not estimate with time.
+3. Only if odometry is genuinely not available (topic not found, no publishers) → fall back to dead reckoning with `publish-sequence` and time. Notify the user that odometry was not found and that distance/angle accuracy is not guaranteed.
+
+**Never**:
+- ❌ Use `publish-sequence` with a fixed time to approximate distance when odometry is available
+- ❌ Calculate `time = distance / velocity` as the primary method when odometry exists
+- ❌ Assume the robot reached the target position without odometry confirmation
+
+### Rule 4 — Infer the goal, resolve the details
 When a user asks to do something, **infer what they want at the goal level, then resolve all concrete details (topic names, types, field paths) from the live system**.
 
 Examples:
@@ -81,7 +99,7 @@ Examples:
 - "List available controllers" → `control list-controllers`
 - "What parameters does the camera node have?" → `nodes list` to find the camera node name, then `params list <node>`
 
-### Rule 4 — Execute, don't ask
+### Rule 5 — Execute, don't ask
 
 **The user's message is the approval. Act on it.**
 
