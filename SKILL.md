@@ -511,11 +511,8 @@ python3 {baseDir}/scripts/ros2_cli.py launch my_robot my_robot.launch.py --confi
 # Default port (8765)
 python3 {baseDir}/scripts/ros2_cli.py launch foxglove
 
-# Custom port
-python3 {baseDir}/scripts/ros2_cli.py launch foxglove --port 9000
-
-# Refresh package cache before launching
-python3 {baseDir}/scripts/ros2_cli.py launch foxglove --refresh
+# Custom port (positional argument)
+python3 {baseDir}/scripts/ros2_cli.py launch foxglove 9000
 ```
 
 ### List Running Launches

@@ -206,10 +206,11 @@ def cmd_launch_run(args):
     launch_args = args.args or []
     params_str = args.params
     config_path = args.config_path
-    force_refresh = getattr(args, 'refresh', False)
     
-    # Check package exists
-    if not _package_exists(package, force_refresh=force_refresh):
+    # Check package exists (auto-refresh if not found)
+    if not _package_exists(package, force_refresh=False):
+        _list_packages(force_refresh=True)
+    if not _package_exists(package, force_refresh=False):
         return output({
             "error": f"Package '{package}' not found",
             "available_packages": list(_list_packages().keys())[:20]
@@ -449,17 +450,18 @@ def cmd_launch_foxglove(args):
     
     port = args.port
     ros_distro = os.environ.get('ROS_DISTRO', 'unknown')
-    force_refresh = getattr(args, 'refresh', False)
     
     # Validate port range
     if port < 1 or port > 65535:
         return output({
-            "error": f"Invalid port: {port}",
+            "error": "Invalid port: {port}",
             "suggestion": "Port must be between 1 and 65535"
         })
     
-    # Check package exists
-    if not _package_exists("foxglove_bridge", force_refresh=force_refresh):
+    # Check package exists (auto-refresh if not found)
+    if not _package_exists("foxglove_bridge", force_refresh=False):
+        _list_packages(force_refresh=True)
+    if not _package_exists("foxglove_bridge", force_refresh=False):
         return output({
             "error": "Package 'foxglove_bridge' not found",
             "suggestion": f"Install for your ROS 2 distro with:\n  sudo apt install ros-{ros_distro}-foxglove-bridge\n\nOr build from source:\n  git clone https://github.com/foxglove/ros2-foxglove-bridge.git",

@@ -83,10 +83,11 @@ def cmd_run(args):
     presets = getattr(args, 'presets', None)
     params_str = args.params
     config_path = args.config_path
-    force_refresh = getattr(args, 'refresh', False)
     
-    # Check package exists
-    if not package_exists(package, force_refresh=force_refresh):
+    # Check package exists (auto-refresh if not found)
+    if not package_exists(package, force_refresh=False):
+        list_packages(force_refresh=True)
+    if not package_exists(package, force_refresh=False):
         return output({
             "error": f"Package '{package}' not found",
             "available_packages": list(list_packages().keys())[:20]
