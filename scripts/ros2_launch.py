@@ -6,7 +6,7 @@ import os
 import subprocess
 import threading
 
-from ros2_utils import output
+from ros2_utils import output, source_local_ws
 
 
 # Cache for package information
@@ -195,13 +195,15 @@ def cmd_launch_run(args):
         return output({
             "error": f"Launch file '{launch_file}' not found in package '{package}'",
             "searched_paths": possible_paths,
-            "suggestion": "Provide full path or use 'ros2 pkg files <package>' to find launch files"
+            "suggestion": "Provide full path or use 'ros2 pkg files <package>' to find launch files. "
+                         "If the package is in a local workspace, set ROS2_LOCAL_WS environment variable."
         })
     
     if not launch_path and launch_files:
         return output({
             "error": f"Launch file '{launch_file}' not found",
-            "available_launch_files": launch_files
+            "available_launch_files": launch_files,
+            "suggestion": "If the launch file is in a local workspace, set ROS2_LOCAL_WS environment variable."
         })
     
     # Build launch command
@@ -220,8 +222,21 @@ def cmd_launch_run(args):
     # Apply params if specified
     applied_params = _apply_params(params_str) if params_str else {}
     
-    # Build tmux command
-    tmux_cmd = f"tmux new-session -d -s {session_name} '{launch_cmd} 2>&1'"
+    # Get local workspace to source
+    ws_path, ws_status = source_local_ws()
+    
+    warning = None
+    if ws_status == "not_built":
+        warning = f"Warning: Local workspace found but not built. Build with 'colcon build' first."
+    elif ws_status == "not_found":
+        # No local workspace found - continue without sourcing
+        ws_path = None
+    
+    # Build tmux command with or without sourcing
+    if ws_path:
+        tmux_cmd = f"tmux new-session -d -s {session_name} 'source {ws_path} && {launch_cmd} 2>&1'"
+    else:
+        tmux_cmd = f"tmux new-session -d -s {session_name} '{launch_cmd} 2>&1'"
     
     # Run the launch command
     stdout, stderr, rc = _run_cmd(tmux_cmd, timeout=30)
@@ -251,6 +266,12 @@ def cmd_launch_run(args):
         "presets_applied": applied_presets,
         "params_applied": applied_params,
     }
+    
+    if ws_path:
+        result["workspace_sourced"] = ws_path
+    
+    if warning:
+        result["warning"] = warning
     
     if pid_output:
         result["pid"] = pid_output.strip()

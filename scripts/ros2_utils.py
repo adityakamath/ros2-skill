@@ -361,3 +361,64 @@ def resolve_output_path(filename_or_path):
     artifacts_dir = os.path.abspath(artifacts_dir)
     os.makedirs(artifacts_dir, exist_ok=True)
     return os.path.join(artifacts_dir, filename_or_path)
+
+
+# ---------------------------------------------------------------------------
+# Local workspace helpers
+# ---------------------------------------------------------------------------
+
+def source_local_ws():
+    """Get local ROS 2 workspace path to source before running commands.
+    
+    System ROS is assumed to be already sourced (via systemd or manually).
+    This helper finds the local workspace to source on top of system ROS.
+    
+    Search order:
+    1. ROS2_LOCAL_WS environment variable
+    2. ~/ros2_ws
+    3. ~/colcon_ws
+    4. ~/workspace
+    5. ~/ros2
+    
+    Returns:
+        tuple: (path_to_setup_bash, status)
+            - ("/path/to/local_setup.bash", "found") - workspace found and built
+            - (None, "not_built") - workspace found but local_setup.bash doesn't exist
+            - (None, "not_found") - no workspace found
+    """
+    import os
+    
+    # Common workspace patterns to search
+    ws_patterns = [
+        os.environ.get('ROS2_LOCAL_WS'),
+        '~/ros2_ws',
+        '~/colcon_ws', 
+        '~/workspace',
+        '~/ros2',
+    ]
+    
+    for ws_pattern in ws_patterns:
+        if not ws_pattern:
+            continue
+            
+        ws_path = os.path.expanduser(ws_pattern)
+        
+        # Skip if path doesn't exist
+        if not os.path.exists(ws_path):
+            continue
+        
+        # Try local_setup.bash first (preferred)
+        local_setup = os.path.join(ws_path, 'install', 'local_setup.bash')
+        if os.path.exists(local_setup):
+            return local_setup, "found"
+        
+        # Fallback to setup.bash
+        setup_bash = os.path.join(ws_path, 'setup.bash')
+        if os.path.exists(setup_bash):
+            return setup_bash, "found"
+        
+        # Workspace exists but not built
+        return None, "not_built"
+    
+    # No workspace found
+    return None, "not_found"
