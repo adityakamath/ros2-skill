@@ -110,6 +110,8 @@ The failure mode to avoid: inventing a flag like `--yaw-delta` or `--rotate-degr
    ```
 3. **If still stuck after checking both, ask the user.** This is the only acceptable reason to ask — not because you assumed something and it failed.
 
+**`--help` requires ROS 2 to be sourced.** Running `--help` before ROS 2 is sourced will return a JSON error instead of help text. This is not a concern in practice — ROS 2 must be sourced before any robot operation (it is a hard precondition of this skill), so `--help` will always be available during normal use. If you see a `Missing ROS 2 dependency` error from `--help`, fix the ROS 2 environment first (see Setup section and Rule 0.1).
+
 **Never:**
 - Invent a flag and try it, then report failure to the user
 - Assume a capability exists because it would be logical or convenient
