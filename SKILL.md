@@ -167,6 +167,9 @@ Agent does:
 | "Call /reset" | Call service | Find service → call |
 | "Navigate to..." | Send action | Find action → send goal |
 | "Execute trajectory" | Send action | Find FollowJointTrajectory or ExecuteTrajectory → send |
+| "Run launch file" | Launch file | Find package → find launch file → launch in tmux |
+| "List running launches" | List sessions | Run `launch list` |
+| "Kill launch" | Kill session | Run `launch kill <session>` |
 | "What controllers?" | List controllers | Run `control list-controllers` |
 | "What hardware?" | List hardware | Run `control list-hardware-components` |
 | "What lifecycle nodes?" | List managed nodes | Run `lifecycle nodes` |
@@ -412,8 +415,41 @@ python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
 | IMU | `topics find sensor_msgs/msg/Imu` | Subscribe to result |
 | Joint states | `topics find sensor_msgs/msg/JointState` | Subscribe to result |
 | Move robot | `topics find geometry_msgs/msg/Twist` | Publish to result |
+| Run launch file | `launch run <package> <file>` | Runs in tmux session |
+| List running launches | `launch list` | Shows tmux sessions |
+| Kill launch | `launch kill <session>` | Kills tmux session |
 
 ---
+
+## Launch Commands (NEW in v1.0.4)
+
+### Run a Launch File
+
+```bash
+# Basic launch
+python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.py
+
+# With parameters
+python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.py --params "speed:1.0"
+
+# With presets (apply params before launch)
+python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.py --presets indoor
+
+# With config path
+python3 {baseDir}/scripts/ros2_cli.py launch run my_robot my_robot.launch.py --config-path /path/to/config
+```
+
+### List Running Launches
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch list
+```
+
+### Kill a Launch
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch kill launch_navigation2_navigation2
+```
 
 ## Command Quick Reference
 

@@ -526,6 +526,11 @@ from ros2_multicast import (
     cmd_multicast_send,
     cmd_multicast_receive,
 )
+from ros2_launch import (
+    cmd_launch_run,
+    cmd_launch_list,
+    cmd_launch_kill,
+)
 from ros2_lifecycle import (
     cmd_lifecycle_nodes,
     cmd_lifecycle_list,
@@ -1113,6 +1118,28 @@ def build_parser():
                          help="How long to listen in seconds (default: 5.0)")
 
     # ------------------------------------------------------------------
+    # launch
+    # ------------------------------------------------------------------
+    launch = sub.add_parser("launch", help="Launch ROS 2 nodes and launch files")
+    lsub = launch.add_subparsers(dest="subcommand")
+
+    # launch <package> <launch_file> [args...]
+    p = lsub.add_parser("run", help="Run a ROS 2 launch file")
+    p.add_argument("package", help="Package name containing the launch file")
+    p.add_argument("launch_file", help="Launch file name (without path)")
+    p.add_argument("args", nargs="*", help="Additional launch arguments")
+    p.add_argument("--presets", help="Preset parameters to load before launch (comma-separated)")
+    p.add_argument("--params", help="Parameters to set (comma-separated key:value pairs)")
+    p.add_argument("--config-path", help="Path to config directory (auto-discovered if not provided)")
+    p.add_argument("--timeout", type=float, default=30.0, help="Timeout for launch to start (default: 30)")
+
+    lsub.add_parser("list", help="List running launch sessions")
+    lsub.add_parser("ls", help="Alias for list")
+
+    p = lsub.add_parser("kill", help="Kill a running launch session")
+    p.add_argument("session", help="Session name to kill")
+
+    # ------------------------------------------------------------------
     # interface
     # ------------------------------------------------------------------
     iface = sub.add_parser("interface", help="Interface type discovery (ros2 interface)")
@@ -1259,6 +1286,11 @@ DISPATCH = {
     # multicast
     ("multicast", "send"):    cmd_multicast_send,
     ("multicast", "receive"): cmd_multicast_receive,
+    # launch
+    ("launch", "run"):    cmd_launch_run,
+    ("launch", "list"):   cmd_launch_list,
+    ("launch", "ls"):    cmd_launch_list,
+    ("launch", "kill"):  cmd_launch_kill,
     # interface
     ("interface", "list"):     cmd_interface_list,
     ("interface", "ls"):       cmd_interface_list,
