@@ -539,6 +539,19 @@ from ros2_run import (
     cmd_run_kill,
     cmd_run_restart,
 )
+from ros2_tf import (
+    cmd_tf_list,
+    cmd_tf_lookup,
+    cmd_tf_echo,
+    cmd_tf_monitor,
+    cmd_tf_static,
+    cmd_tf_euler_from_quaternion,
+    cmd_tf_quaternion_from_euler,
+    cmd_tf_euler_from_quaternion_degrees,
+    cmd_tf_quaternion_from_euler_degrees,
+    cmd_tf_transform_point,
+    cmd_tf_transform_vector,
+)
 from ros2_lifecycle import (
     cmd_lifecycle_nodes,
     cmd_lifecycle_list,
@@ -1126,6 +1139,97 @@ def build_parser():
                          help="How long to listen in seconds (default: 5.0)")
 
     # ------------------------------------------------------------------
+    # tf
+    # ------------------------------------------------------------------
+    tf = sub.add_parser("tf", help="TF2 transform utilities")
+    tfsub = tf.add_subparsers(dest="subcommand")
+
+    # tf list
+    tfsub.add_parser("list", help="List all coordinate frames")
+    tfsub.add_parser("ls", help="Alias for list")
+
+    # tf lookup <source> <target>
+    p = tfsub.add_parser("lookup", help="Lookup transform between frames")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout in seconds")
+    tfsub.add_parser("get", help="Alias for lookup")
+
+    # tf echo <source> <target>
+    p = tfsub.add_parser("echo", help="Echo transform between frames")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout per lookup")
+    p.add_argument("--count", "-n", type=int, default=5, help="Number of echos")
+
+    # tf monitor <frame>
+    p = tfsub.add_parser("monitor", help="Monitor transform updates for a frame")
+    p.add_argument("frame", help="Frame to monitor")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout per lookup")
+    p.add_argument("--count", "-n", type=int, default=5, help="Number of updates")
+
+    # tf static <x> <y> <z> <roll> <pitch> <yaw> <from> <to>
+    p = tfsub.add_parser("static", help="Publish static transform")
+    p.add_argument("x", type=float, help="Translation x")
+    p.add_argument("y", type=float, help="Translation y")
+    p.add_argument("z", type=float, help="Translation z")
+    p.add_argument("roll", type=float, help="Rotation roll (radians)")
+    p.add_argument("pitch", type=float, help="Rotation pitch (radians)")
+    p.add_argument("yaw", type=float, help="Rotation yaw (radians)")
+    p.add_argument("from_frame", help="Source frame")
+    p.add_argument("to_frame", help="Target frame")
+
+    # tf euler-from-quaternion <x> <y> <z> <w>
+    p = tfsub.add_parser("euler-from-quaternion", help="Convert quaternion to Euler (radians)")
+    p.add_argument("x", type=float, help="Quaternion x")
+    p.add_argument("y", type=float, help="Quaternion y")
+    p.add_argument("z", type=float, help="Quaternion z")
+    p.add_argument("w", type=float, help="Quaternion w")
+    tfsub.add_parser("e2q", help="Alias for euler-from-quaternion")
+
+    # tf quaternion-from-euler <roll> <pitch> <yaw>
+    p = tfsub.add_parser("quaternion-from-euler", help="Convert Euler to quaternion (radians)")
+    p.add_argument("roll", type=float, help="Euler roll (radians)")
+    p.add_argument("pitch", type=float, help="Euler pitch (radians)")
+    p.add_argument("yaw", type=float, help="Euler yaw (radians)")
+    tfsub.add_parser("q2e", help="Alias for quaternion-from-euler")
+
+    # tf euler-from-quaternion-deg <x> <y> <z> <w>
+    p = tfsub.add_parser("euler-from-quaternion-deg", help="Convert quaternion to Euler (degrees)")
+    p.add_argument("x", type=float, help="Quaternion x")
+    p.add_argument("y", type=float, help="Quaternion y")
+    p.add_argument("z", type=float, help="Quaternion z")
+    p.add_argument("w", type=float, help="Quaternion w")
+    tfsub.add_parser("e2qdeg", help="Alias for euler-from-quaternion-deg")
+
+    # tf quaternion-from-euler-deg <roll> <pitch> <yaw>
+    p = tfsub.add_parser("quaternion-from-euler-deg", help="Convert Euler to quaternion (degrees)")
+    p.add_argument("roll", type=float, help="Euler roll (degrees)")
+    p.add_argument("pitch", type=float, help="Euler pitch (degrees)")
+    p.add_argument("yaw", type=float, help="Euler yaw (degrees)")
+    tfsub.add_parser("q2edeg", help="Alias for quaternion-from-euler-deg")
+
+    # tf transform-point <target> <source> <x> <y> <z>
+    p = tfsub.add_parser("transform-point", help="Transform a point between frames")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("x", type=float, help="Point x")
+    p.add_argument("y", type=float, help="Point y")
+    p.add_argument("z", type=float, help="Point z")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
+    tfsub.add_parser("tp", help="Alias for transform-point")
+
+    # tf transform-vector <target> <source> <x> <y> <z>
+    p = tfsub.add_parser("transform-vector", help="Transform a vector between frames")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("x", type=float, help="Vector x")
+    p.add_argument("y", type=float, help="Vector y")
+    p.add_argument("z", type=float, help="Vector z")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
+    tfsub.add_parser("tv", help="Alias for transform-vector")
+
+    # ------------------------------------------------------------------
     # launch
     # ------------------------------------------------------------------
     launch = sub.add_parser("launch", help="Launch ROS 2 nodes and launch files")
@@ -1324,6 +1428,26 @@ DISPATCH = {
     # multicast
     ("multicast", "send"):    cmd_multicast_send,
     ("multicast", "receive"): cmd_multicast_receive,
+    # tf
+    ("tf", "list"): cmd_tf_list,
+    ("tf", "ls"): cmd_tf_list,
+    ("tf", "lookup"): cmd_tf_lookup,
+    ("tf", "get"): cmd_tf_lookup,
+    ("tf", "echo"): cmd_tf_echo,
+    ("tf", "monitor"): cmd_tf_monitor,
+    ("tf", "static"): cmd_tf_static,
+    ("tf", "euler-from-quaternion"): cmd_tf_euler_from_quaternion,
+    ("tf", "e2q"): cmd_tf_euler_from_quaternion,
+    ("tf", "quaternion-from-euler"): cmd_tf_quaternion_from_euler,
+    ("tf", "q2e"): cmd_tf_quaternion_from_euler,
+    ("tf", "euler-from-quaternion-deg"): cmd_tf_euler_from_quaternion_degrees,
+    ("tf", "e2qdeg"): cmd_tf_euler_from_quaternion_degrees,
+    ("tf", "quaternion-from-euler-deg"): cmd_tf_quaternion_from_euler_degrees,
+    ("tf", "q2edeg"): cmd_tf_quaternion_from_euler_degrees,
+    ("tf", "transform-point"): cmd_tf_transform_point,
+    ("tf", "tp"): cmd_tf_transform_point,
+    ("tf", "transform-vector"): cmd_tf_transform_vector,
+    ("tf", "tv"): cmd_tf_transform_vector,
     # launch
     ("launch", "new"):   cmd_launch_run,
     ("launch", "list"):   cmd_launch_list,

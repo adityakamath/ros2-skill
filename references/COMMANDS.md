@@ -2669,6 +2669,146 @@ Output (nothing received):
 
 ---
 
+## tf
+
+TF2 transform utilities for querying, listing, and monitoring coordinate frame transforms.
+
+### tf list / tf ls
+
+List all available coordinate frames.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf list
+```
+
+### tf lookup / tf get `<source>` `<target>`
+
+Lookup transform between two frames.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `source` | Yes | Source frame |
+| `target` | Yes | Target frame |
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--timeout`, `-t` | No | 5.0 | Timeout in seconds |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf lookup base_link map
+```
+
+**Output:**
+```json
+{
+  "source_frame": "base_link",
+  "target_frame": "map",
+  "translation": {"x": 1.0, "y": 0.0, "z": 0.0},
+  "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+  "euler": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
+  "euler_degrees": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}
+}
+```
+
+### tf echo `<source>` `<target>`
+
+Continuously echo transforms.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `source` | Yes | Source frame |
+| `target` | Yes | Target frame |
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--timeout`, `-t` | No | 5.0 | Timeout per lookup |
+| `--count`, `-n` | No | 5 | Number of echos |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf echo base_link map --count 10
+```
+
+### tf monitor `<frame>`
+
+Monitor transform updates for a specific frame.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `frame` | Yes | Frame to monitor |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf monitor base_link --count 5
+```
+
+### tf static `<x>` `<y>` `<z>` `<roll>` `<pitch>` `<yaw>` `<from_frame>` `<to_frame>`
+
+Publish static transform. Runs in tmux session.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `x` | Yes | Translation x |
+| `y` | Yes | Translation y |
+| `z` | Yes | Translation z |
+| `roll` | Yes | Rotation roll (radians) |
+| `pitch` | Yes | Rotation pitch (radians) |
+| `yaw` | Yes | Rotation yaw (radians) |
+| `from_frame` | Yes | Source frame |
+| `to_frame` | Yes | Target frame |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf static 0 0 0 0 0 0 base_link odom
+```
+
+### tf euler-from-quaternion / tf e2q `<x>` `<y>` `<z>` `<w>`
+
+Convert quaternion to Euler angles (radians).
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion 0 0 0 1
+```
+
+### tf quaternion-from-euler / tf q2e `<roll>` `<pitch>` `<yaw>`
+
+Convert Euler angles to quaternion (radians).
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler 0 0 1.57
+```
+
+### tf euler-from-quaternion-deg / tf e2qdeg `<x>` `<y>` `<z>` `<w>`
+
+Convert quaternion to Euler angles (degrees).
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion-deg 0 0 0 1
+```
+
+### tf quaternion-from-euler-deg / tf q2edeg `<roll>` `<pitch>` `<yaw>`
+
+Convert Euler angles to quaternion (degrees).
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler-deg 0 0 90
+```
+
+### tf transform-point / tf tp `<target>` `<source>` `<x>` `<y>` `<z>`
+
+Transform a point from source to target frame.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf transform-point map base_link 1 0 0
+```
+
+### tf transform-vector / tf tv `<target>` `<source>` `<x>` `<y>` `<z>`
+
+Transform a vector from source to target frame.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py tf transform-vector map base_link 1 0 0
+```
+
+---
+
 ## launch `<package>` `<launch_file>` [args...]
 
 Run a ROS 2 launch file in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.

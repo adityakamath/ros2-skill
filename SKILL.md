@@ -492,6 +492,43 @@ If the skill finds a match but there's any doubt (multiple candidates, ambiguous
 export ROS2_LOCAL_WS=~/my_robot_ws
 ```
 
+### TF2 Transforms
+
+```bash
+# List all coordinate frames
+python3 {baseDir}/scripts/ros2_cli.py tf list
+
+# Lookup transform between frames
+python3 {baseDir}/scripts/ros2_cli.py tf lookup base_link map
+
+# Echo transform continuously
+python3 {baseDir}/scripts/ros2_cli.py tf echo base_link map --count 10
+
+# Monitor a specific frame
+python3 {baseDir}/scripts/ros2_cli.py tf monitor base_link --count 5
+
+# Publish static transform (runs in tmux)
+python3 {baseDir}/scripts/ros2_cli.py tf static 0 0 0 0 0 0 base_link odom
+
+# Convert quaternion to Euler (radians)
+python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion 0 0 0 1
+
+# Convert Euler to quaternion (radians)
+python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler 0 0 1.57
+
+# Convert quaternion to Euler (degrees)
+python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion-deg 0 0 0 1
+
+# Convert Euler to quaternion (degrees)
+python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler-deg 0 0 90
+
+# Transform a point between frames
+python3 {baseDir}/scripts/ros2_cli.py tf transform-point map base_link 1 0 0
+
+# Transform a vector between frames
+python3 {baseDir}/scripts/ros2_cli.py tf transform-vector map base_link 1 0 0
+```
+
 ### Run a Launch File
 
 ```bash

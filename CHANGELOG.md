@@ -25,6 +25,20 @@ Added launch and run commands for running ROS 2 launch files and executables in 
 - `run kill <session>` — kill a running run session
 - `run restart <session>` — restart a run session (preserves original parameters)
 
+### TF2 Transform Commands
+
+- `tf list` — list all coordinate frames
+- `tf lookup <source> <target>` — query transform between frames
+- `tf echo <source> <target>` — continuously echo transforms
+- `tf monitor <frame>` — monitor transform updates for a frame
+- `tf static <x> <y> <z> <roll> <pitch> <yaw> <from> <to>` — publish static transform (runs in tmux)
+- `tf euler-from-quaternion` / `tf e2q` — convert quaternion to Euler (radians)
+- `tf quaternion-from-euler` / `tf q2e` — convert Euler to quaternion (radians)
+- `tf euler-from-quaternion-deg` / `tf e2qdeg` — convert quaternion to Euler (degrees)
+- `tf quaternion-from-euler-deg` / `tf q2edeg` — convert Euler to quaternion (degrees)
+- `tf transform-point` / `tf tp` — transform a point between frames
+- `tf transform-vector` / `tf tv` — transform a vector between frames
+
 ### Auto-Refresh
 
 Package cache automatically refreshes when a package is not found. No manual `--refresh` flag needed.
