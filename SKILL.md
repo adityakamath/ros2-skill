@@ -23,6 +23,36 @@ For full command reference with arguments, options, and output examples, see [re
 
 These rules are absolute and apply to every request involving a ROS 2 robot.
 
+### Rule 0 — Full introspection before every action (non-negotiable)
+
+**Before publishing to any topic, calling any service, or sending any action goal, you MUST complete the introspection steps below. There are no exceptions, not even for "obvious" or "conventional" names.**
+
+This rule exists because:
+- The velocity topic is not always `/cmd_vel`. It may be `/base/cmd_vel`, `/robot/cmd_vel`, `/mobile_base/cmd_vel`, or anything else.
+- The message type is not always `Twist`. Many robots use `TwistStamped`, and the payload structure differs.
+- The odometry topic is not always `/odom`. It may be `/wheel_odom`, `/robot/odom`, `/base/odometry`, etc.
+- Convention-based guessing causes silent failures, wrong topics, and physical accidents.
+
+**Pre-flight introspection protocol — run ALL applicable steps before acting:**
+
+| Action type | Required introspection |
+|---|---|
+| Publish to a topic | 1. `topics find <msg_type>` to discover the real topic name<br>2. `topics type <discovered_topic>` to confirm the exact type<br>3. `interface proto <exact_type>` to get the default payload template |
+| Call a service | 1. `services list` or `services find <srv_type>` to discover the real name<br>2. `services details <discovered_service>` to get request/response fields |
+| Send an action goal | 1. `actions list` or `actions find <action_type>` to discover the real name<br>2. `actions details <discovered_action>` to get goal/result/feedback fields |
+| Move a robot | Full Movement Workflow — see Rule 3 and the canonical section below |
+| Read a sensor | `topics find <msg_type>` to discover the topic; never subscribe to a hardcoded name |
+| Any operation involving a node | `nodes list` first; never assume a node name |
+
+**Never hardcode or assume:**
+- ❌ Never use `/cmd_vel` without first discovering the velocity topic with `topics find`
+- ❌ Never use `Twist` payload without first confirming the type is not `TwistStamped` via `topics type`
+- ❌ Never use `/odom` without first discovering the odometry topic with `topics find`
+- ❌ Never assume any topic, service, action, or node name from ROS 2 convention
+- ❌ Never assume a message type from a topic name
+
+**Introspection commands return discovered names. Use those names — not the ones you expect.**
+
 ### Rule 1 — Discover before you act, never ask
 
 **Never ask the user for names, types, or IDs that can be discovered from the live system.** This includes topic names, service names, action names, node names, parameter names, message types, and controller names. Always query the robot first.
@@ -70,24 +100,60 @@ When a task seems unfamiliar, look it up in the quick reference tables below bef
 
 If you genuinely cannot find a matching command after checking both the quick reference and the COMMANDS.md reference, **say so clearly and explain what you checked** — do not silently guess or use a partial solution.
 
-### Rule 3 — Distance and angle commands require odometry feedback
+### Rule 3 — Movement algorithm (always follow this sequence)
 
-**Whenever the user asks the robot to move a specific distance or rotate a specific angle, odometry MUST be used as the feedback source. Never use timing or dead reckoning as the primary control method.**
+For **any** user request involving movement — regardless of whether a distance or angle is specified — follow this algorithm exactly. Do not skip steps. Do not ask the user anything that can be resolved by running a command.
 
-- "Move forward 1 metre" → find odometry topic, use `publish-until --delta 1.0`
-- "Rotate 90 degrees" → find odometry topic, use `publish-until --rotate 90 --degrees`
-- "Turn left by 45 degrees" → find odometry topic, use `publish-until --rotate 45 --degrees`
-- "Back up 0.5 metres" → find odometry topic, use `publish-until --delta -0.5`
+**Step 1 — Discover the velocity command topic and confirm its exact type**
 
-**Workflow:**
-1. Always run `topics find nav_msgs/Odometry` first.
-2. If odometry is found → use `publish-until` with `--monitor <odom_topic>` and the appropriate `--delta` or `--rotate` flag. Do not estimate with time.
-3. Only if odometry is genuinely not available (topic not found, no publishers) → fall back to dead reckoning with `publish-sequence` and time. Notify the user that odometry was not found and that distance/angle accuracy is not guaranteed.
+Run both searches in parallel:
+```bash
+topics find geometry_msgs/msg/Twist
+topics find geometry_msgs/msg/TwistStamped
+```
+Record the discovered topic name — call it `VEL_TOPIC`. Then confirm the exact type:
+```bash
+topics type <VEL_TOPIC>
+```
+Use the confirmed type to choose the payload structure:
+- `geometry_msgs/msg/Twist`: `{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}`
+- `geometry_msgs/msg/TwistStamped`: `{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}`
 
-**Never**:
-- ❌ Use `publish-sequence` with a fixed time to approximate distance when odometry is available
-- ❌ Calculate `time = distance / velocity` as the primary method when odometry exists
-- ❌ Assume the robot reached the target position without odometry confirmation
+If both find commands return results, run `topics type` on each and use the type returned — do not guess.
+
+**Step 2 — Discover the odometry topic**
+
+```bash
+topics find nav_msgs/msg/Odometry
+```
+Record the discovered topic name — call it `ODOM_TOPIC`.
+
+**Step 3 — Choose the execution method**
+
+| Situation | Method |
+|---|---|
+| Distance or angle specified **and** odometry found | `publish-until` with `--monitor <ODOM_TOPIC>` — closed loop, stops on sensor feedback |
+| Distance or angle specified **and** no odometry | `publish-sequence` with calculated duration — open loop. Tell the user: "No odometry found. Running open-loop. Distance/angle accuracy is not guaranteed." |
+| No distance or angle specified (open-ended movement) | `publish-sequence` with a stop command as the final message |
+
+**Step 4 — Execute using only discovered names**
+
+Use `VEL_TOPIC` and `ODOM_TOPIC` from Steps 1–2. Never substitute `/cmd_vel`, `/odom`, or any other assumed name.
+
+Distance commands:
+```bash
+topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta <N> --timeout 30
+```
+Angle/rotation commands:
+```bash
+topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --rotate <N> [--degrees] --timeout 30
+```
+Open-ended or fallback (stop is always the last message):
+```bash
+topics publish-sequence <VEL_TOPIC> '[<move_payload>, <zero_payload>]' '[<duration>, 0.5]'
+```
+
+See the [Movement Workflow](#movement-workflow-canonical) section below for complete worked examples covering every case.
 
 ### Rule 4 — Infer the goal, resolve the details
 When a user asks to do something, **infer what they want at the goal level, then resolve all concrete details (topic names, types, field paths) from the live system**.
@@ -168,21 +234,19 @@ python3 {baseDir}/scripts/ros2_cli.py version
 User: "do X"
 Agent thinks:
   1. Is X about reading data? → Use TOPICS SUBSCRIBE
-  2. Is X about moving a specific distance or angle? → Use TOPICS PUBLISH-UNTIL with odometry (Rule 3)
-  3. Is X about controlling/moving with no specific distance? → Use TOPICS PUBLISH or PUBLISH-SEQUENCE
-  4. Is X a one-time trigger? → Use SERVICES CALL or ACTIONS SEND
-  5. Is X about system info? → Use LIST commands
+  2. Is X about movement (any kind)? → Follow the Movement Workflow (Rule 3 / canonical section)
+  3. Is X a one-time trigger? → Use SERVICES CALL or ACTIONS SEND
+  4. Is X about system info? → Use LIST commands
 
-Agent does:
-  1. EXPLORE: Run topics/services/actions list
-  2. SEARCH: Run find command for relevant message type
-  3. If distance/angle: find odometry topic (nav_msgs/Odometry) — REQUIRED before any movement
-  4. STRUCTURE: Get message structure
-  5. LIMITS: Get params (for movement)
-  6. EXECUTE: Run the command
+Agent does (for movement):
+  1. Find velocity topic: topics find geometry_msgs/Twist + TwistStamped
+  2. Find odometry topic: topics find nav_msgs/Odometry
+  3. Distance/angle specified + odom found → publish-until (closed loop)
+     Distance/angle specified + no odom → publish-sequence, notify user (open loop)
+     No distance/angle → publish-sequence with stop
 ```
 
-**Never skip steps 1-5. Always explore first. If distance or angle is specified, odometry must be found before executing.**
+**For movement, always follow the Movement Workflow section. That section is the single source of truth.**
 
 ---
 
@@ -207,9 +271,9 @@ Agent does:
 | "Read joystick/gamepad" | Subscribe to Joy | Find Joy topic → subscribe |
 | "Check robot diagnostics/health" | Subscribe to diagnostics | Find /diagnostics topic → subscribe |
 | "Check TF/transforms" | Check TF topics | Find /tf, /tf_static topics → subscribe |
-| "Move/drive/turn (mobile robot)" | Publish Twist — open-ended, no target distance | Find Twist/TwistStamped topics → **publish-sequence** (with stop at end) |
-| "Move forward/back N meters" | Closed-loop distance command — Rule 3 | Find odom → **publish-until** with `--monitor <odom> --field pose.pose.position.x --delta N` |
-| "Rotate N degrees / turn N radians" | Closed-loop angle command — Rule 3 | Find odom → **publish-until** with `--monitor <odom> --rotate N [--degrees]` |
+| "Move/drive/turn (mobile robot)" | Open-ended movement, no target | Find Twist/TwistStamped → **publish-sequence** with stop |
+| "Move forward/back N meters" | Closed-loop distance → Movement Workflow Case A | Find odom → **publish-until** `--field pose.pose.position.x --delta N` |
+| "Rotate N degrees / turn N radians" | Closed-loop rotation → Movement Workflow Case B | Find odom → **publish-until** `--rotate N [--degrees]` |
 | "Move arm/joint (manipulator)" | Publish JointTrajectory | Find JointTrajectory topic → publish |
 | "Control gripper" | Publish GripperCommand or JointTrajectory | Find gripper topic → publish |
 | "Stop the robot" | Publish zero velocity | Find Twist → publish zeros |
@@ -250,7 +314,7 @@ python3 {baseDir}/scripts/ros2_cli.py nodes list      # All nodes
 
 | Need to find... | Search command... |
 |-----------------|------------------|
-| Velocity command topic (mobile) | `topics find geometry_msgs/Twist` AND `topics find geometry_msgs/TwistStamped` |
+| Velocity command topic (mobile) | `topics find geometry_msgs/Twist` AND `topics find geometry_msgs/TwistStamped` → then `topics type <result>` to confirm exact type |
 | Position/odom topic | `topics find nav_msgs/Odometry` |
 | Joint positions | `topics find sensor_msgs/JointState` |
 | Joint trajectory (arm control) | `topics find trajectory_msgs/JointTrajectory` |
@@ -269,14 +333,17 @@ python3 {baseDir}/scripts/ros2_cli.py nodes list      # All nodes
 
 ### Step 4: Get Message Structure
 
-**Before publishing or calling, always get the structure:**
+**Before publishing or calling, always confirm the type and get the structure:**
 
 ```bash
+# Confirm the exact message type of a discovered topic (critical — never skip this)
+python3 {baseDir}/scripts/ros2_cli.py topics type <discovered_topic>
+
 # Get field structure (for building payloads)
-python3 {baseDir}/scripts/ros2_cli.py topics message <message_type>
+python3 {baseDir}/scripts/ros2_cli.py topics message <confirmed_message_type>
 
 # Get default values (copy-paste template)
-python3 {baseDir}/scripts/ros2_cli.py interface proto <message_type>
+python3 {baseDir}/scripts/ros2_cli.py interface proto <confirmed_message_type>
 
 # Get service/action request structure
 python3 {baseDir}/scripts/ros2_cli.py services details <service_name>
@@ -359,20 +426,23 @@ In short: for any "move N meters" or "rotate N degrees" command, you MUST find t
 
 **`publish-until` stops automatically** when the odometry condition is met — no explicit stop step is needed.
 
-For open-ended publishes (`topics publish` or `publish-sequence` fallback), the final message MUST be all zeros:
+For open-ended publishes (`topics publish` or `publish-sequence` fallback), the final message MUST be all zeros.
+
+Always use the topic name and payload type discovered in Steps 1–2. `<VEL_TOPIC>` and `<ODOM_TOPIC>` are placeholders for your discovered values.
 
 ```bash
-# WRONG: open-ended publish with no stop
+# WRONG: open-ended publish with no stop, and hardcoded /cmd_vel — never do this
 python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel '{"linear":{"x":1.0}}'
 
 # CORRECT (distance specified, odometry available): use publish-until — stops itself
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2},"angular":{"z":0}}' \
-  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+# VEL_TOPIC and ODOM_TOPIC come from your introspection steps
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '<payload_matching_confirmed_type>' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta 1.0 --timeout 30
 
 # CORRECT (fallback only — no odometry, no distance specified): publish-sequence with stop at end
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
-  '[{"linear":{"x":0.2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
+  '[<move_payload>, <zero_payload>]' \
   '[3.0, 0.5]'
 ```
 
@@ -455,13 +525,18 @@ Use `topics capture-image --topic <discovered>` - never `subscribe` for images.
 
 ### Velocity Commands (Twist vs TwistStamped)
 
-Check both types:
+Check both types to find the topic:
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
 ```
-- Twist: `{"linear": {"x": 1.0}, "angular": {"z": 0.0}}`
-- TwistStamped: `{"header": {"stamp": {"sec": 0}}, "twist": {"linear": {"x": 1.0}, "angular": {"z": 0.0}}}`
+Then confirm the exact type of the discovered topic — do not assume from the find result:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics type <discovered_topic>
+```
+Use the confirmed type to choose the payload:
+- `geometry_msgs/msg/Twist`: `{"linear": {"x": 1.0, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}`
+- `geometry_msgs/msg/TwistStamped`: `{"header": {"stamp": {"sec": 0}, "frame_id": ""}, "twist": {"linear": {"x": 1.0, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}}`
 
 ### Quick lookup table
 
@@ -472,7 +547,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
 | Odometry | `topics find nav_msgs/msg/Odometry` | Subscribe to result |
 | IMU | `topics find sensor_msgs/msg/Imu` | Subscribe to result |
 | Joint states | `topics find sensor_msgs/msg/JointState` | Subscribe to result |
-| Move robot | `topics find geometry_msgs/msg/Twist` | Publish to result |
+| Move robot | `topics find geometry_msgs/msg/Twist` AND `topics find geometry_msgs/msg/TwistStamped` → then `topics type <result>` to confirm | Publish to discovered topic |
 | Run launch file | `launch new <package> <file>` | Runs in tmux session |
 | List running launches | `launch list` | Shows tmux sessions |
 | Kill launch | `launch kill <session>` | Kills tmux session |
@@ -677,46 +752,22 @@ python3 {baseDir}/scripts/ros2_cli.py version
 python3 {baseDir}/scripts/ros2_cli.py topics list
 python3 {baseDir}/scripts/ros2_cli.py nodes list
 python3 {baseDir}/scripts/ros2_cli.py services list
-python3 {baseDir}/scripts/ros2_cli.py topics type /cmd_vel
-python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
 python3 {baseDir}/scripts/ros2_cli.py actions list
-python3 {baseDir}/scripts/ros2_cli.py params list /robot_node
+
+# Find a topic by type, then inspect it
+# (replace the type with whatever you're looking for)
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+# → get the discovered topic name, then:
+python3 {baseDir}/scripts/ros2_cli.py topics type <discovered_topic>
+python3 {baseDir}/scripts/ros2_cli.py interface proto <confirmed_type>
 ```
 
 ### 2. Move a Robot
 
-**ALWAYS use auto-discovery first** to find the correct velocity topic and message type. Never assume topic names.
+Follow the [Movement Workflow](#movement-workflow-canonical) section. It covers all cases: distance commands, rotation commands, open-ended movement, and the no-odometry fallback. Always discover topics first — never assume names.
 
-**If the user specifies a distance or angle, Rule 3 applies: you MUST use `publish-until` with odometry.**
-
-```bash
-# Step 1: Discover velocity command topics (check both Twist and TwistStamped)
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/TwistStamped
-
-# Step 2: Discover odometry topic (REQUIRED for distance/angle commands)
-python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/Odometry
-
-# Step 3a: Distance/angle command — use publish-until with odometry (MANDATORY)
-# Move forward 1 meter
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2},"angular":{"z":0}}' \
-  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
-
-# Rotate 90 degrees
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor /odom --rotate 90 --degrees --timeout 30
-
-# Step 3b: FALLBACK ONLY — no distance/angle specified, or odometry genuinely not available
-# Use publish-sequence with a stop command at the end.
-# DO NOT use this when a distance or angle has been requested and odometry exists.
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
-  '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
-  '[2.0, 0.5]'
-```
-
-**For emergency stop:**
+**Emergency stop:**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py estop
 ```
@@ -799,104 +850,183 @@ python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_b 0
 
 ### 7. Goal-Oriented Commands (publish-until)
 
-When the user wants the robot to **do something until a condition is met** — "drive forward 1 meter", "turn until joint reaches 1.5 rad", "stop when temperature exceeds 50°C" — use `publish-until`. Because the exact topic names, message types, and field paths vary by robot, **always introspect the live system first**.
+For any goal with a sensor-based stop condition — joint angles, temperature limits, proximity, battery level — use `publish-until` with the appropriate monitor topic and condition flag. **Always discover both the command topic and the monitor topic before executing** — never hardcode names.
 
-#### Discovery workflow
+| User intent | Discover command topic | Discover monitor topic | Condition |
+|-------------|----------------------|----------------------|-----------|
+| Stop near obstacle | `topics find geometry_msgs/Twist` + `TwistStamped` | `topics find sensor_msgs/LaserScan` → field `ranges.0` | `--below 0.5` |
+| Stop at range | same | `topics find sensor_msgs/Range` → field `range` | `--below D` |
+| Stop at temperature | — | `topics find sensor_msgs/Temperature` → field `temperature` | `--above T` |
+| Stop at battery level | — | `topics find sensor_msgs/BatteryState` → field `percentage` | `--below P` |
+| Joint reach angle | `topics find trajectory_msgs/JointTrajectory` or similar | `topics find sensor_msgs/JointState` → field `position.0` | `--equals A` or `--delta D` |
+| Multi-joint distance | same | `topics find sensor_msgs/JointState` → fields `position.0 position.1` | `--euclidean --delta D` |
 
-**Step 1 — Find the command topic** (what to publish to)
+**`--euclidean`** computes `sqrt(Σ(current_i - start_i)²)` across all `--field` paths. Use it for curved or diagonal paths. **Composite field shorthand**: `--field pose.pose.position` auto-expands to `x, y, z` — equivalent to listing all three fields explicitly.
+
 ```bash
-# Find velocity/command topics
-python3 {baseDir}/scripts/ros2_cli.py topics list
+# Example: stop when front range sensor reads < 0.5 m
+# Step 1: discover velocity topic
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+# → VEL_TOPIC = (result, e.g. /base/cmd_vel)
+python3 {baseDir}/scripts/ros2_cli.py topics type <VEL_TOPIC>
+# → confirms type, determines payload structure
+
+# Step 2: discover laser scan topic
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+# → SCAN_TOPIC = (result, e.g. /scan or /lidar/scan)
+
+# Step 3: execute with discovered names
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '<payload_matching_confirmed_type>' \
+  --monitor <SCAN_TOPIC> --field ranges.0 --below 0.5 --timeout 30
+
+# Example: move a joint until it reaches 1.5 rad
+# Step 1: discover joint command topic
+python3 {baseDir}/scripts/ros2_cli.py topics find trajectory_msgs/msg/JointTrajectory
+# → or check nodes details for the arm controller node
+# → JOINT_CMD_TOPIC = (result)
+
+# Step 2: discover joint state topic
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/JointState
+# → JOINT_STATE_TOPIC = (result)
+
+# Step 3: execute with discovered names
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <JOINT_CMD_TOPIC> \
+  '{"data":0.5}' \
+  --monitor <JOINT_STATE_TOPIC> --field position.0 --equals 1.5 --timeout 10
+```
+
+---
+
+<a name="movement-workflow-canonical"></a>
+## Movement Workflow (canonical)
+
+This is the single authoritative workflow for all robot movement. Rule 3 in the Agent Behaviour Rules above is a summary of this section. Always follow these steps in order.
+
+**In every example below, `<VEL_TOPIC>`, `<ODOM_TOPIC>`, and `<PAYLOAD>` are placeholders for values you discover in Steps 1–2. Never substitute `/cmd_vel`, `/odom`, or any other assumed name.**
+
+### Step 1 — Discover the velocity command topic and confirm its exact type
+
+Run both searches in parallel:
+
+```bash
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
 ```
 
-**Step 2 — Find the feedback/sensor topic** (what to monitor)
+Take the result — this is `VEL_TOPIC`. Then confirm the exact type:
+
 ```bash
-# For position/distance — look for odometry
+python3 {baseDir}/scripts/ros2_cli.py topics type <VEL_TOPIC>
+```
+
+The confirmed type determines the payload:
+- **`geometry_msgs/msg/Twist`**: `{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}`
+- **`geometry_msgs/msg/TwistStamped`**: `{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}`
+- Zero/stop — **Twist**: `{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}`
+- Zero/stop — **TwistStamped**: `{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}`
+
+If both find commands return results, run `topics type` on each to get the definitive type — do not guess from the topic name.
+
+### Step 2 — Discover the odometry topic
+
+```bash
 python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
-
-# For joint angles — look for joint states
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/JointState
-
-# For temperature — look for temperature topics
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Temperature
-
-# For proximity/obstacle — look for laser/range
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Range
 ```
 
-**Step 3 — Inspect the message field structure**
+Take the result — this is `ODOM_TOPIC`.
+
+### Step 3 — Execute based on intent and odometry availability
+
+#### Case A — Distance specified, odometry available → `publish-until` (closed loop)
+
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py topics message nav_msgs/msg/Odometry
-python3 {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/msg/JointState
-python3 {baseDir}/scripts/ros2_cli.py topics message sensor_msgs/msg/Temperature
-```
+# Step 1 result: VEL_TOPIC = <discovered, e.g. /base/cmd_vel or /robot/cmd_vel>
+# Step 1 type check: geometry_msgs/msg/Twist → use Twist payload
+# Step 2 result: ODOM_TOPIC = <discovered, e.g. /odom or /wheel_odom>
 
-**Step 4 — Read the current value** to establish a baseline (needed for `--delta`)
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 2
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 2
-```
-
-**Step 5 — Construct and run publish-until**
-
-#### Common patterns
-
-| User intent | Monitor topic | Field(s) | Condition |
-|-------------|--------------|----------|-----------|
-| Move forward N m (straight) | `/odom` | `pose.pose.position.x` | `--delta N` |
-| Move backward N m | `/odom` | `pose.pose.position.x` | `--delta -N` |
-| Move sideways N m | `/odom` | `pose.pose.position.y` | `--delta N` |
-| Move N m (any direction, 2D) | `/odom` | `pose.pose.position.x` `pose.pose.position.y` | `--euclidean --delta N` |
-| Move N m (any direction, 3D) | `/odom` | `pose.pose.position.x` `pose.pose.position.y` `pose.pose.position.z` | `--euclidean --delta N` |
-| Move N m (shorthand, auto-expanded) | `/odom` | `pose.pose.position` | `--euclidean --delta N` |
-| **Rotate N radians** | `/odom` | *(auto-detected)* | **`--rotate N`** |
-| **Rotate N degrees** | `/odom` | *(auto-detected)* | **`--rotate N --degrees`** |
-| Joint reach angle | `/joint_states` | `position.0` (index of joint) | `--equals A` or `--delta D` |
-| Multi-joint Euclidean distance | `/joint_states` | `position.0` `position.1` | `--euclidean --delta D` |
-| Stop near obstacle | `/scan` | `ranges.0` (front index) | `--below 0.5` |
-| Stop at range | `/range` | `range` | `--below D` |
-| Stop at temperature | `/temperature` | `temperature` | `--above T` |
-| Stop at battery level | `/battery` | `percentage` | `--below P` |
-
-**`--rotate` flag** (NEW): Rotate the robot by a specific angle without dealing with quaternion math.
-- `--rotate N` — rotate N radians (default)
-- `--rotate N --degrees` — rotate N degrees
-- Automatically extracts quaternion from odometry and monitors angular change
-- Handles angle wraparound correctly
-
-**`--euclidean`** takes any number of numeric fields, computes `sqrt(Σ(current_i - start_i)²)`, and stops when that distance ≥ the `--delta` threshold. Use it whenever the robot's path is not axis-aligned.
-
-**Composite field auto-expansion**: if a `--field` path resolves to a sub-message dict (e.g. `pose.pose.position` → `{x, y, z}`), `--euclidean` mode automatically expands it to all direct numeric children (sorted alphabetically: `x, y, z`). This lets you write `--field pose.pose.position --euclidean --delta 1.0` instead of listing every sub-field explicitly. Non-numeric children (strings, nested dicts) are skipped.
-
-**Examples:**
-```bash
 # Move forward 1 meter
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2},"angular":{"z":0}}' \
-  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta 1.0 --timeout 30
 
-# Move 2 meters in any direction (Euclidean)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2},"angular":{"z":0.3}}' \
-  --monitor /odom --field pose.pose.position --euclidean --delta 2.0 --timeout 60
+# Move forward 1 meter — TwistStamped variant (if type check returned TwistStamped)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta 1.0 --timeout 30
 
-# Rotate 90 degrees (NEW!)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor /odom --rotate 1.5708 --timeout 30
+# Move backward 0.5 meters (negative delta)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":-0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta -0.5 --timeout 30
 
-# Rotate 90 degrees using --degrees flag
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor /odom --rotate 90 --degrees --timeout 30
+# Move 2 meters in any direction (curved path — Euclidean distance)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.3}}' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position --euclidean --delta 2.0 --timeout 60
+```
 
-# Rotate -45 degrees (clockwise)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":-0.5}}' \
-  --monitor /odom --rotate 45 --degrees --timeout 30
+#### Case B — Rotation specified, odometry available → `publish-until --rotate` (closed loop)
+
+`--rotate` automatically extracts orientation from odometry quaternion and handles angle wraparound. No field path needed.
+
+```bash
+# Step 1 result: VEL_TOPIC = <discovered>
+# Step 2 result: ODOM_TOPIC = <discovered>
+
+# Rotate 90 degrees counter-clockwise (Twist)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.5}}' \
+  --monitor <ODOM_TOPIC> --rotate 90 --degrees --timeout 30
+
+# Rotate 45 degrees clockwise — negative angular.z (Twist)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":-0.5}}' \
+  --monitor <ODOM_TOPIC> --rotate 45 --degrees --timeout 30
+
+# Rotate 1.57 radians (TwistStamped variant)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.5}}}' \
+  --monitor <ODOM_TOPIC> --rotate 1.5708 --timeout 30
+```
+
+#### Case C — Open-ended movement (no distance/angle) → `publish-sequence`
+
+Always include a zero-velocity stop as the final message. Use the payload structure matching the confirmed type from Step 1.
+
+```bash
+# Step 1 result: VEL_TOPIC = <discovered>
+# Type check: geometry_msgs/msg/Twist → Twist payload
+
+# Drive forward for 3 seconds then stop (Twist)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
+  '[{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
+  '[3.0, 0.5]'
+
+# Drive forward for 3 seconds then stop (TwistStamped variant)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
+  '[{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}},{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}]' \
+  '[3.0, 0.5]'
+```
+
+#### Case D — Distance or angle specified, but odometry NOT available → `publish-sequence` (open loop)
+
+Tell the user before executing: *"No odometry topic found. Running open-loop — distance/angle accuracy is not guaranteed."* Then estimate `duration = distance / velocity` and use `publish-sequence` with a stop.
+
+```bash
+# Step 1 result: VEL_TOPIC = <discovered>
+# Step 2 result: no odometry found
+
+# Estimate: 1 m at 0.2 m/s ≈ 5 s (Twist)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
+  '[{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
+  '[5.0, 0.5]'
+
+# Estimate: 1 m at 0.2 m/s ≈ 5 s (TwistStamped variant)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
+  '[{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}},{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}]' \
+  '[5.0, 0.5]'
 ```
 
 ---
@@ -912,20 +1042,8 @@ python3 {baseDir}/scripts/ros2_cli.py services list
 ```
 
 ### 2. Move a Robot
-```bash
-# Discover velocity topic
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
-# Discover odometry topic (REQUIRED for distance/angle commands — Rule 3)
-python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/Odometry
-# Move forward 1 meter using odometry feedback (MANDATORY when distance is specified)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2},"angular":{"z":0}}' \
-  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
-# FALLBACK ONLY (no distance specified, or no odometry available): publish-sequence with stop
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
-  '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
-  '[2.0, 0.5]'
-```
+
+See the [Movement Workflow](#movement-workflow-canonical) section — it covers all cases with complete examples.
 
 ### 3. Read Sensors
 ```bash
@@ -945,25 +1063,9 @@ python3 {baseDir}/scripts/ros2_cli.py actions list
 python3 {baseDir}/scripts/ros2_cli.py actions send /navigate_to_pose '{"pose":{"header":{"stamp":{"sec":0}},"pose":{"position":{"x":1.0,"y":0.0,"z":0.0},"orientation":{"x":0.0,"y":0.0,"z":0.0,"w":1.0}}}}'
 ```
 
-### 6. Move Forward N Meters
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2},"angular":{"z":0}}' \
-  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
-```
+### 6. Move Forward N Meters / Rotate N Degrees
 
-### 7. Rotate N Degrees (NEW!)
-```bash
-# Rotate 90 degrees
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor /odom --rotate 90 --degrees --timeout 30
-
-# Rotate 180 degrees
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor /odom --rotate 3.14159 --timeout 30
-```
+See the [Movement Workflow](#movement-workflow-canonical) section — Cases A and B cover distance and rotation with full examples.
 
 ---
 
@@ -980,9 +1082,12 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
 - `control set-hardware-component-state` — driving hardware through lifecycle states can stop actuators or sensors
 - `control reload-controller-libraries` — stops all running controllers if `--force-kill` is used
 
-**Always stop the robot after movement.** The last message in any `publish-sequence` should be all zeros:
+**Always stop the robot after movement.** The last message in any `publish-sequence` should be all zeros, using the payload structure that matches the confirmed type (Twist or TwistStamped — from your `topics type` introspection step):
 ```json
+// Twist stop
 {"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}
+// TwistStamped stop
+{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}
 ```
 
 **Always check JSON output for errors before proceeding.**

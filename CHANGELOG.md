@@ -2,6 +2,59 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.7] - 2026-03-13
+
+### Fixed — Full auto-introspection; eliminated all hardcoded topic/type assumptions
+
+The core principle is now enforced throughout: the agent must discover every topic name, service name, action name, and message type from the live ROS 2 graph before acting. No exceptions, not even for "conventional" names like `/cmd_vel` or types like `Twist`.
+
+#### New Rule 0 — Mandatory pre-flight introspection protocol
+
+Added a new **Rule 0** above all other rules in the Agent Behaviour Rules section. It establishes a non-negotiable pre-flight introspection gate before any publish/call/send action:
+- Explicit prohibition list: never use `/cmd_vel`, never use `Twist` payload, never use `/odom` without first discovering them via `topics find`
+- Per-action-type introspection requirements (publish, service call, action send, movement, sensor read, node operations)
+- Clear rationale: convention-based guessing causes silent failures and physical accidents
+
+#### Rule 3 — Added `topics type` confirmation step
+
+Step 1 of the Movement Algorithm now explicitly requires running `topics type <VEL_TOPIC>` after discovery to confirm the exact type. Previously, agents were expected to infer the type from which `topics find` command returned a result — an unreliable heuristic. The confirmed type is what determines the payload structure.
+
+#### Movement Workflow (canonical) — Replaced hardcoded names with discovered variables
+
+All four cases (A–D) in the canonical Movement Workflow section now:
+- State explicitly that `<VEL_TOPIC>` and `<ODOM_TOPIC>` are placeholders for discovered values
+- Show the discovery step (`topics find` + `topics type`) as part of each case block
+- Include both Twist and TwistStamped payload variants in every case
+- Never use `/cmd_vel` or `/odom` as if they are known
+
+#### Goal-Oriented Commands section — Full introspection shown for every example
+
+Replaced bare examples that hardcoded `/cmd_vel`, `/scan`, and `/joint_cmd` with step-by-step flows showing discovery of the command topic, type confirmation, and monitor topic discovery before the `publish-until` call.
+
+#### EXECUTION RULES Rule 4 — Hardcoded names removed
+
+Rule 4 "Always Stop After Movement" no longer shows `/cmd_vel` or `/odom` in examples. All examples use `<VEL_TOPIC>` and `<ODOM_TOPIC>` placeholders with an explicit note that these come from introspection.
+
+#### Quick Reference "1. Explore a Robot System" — Removed hardcoded `/cmd_vel`
+
+The example no longer teaches `topics type /cmd_vel` as a starting point. Replaced with the correct pattern: `topics find <type>` → `topics type <discovered>` → `interface proto <confirmed_type>`.
+
+#### Quick lookup table — Fixed "Move robot" entry
+
+Now shows both `topics find geometry_msgs/msg/Twist` AND `TwistStamped`, followed by `topics type <result>` to confirm. Previously only showed Twist discovery.
+
+#### Velocity Commands section — Added `topics type` confirmation step
+
+The "Velocity Commands (Twist vs TwistStamped)" discovery section now includes the mandatory `topics type <discovered_topic>` step between discovery and payload selection.
+
+#### Agent Decision Framework Step 4 — Added `topics type` as first step
+
+"Get Message Structure" now lists `topics type <discovered_topic>` as the first and most critical step before getting field structures or proto templates.
+
+#### Safety Notes — Added TwistStamped stop payload
+
+Zero-velocity stop payload section now shows both Twist and TwistStamped variants, since the correct one depends on the confirmed type from introspection.
+
 ## [1.0.6] - 2026-03-13
 
 ### Fixed — Remaining escape hatches allowing time-based movement instead of odometry feedback
