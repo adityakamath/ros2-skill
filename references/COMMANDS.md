@@ -2917,6 +2917,9 @@ Run a ROS 2 executable in a tmux session. System ROS is assumed to be already so
 
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
+| `--presets NAME` | No | — | Comma-separated preset names to apply before running |
+| `--params "k:v"` | No | — | Inline parameters (comma-separated key:value pairs) |
+| `--config-path PATH` | No | auto | Path to config directory |
 | `--refresh` | No | false | Force refresh package cache before checking |
 
 **Run an executable:**
@@ -2927,6 +2930,16 @@ python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop
 **Run with arguments:**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop --speed 1.0
+```
+
+**Run with parameters:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop --params "speed:1.0,max_velocity:2.0"
+```
+
+**Run with presets:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop --presets indoor
 ```
 
 **Output:**

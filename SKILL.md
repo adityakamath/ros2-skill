@@ -560,6 +560,12 @@ python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop
 # Run with arguments
 python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop --arg1 value
 
+# Run with parameters
+python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop --params "speed:1.0"
+
+# Run with presets
+python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop --presets indoor
+
 # Refresh package cache
 python3 {baseDir}/scripts/ros2_cli.py run lekiwi_control teleop --refresh
 ```

@@ -9,6 +9,9 @@ Added run commands for running ROS 2 executables in tmux sessions.
 ### Run Commands
 
 - `run <package> <executable> [args...]` — run a ROS 2 executable in a tmux session
+- `run --presets <preset>` — apply preset parameters before running
+- `run --params "key:value"` — set inline parameters before running
+- `run --config-path PATH` — path to config directory
 - `run --refresh` — force refresh package cache before checking
 - `run list` — list running run sessions in tmux
 - `run kill <session>` — kill a running run session

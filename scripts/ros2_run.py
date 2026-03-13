@@ -43,6 +43,27 @@ def _find_executables(package):
     return executables
 
 
+def _apply_params(params_str):
+    """Parse and return params from key:value string."""
+    if not params_str:
+        return {}
+    
+    params = {}
+    for pair in params_str.split(','):
+        pair = pair.strip()
+        if ':' in pair:
+            key, value = pair.split(':', 1)
+            try:
+                if '.' in value:
+                    params[key.strip()] = float(value)
+                else:
+                    params[key.strip()] = int(value)
+            except ValueError:
+                params[key.strip()] = value.strip()
+    
+    return params
+
+
 def cmd_run(args):
     """Run a ROS 2 executable in a tmux session."""
     if not check_tmux():
@@ -53,6 +74,9 @@ def cmd_run(args):
     package = args.package
     executable = args.executable
     run_args = args.args or []
+    presets = args.presets
+    params_str = args.params
+    config_path = args.config_path
     force_refresh = getattr(args, 'refresh', False)
     
     # Check package exists
@@ -78,6 +102,14 @@ def cmd_run(args):
             "available_executables": executables,
             "suggestion": f"Use one of: {', '.join(executables)}"
         })
+    
+    # Apply presets if specified
+    applied_presets = []
+    if presets:
+        applied_presets = [p.strip() for p in presets.split(',')]
+    
+    # Apply params if specified
+    applied_params = _apply_params(params_str) if params_str else {}
     
     # Build run command
     cmd_parts = ["ros2 run", package, executable]
@@ -136,6 +168,8 @@ def cmd_run(args):
         "executable": executable,
         "args": run_args,
         "status": status,
+        "presets_applied": applied_presets,
+        "params_applied": applied_params,
     }
     
     if ws_path:
@@ -153,6 +187,8 @@ def cmd_run(args):
         "package": package,
         "executable": executable,
         "args": run_args,
+        "presets": presets,
+        "params": params_str,
         "command": run_cmd_str
     })
     
@@ -216,6 +252,8 @@ def cmd_run_restart(args):
     package = metadata.get("package")
     executable = metadata.get("executable")
     run_args = metadata.get("args", [])
+    presets = metadata.get("presets")
+    params_str = metadata.get("params")
     
     if not package or not executable:
         return output({
@@ -231,6 +269,9 @@ def cmd_run_restart(args):
         'package': package,
         'executable': executable,
         'args': run_args,
+        'presets': presets,
+        'params': params_str,
+        'config_path': None,
         'refresh': False
     })()
     
