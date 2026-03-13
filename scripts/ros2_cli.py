@@ -136,7 +136,7 @@ Commands:
     Find all services of a specific type.
     Accepts both /srv/ and non-/srv/ formats (normalised for comparison).
     $ python3 ros2_cli.py services find std_srvs/srv/Empty
-    $ python3 ros2_cli.py services find std srvs/Empty
+    $ python3 ros2_cli.py services find std_srvs/Empty
 
   services info <service>
     Alias for services details (ros2 service info).
@@ -665,23 +665,23 @@ def build_parser():
     p = tsub.add_parser("info", help="Alias for details (ros2 topic info)")
     p.add_argument("topic")
     p = tsub.add_parser("hz", help="Measure topic publish rate")
-    p.add_argument("topic", nargs="?")
+    p.add_argument("topic", nargs="?", help="Topic name (e.g. /cmd_vel)")
     p.add_argument("--window", type=int, default=10,
                    help="Number of inter-message intervals to sample (default: 10)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Max wait time in seconds (default: 10)")
     p = tsub.add_parser("find", help="Find topics by message type")
-    p.add_argument("msg_type", nargs="?")
+    p.add_argument("msg_type", nargs="?", help="Message type to search for (e.g. geometry_msgs/msg/Twist)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
     p = tsub.add_parser("bw", help="Measure topic bandwidth")
-    p.add_argument("topic", nargs="?")
+    p.add_argument("topic", nargs="?", help="Topic name (e.g. /camera/image_raw)")
     p.add_argument("--window", type=int, default=10,
                    help="Number of messages to sample (default: 10)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Max wait time in seconds (default: 10)")
     p = tsub.add_parser("delay", help="Measure header.stamp → wall-clock latency")
-    p.add_argument("topic", nargs="?")
+    p.add_argument("topic", nargs="?", help="Topic name (must publish messages with header.stamp)")
     p.add_argument("--window", type=int, default=10,
                    help="Number of messages to sample (default: 10)")
     p.add_argument("--timeout", type=float, default=10.0,
@@ -757,13 +757,13 @@ def build_parser():
                    help="Stop when field < N (absolute threshold)")
     p.add_argument("--equals", default=None,
                    help="Stop when field == value (numeric or string)")
-     p.add_argument("--rotate", type=float, default=None,
-                    help="Rotate by N radians (or degrees with --degrees). "
-                         "SIGN DETERMINES DIRECTION: positive = CCW (left), negative = CW (right). "
-                         "The sign of --rotate MUST match the sign of angular.z in the message — "
-                         "mismatched signs will cause the command to never stop (monitor waits for "
-                         "opposite direction). Zero is the only invalid value. "
-                         "Requires --monitor with an odometry topic.")
+    p.add_argument("--rotate", type=float, default=None,
+                   help="Rotate by N radians (or degrees with --degrees). "
+                        "SIGN DETERMINES DIRECTION: positive = CCW (left), negative = CW (right). "
+                        "The sign of --rotate MUST match the sign of angular.z in the message — "
+                        "mismatched signs will cause the command to never stop (monitor waits for "
+                        "opposite direction). Zero is the only invalid value. "
+                        "Requires --monitor with an odometry topic.")
     p.add_argument("--degrees", action="store_true", default=False,
                    help="Interpret --rotate angle in degrees instead of radians")
     p.add_argument("--rate", type=float, default=10.0,
@@ -1054,7 +1054,7 @@ def build_parser():
     p = asub.add_parser("info", help="Alias for details (ros2 action info)")
     p.add_argument("action")
     p = asub.add_parser("type", help="Get action server type")
-    p.add_argument("action", nargs="?")
+    p.add_argument("action", nargs="?", help="Action server name (e.g. /turtle1/rotate_absolute)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
     for _send_name in ("send", "send-goal"):
@@ -1071,7 +1071,7 @@ def build_parser():
                        help="Collect and return feedback messages alongside the result")
     p = asub.add_parser("cancel",
                         help="Cancel all in-flight goals on an action server")
-    p.add_argument("action", nargs="?")
+    p.add_argument("action", nargs="?", help="Action server name (e.g. /turtle1/rotate_absolute)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
     p.add_argument("--retries", type=int, default=None,
@@ -1086,7 +1086,10 @@ def build_parser():
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout waiting for first feedback in seconds (default: 5)")
     p = asub.add_parser("find", help="Find action servers by action type")
-    p.add_argument("action_type", nargs="?")
+    p.add_argument("action_type", nargs="?",
+                   help="Action type to search for (e.g. turtlesim/action/RotateAbsolute)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout in seconds (default: 5)")
 
     # ------------------------------------------------------------------
     # doctor / wtf
@@ -1156,7 +1159,10 @@ def build_parser():
     p.add_argument("source", help="Source frame")
     p.add_argument("target", help="Target frame")
     p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout in seconds")
-    tfsub.add_parser("get", help="Alias for lookup")
+    p = tfsub.add_parser("get", help="Alias for lookup")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout in seconds")
 
     # tf echo <source> <target>
     p = tfsub.add_parser("echo", help="Echo transform between frames")
@@ -1187,16 +1193,30 @@ def build_parser():
     p.add_argument("y", type=float, help="Quaternion y")
     p.add_argument("z", type=float, help="Quaternion z")
     p.add_argument("w", type=float, help="Quaternion w")
-    tfsub.add_parser("e2q", help="Alias for euler-from-quaternion")
-    tfsub.add_parser("quat2euler", help="Alias for euler-from-quaternion")
+    p = tfsub.add_parser("e2q", help="Alias for euler-from-quaternion")
+    p.add_argument("x", type=float, help="Quaternion x")
+    p.add_argument("y", type=float, help="Quaternion y")
+    p.add_argument("z", type=float, help="Quaternion z")
+    p.add_argument("w", type=float, help="Quaternion w")
+    p = tfsub.add_parser("quat2euler", help="Alias for euler-from-quaternion")
+    p.add_argument("x", type=float, help="Quaternion x")
+    p.add_argument("y", type=float, help="Quaternion y")
+    p.add_argument("z", type=float, help="Quaternion z")
+    p.add_argument("w", type=float, help="Quaternion w")
 
     # tf quaternion-from-euler <roll> <pitch> <yaw>
     p = tfsub.add_parser("quaternion-from-euler", help="Convert Euler to quaternion (radians)")
     p.add_argument("roll", type=float, help="Euler roll (radians)")
     p.add_argument("pitch", type=float, help="Euler pitch (radians)")
     p.add_argument("yaw", type=float, help="Euler yaw (radians)")
-    tfsub.add_parser("q2e", help="Alias for quaternion-from-euler")
-    tfsub.add_parser("euler2quat", help="Alias for quaternion-from-euler")
+    p = tfsub.add_parser("q2e", help="Alias for quaternion-from-euler")
+    p.add_argument("roll", type=float, help="Euler roll (radians)")
+    p.add_argument("pitch", type=float, help="Euler pitch (radians)")
+    p.add_argument("yaw", type=float, help="Euler yaw (radians)")
+    p = tfsub.add_parser("euler2quat", help="Alias for quaternion-from-euler")
+    p.add_argument("roll", type=float, help="Euler roll (radians)")
+    p.add_argument("pitch", type=float, help="Euler pitch (radians)")
+    p.add_argument("yaw", type=float, help="Euler yaw (radians)")
 
     # tf euler-from-quaternion-deg <x> <y> <z> <w>
     p = tfsub.add_parser("euler-from-quaternion-deg", help="Convert quaternion to Euler (degrees)")
@@ -1204,14 +1224,21 @@ def build_parser():
     p.add_argument("y", type=float, help="Quaternion y")
     p.add_argument("z", type=float, help="Quaternion z")
     p.add_argument("w", type=float, help="Quaternion w")
-    tfsub.add_parser("e2qdeg", help="Alias for euler-from-quaternion-deg")
+    p = tfsub.add_parser("e2qdeg", help="Alias for euler-from-quaternion-deg")
+    p.add_argument("x", type=float, help="Quaternion x")
+    p.add_argument("y", type=float, help="Quaternion y")
+    p.add_argument("z", type=float, help="Quaternion z")
+    p.add_argument("w", type=float, help="Quaternion w")
 
     # tf quaternion-from-euler-deg <roll> <pitch> <yaw>
     p = tfsub.add_parser("quaternion-from-euler-deg", help="Convert Euler to quaternion (degrees)")
     p.add_argument("roll", type=float, help="Euler roll (degrees)")
     p.add_argument("pitch", type=float, help="Euler pitch (degrees)")
     p.add_argument("yaw", type=float, help="Euler yaw (degrees)")
-    tfsub.add_parser("q2edeg", help="Alias for quaternion-from-euler-deg")
+    p = tfsub.add_parser("q2edeg", help="Alias for quaternion-from-euler-deg")
+    p.add_argument("roll", type=float, help="Euler roll (degrees)")
+    p.add_argument("pitch", type=float, help="Euler pitch (degrees)")
+    p.add_argument("yaw", type=float, help="Euler yaw (degrees)")
 
     # tf transform-point <target> <source> <x> <y> <z>
     p = tfsub.add_parser("transform-point", help="Transform a point between frames")
@@ -1221,8 +1248,20 @@ def build_parser():
     p.add_argument("y", type=float, help="Point y")
     p.add_argument("z", type=float, help="Point z")
     p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
-    tfsub.add_parser("tp", help="Alias for transform-point")
-    tfsub.add_parser("point", help="Alias for transform-point")
+    p = tfsub.add_parser("tp", help="Alias for transform-point")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("x", type=float, help="Point x")
+    p.add_argument("y", type=float, help="Point y")
+    p.add_argument("z", type=float, help="Point z")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
+    p = tfsub.add_parser("point", help="Alias for transform-point")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("x", type=float, help="Point x")
+    p.add_argument("y", type=float, help="Point y")
+    p.add_argument("z", type=float, help="Point z")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
 
     # tf transform-vector <target> <source> <x> <y> <z>
     p = tfsub.add_parser("transform-vector", help="Transform a vector between frames")
@@ -1232,8 +1271,20 @@ def build_parser():
     p.add_argument("y", type=float, help="Vector y")
     p.add_argument("z", type=float, help="Vector z")
     p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
-    tfsub.add_parser("tv", help="Alias for transform-vector")
-    tfsub.add_parser("vector", help="Alias for transform-vector")
+    p = tfsub.add_parser("tv", help="Alias for transform-vector")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("x", type=float, help="Vector x")
+    p.add_argument("y", type=float, help="Vector y")
+    p.add_argument("z", type=float, help="Vector z")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
+    p = tfsub.add_parser("vector", help="Alias for transform-vector")
+    p.add_argument("target", help="Target frame")
+    p.add_argument("source", help="Source frame")
+    p.add_argument("x", type=float, help="Vector x")
+    p.add_argument("y", type=float, help="Vector y")
+    p.add_argument("z", type=float, help="Vector z")
+    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
 
     # ------------------------------------------------------------------
     # launch

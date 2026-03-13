@@ -375,7 +375,7 @@ Agent does (for movement):
 | "What lifecycle nodes?" | List managed nodes | Run `lifecycle nodes` |
 | "Check lifecycle state" | Get node state | Run `lifecycle get <node>` |
 | "Configure/activate lifecycle node" | Set lifecycle state | Run `lifecycle set <node> <transition>` |
-| "Run diagnostics/health check" | Run doctor | Run `doctor check` |
+| "Run diagnostics/health check" | Run doctor | Run `doctor` |
 | "Test connectivity" | Run multicast test | Run `doctor hello` |
 | "What parameters?" | List params | Find node → `params list` |
 | "What is the max speed?" | Get params | Find controller → get velocity limits |
@@ -688,8 +688,8 @@ Use the confirmed type to choose the payload:
 - ❌ Never invent a package name that doesn't exist
 - ❌ Never invent a launch file that doesn't exist
 - ❌ Never assume a package exists without checking
-- ❌ Never guess launch argument names (e.g., don't assume "mock" → "use_mock")
-- ❌ Never auto-correct or fuzzy-match argument names
+- ❌ Never invent launch argument names not present in `--show-args` output
+- ❌ Never fuzzy-match argument names yourself — the script does this automatically against real `--show-args` output; always pass the user's original name and let the script resolve it
 - ❌ Never pass arguments that weren't explicitly provided by the user
 
 ### ALWAYS verify:

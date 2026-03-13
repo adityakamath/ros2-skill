@@ -305,7 +305,7 @@ Publish a message at a fixed rate while simultaneously monitoring a second topic
 **Discovery workflow:** Before running, always introspect the robot:
 1. `topics find nav_msgs/msg/Odometry` — find the feedback topic (for --rotate or --field)
 2. `topics message nav_msgs/msg/Odometry` — inspect field paths (for --field)
-3. `topics subscribe /odom --duration 2` — read current value (baseline for `--delta`)
+3. `topics subscribe <ODOM_TOPIC> --duration 2` — read current value (baseline for `--delta`)
 4. For rotation: use `--rotate ±N` — positive = CCW (left), negative = CW (right). Sign MUST match `angular.z` sign in the message payload.
 
 | Argument | Required | Description |
@@ -964,6 +964,10 @@ Find all topics publishing a specific message type. Accepts both `/msg/` and sho
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `message_type` | Yes | Message type (e.g. `geometry_msgs/msg/Twist` or `geometry_msgs/Twist`) |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECONDS` | `5` | Timeout in seconds for topic discovery |
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
@@ -1853,6 +1857,10 @@ Find all action servers of a specific action type. Accepts both `/action/` and s
 |----------|----------|-------------|
 | `action_type` | Yes | Action type (e.g. `turtlesim/action/RotateAbsolute` or `turtlesim/RotateAbsolute`) |
 
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECONDS` | `5` | Timeout in seconds for action server discovery |
+
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py actions find turtlesim/action/RotateAbsolute
 python3 {baseDir}/scripts/ros2_cli.py actions find turtlesim/RotateAbsolute
@@ -1958,10 +1966,10 @@ python3 scripts/ros2_cli.py topics message twist
 python3 scripts/ros2_cli.py topics message geometry_msgs/Twist
 
 # Publishing with alias
-python3 scripts/ros2_cli.py topics publish /cmd_vel '{"linear":{"x":1.0}}' --type twist
+python3 scripts/ros2_cli.py topics publish /cmd_vel '{"linear":{"x":1.0}}' --msg-type twist
 
 # Subscribing with alias
-python3 scripts/ros2_cli.py topics subscribe /odom --type odom
+python3 scripts/ros2_cli.py topics subscribe /odom --msg-type odom
 ```
 
 Aliases work with all commands that accept message types: `topics message`, `topics publish`, `topics subscribe`, `topics find`, etc.
@@ -2846,6 +2854,7 @@ Continuously echo transforms.
 |--------|----------|---------|-------------|
 | `--timeout`, `-t` | No | 5.0 | Timeout per lookup |
 | `--count`, `-n` | No | 5 | Number of echos |
+| `--once` | No | false | Echo once (equivalent to `--count 1`) |
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py tf echo base_link map --count 10
@@ -2882,7 +2891,7 @@ Publish static transform. Runs in tmux session.
 python3 {baseDir}/scripts/ros2_cli.py tf static 0 0 0 0 0 0 base_link odom
 ```
 
-### tf euler-from-quaternion / tf e2q `<x>` `<y>` `<z>` `<w>`
+### tf euler-from-quaternion / tf e2q / tf quat2euler `<x>` `<y>` `<z>` `<w>`
 
 Convert quaternion to Euler angles (radians).
 
@@ -2890,7 +2899,7 @@ Convert quaternion to Euler angles (radians).
 python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion 0 0 0 1
 ```
 
-### tf quaternion-from-euler / tf q2e `<roll>` `<pitch>` `<yaw>`
+### tf quaternion-from-euler / tf q2e / tf euler2quat `<roll>` `<pitch>` `<yaw>`
 
 Convert Euler angles to quaternion (radians).
 
@@ -2932,7 +2941,7 @@ python3 {baseDir}/scripts/ros2_cli.py tf transform-vector map base_link 1 0 0
 
 ---
 
-## launch `<package>` `<launch_file>` [args...]
+## launch new `<package>` `<launch_file>` [args...]
 
 Run a ROS 2 launch file in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
 
@@ -3046,7 +3055,7 @@ python3 {baseDir}/scripts/ros2_cli.py launch list
   "launch_sessions_detail": [
     {
       "session": "launch_navigation2_navigation2",
-      "command": "ros2 launch new navigation2 navigation2.launch.py",
+      "command": "ros2 launch navigation2 navigation2.launch.py",
       "status": "running"
     }
   ]
@@ -3162,7 +3171,7 @@ python3 {baseDir}/scripts/ros2_cli.py launch restart launch_foxglove_bridge_port
 {
   "success": true,
   "session": "launch_navigation2_navigation2",
-  "command": "ros2 launch new navigation2 navigation2.launch.py",
+  "command": "ros2 launch navigation2 navigation2.launch.py",
   "status": "running",
   "message": "Session restarted"
 }
@@ -3188,7 +3197,7 @@ Error (no metadata):
 
 ---
 
-## run `<package>` `<executable>` [args...]
+## run new `<package>` `<executable>` [args...]
 
 Run a ROS 2 executable in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
 
@@ -3233,7 +3242,7 @@ python3 {baseDir}/scripts/ros2_cli.py run new lekiwi_control teleop --presets in
 {
   "success": true,
   "session": "run_lekiwi_control_teleop",
-  "command": "ros2 run new lekiwi_control teleop",
+  "command": "ros2 run lekiwi_control teleop",
   "package": "lekiwi_control",
   "executable": "teleop",
   "args": [],
@@ -3268,7 +3277,7 @@ python3 {baseDir}/scripts/ros2_cli.py run list
   "run_sessions_detail": [
     {
       "session": "run_lekiwi_control_teleop",
-      "command": "ros2 run new lekiwi_control teleop",
+      "command": "ros2 run lekiwi_control teleop",
       "status": "running"
     }
   ]
@@ -3318,7 +3327,7 @@ python3 {baseDir}/scripts/ros2_cli.py run restart run_lekiwi_control_teleop
 {
   "success": true,
   "session": "run_lekiwi_control_teleop",
-  "command": "ros2 run new lekiwi_control teleop",
+  "command": "ros2 run lekiwi_control teleop",
   "status": "running",
   "message": "Session restarted"
 }
