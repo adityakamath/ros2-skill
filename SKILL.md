@@ -194,6 +194,26 @@ Everything else: **just do it.**
 - "Do you want me to set this parameter?" — No. Set it.
 - "I found Y — would you like me to use it?" — No. Use it.
 
+### Rule 6 — Minimal reporting by default
+
+**Keep output minimal. The user wants results, not narration.**
+
+| Situation | What to report |
+|---|---|
+| Operation succeeded | One line: what was done and the key outcome. Example: "Done. Moved 1.02 m forward." |
+| Movement completed | Start position, end position, actual distance/angle travelled, and any anomalies — nothing else |
+| No suitable topic/source found | Clear error with what was searched and what to try next |
+| Safety condition triggered | Immediate notification with what happened and what was sent (stop command) |
+| Operation failed | Error message with cause and recovery suggestion |
+
+**Never report by default:**
+- The topic name selected, unless it is ambiguous or unexpected
+- The message type discovered
+- Intermediate introspection results
+- Step-by-step narration of what you are about to do
+
+**Report everything (verbose mode) only when the user explicitly asks** — e.g. "show me what topics you found", "give me the full details", "what type did you use?"
+
 ---
 
 ## Setup
@@ -276,7 +296,7 @@ Agent does (for movement):
 | "Rotate N degrees / turn N radians" | Closed-loop rotation → Movement Workflow Case B | Find odom → **publish-until** `--rotate N [--degrees]` |
 | "Move arm/joint (manipulator)" | Publish JointTrajectory | Find JointTrajectory topic → publish |
 | "Control gripper" | Publish GripperCommand or JointTrajectory | Find gripper topic → publish |
-| "Stop the robot" | Publish zero velocity | Find Twist → publish zeros |
+| "Stop the robot" | Publish zero velocity | Find Twist/TwistStamped → `topics type` to confirm → publish zeros in confirmed type |
 | "Emergency stop" | Publish zero velocity | Run `estop` command |
 | "Call /reset" | Call service | Find service → call |
 | "Navigate to..." | Send action | Find action → send goal |
@@ -352,23 +372,27 @@ python3 {baseDir}/scripts/ros2_cli.py actions details <action_name>
 
 ### Step 5: Get Safety Limits (for movement)
 
-**ALWAYS check for velocity limits before publishing movement commands:**
+**ALWAYS check for velocity limits before publishing movement commands. Discover controller nodes first — never assume their names.**
 
 ```bash
-# Find controller nodes first
+# Step 1: List all nodes to find controller nodes
 python3 {baseDir}/scripts/ros2_cli.py nodes list
+# → look for nodes with names like: diff_drive_controller, base_controller,
+#   velocity_controller, mobile_base_controller, etc.
+# → record the actual controller node name: CTRL_NODE
 
-# Common controller nodes to check:
-# /diff_drive_controller, /base_controller, /velocity_controller, /mobile_base
+# Step 2: List all parameters on the discovered controller node
+python3 {baseDir}/scripts/ros2_cli.py params list <CTRL_NODE>
+# → look for parameters containing: max_velocity, max_linear, max_angular, speed_limit, etc.
 
-# List their parameters
-python3 {baseDir}/scripts/ros2_cli.py params list /diff_drive_controller
-python3 {baseDir}/scripts/ros2_cli.py params list /base_controller
+# Step 3: Get the actual velocity limit values (use names from Step 2)
+python3 {baseDir}/scripts/ros2_cli.py params get <CTRL_NODE>:<max_velocity_param>
+python3 {baseDir}/scripts/ros2_cli.py params get <CTRL_NODE>:<max_linear_param>
+python3 {baseDir}/scripts/ros2_cli.py params get <CTRL_NODE>:<max_angular_param>
 
-# Get velocity limit parameters (if they exist)
-python3 {baseDir}/scripts/ros2_cli.py params get /diff_drive_controller:max_velocity
-python3 {baseDir}/scripts/ros2_cli.py params get /diff_drive_controller:max_linear_velocity
-python3 {baseDir}/scripts/ros2_cli.py params get /diff_drive_controller:max_angular_velocity
+# Step 4: Apply limits
+# velocity = min(requested_velocity, discovered_max_velocity)
+# Never exceed the discovered limit — use a conservative fraction (e.g. 50%) if unsure
 ```
 
 ---
@@ -501,7 +525,16 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
 | Node not found | 1. Verify node exists: `nodes list`<br>2. Check namespace |
 | Parameter not found | 1. List params: `params list <node>`<br>2. Parameter may not exist on this node |
 
-### Retry Strategy
+### Movement / publish-until Failures
+
+| Error | Recovery |
+|-------|----------|
+| `publish-until` times out without reaching target | 1. Check odometry was publishing: `topics details <ODOM_TOPIC>`<br>2. If publisher count dropped to 0 mid-motion: odometry died — send estop immediately, notify user<br>3. Increase `--timeout` if odometry is healthy but robot is slow |
+| Odometry not updating during motion | 1. Immediately send zero-velocity: `estop`<br>2. Check `topics details <ODOM_TOPIC>` for publisher count and `topics hz <ODOM_TOPIC>` for rate<br>3. Do NOT continue publishing if odometry is stale — it is a runaway risk |
+| Velocity topic has no subscribers | 1. Check `control list-controllers` — the controller may be inactive<br>2. Activate the controller: `control set-controller-state <name> active`<br>3. Re-verify with `topics details <VEL_TOPIC>` before retrying |
+| `publish-until` hangs / no feedback | 1. Verify monitor topic: `topics details <ODOM_TOPIC>`<br>2. Verify the field path is correct: subscribe once and inspect field names<br>3. Check `--timeout` is set |
+
+
 
 **Always retry failed operations:**
 - Use `--retries 3` for unreliable services
@@ -575,13 +608,15 @@ Use the confirmed type to choose the payload:
    - "navigation" → look for `navigation2`, `nav2`, or launch files with `navigation`
    - "camera" → look for camera-related packages
 
-4. **If multiple candidates found:**
-   - Present options to user: "Found 3 launch files. Which one?"
-   - Or ask for confirmation: "I found navigation2. Launch it?"
+4. **If exactly one clear match found:**
+   - Launch it immediately — do not ask for confirmation (Rule 5)
 
-5. **If no match found:**
+5. **If multiple candidates found and cannot be disambiguated:**
+   - Present options: "Found 3 launch files: X, Y, Z. Which one?" — this is the only case where asking is permitted
+
+6. **If no match found:**
    - Search more broadly: check all packages for matching launch files
-   - Ask user for exact package/file name
+   - If still nothing: ask user for exact package/file name
 
 ### NEVER hallucinate:
 - ❌ Never invent a package name that doesn't exist
@@ -598,12 +633,12 @@ Use the confirmed type to choose the payload:
 - ✅ Validate each user-provided argument against --show-args output
 - ✅ Confirm with user if any doubt about which file/package/argument
 
-### Rule: Confirm before executing if uncertain
+### Rule: Only ask when genuinely ambiguous
 
-If the skill finds a match but there's any doubt (multiple candidates, ambiguous request):
-- "I found multiple options. Which one?"
-- "I assume you mean X. Launch it?"
-- Only proceed without asking if there's exactly ONE clear match
+Per Rule 5, the user's message is the approval. For launch files:
+- Exactly one match → launch it immediately, no confirmation needed
+- Multiple matches with no way to disambiguate → list them and ask which one
+- No match at all → ask for exact package/file name
 
 ### Local Workspace Sourcing
 
@@ -778,14 +813,15 @@ python3 {baseDir}/scripts/ros2_cli.py estop
 
 ```bash
 # Step 1: Discover sensor topics by message type
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/LaserScan
-python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/Odometry
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/JointState
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/JointState
+# → record each discovered topic name
 
-# Step 2: Subscribe to discovered topics
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 10 --max-messages 50
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 5
+# Step 2: Subscribe to discovered topics (use the names from Step 1, not hardcoded names)
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <LASER_TOPIC> --duration 3
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <ODOM_TOPIC> --duration 10 --max-messages 50
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <JOINT_STATE_TOPIC> --duration 5
 ```
 
 ### 4. Use Services
@@ -937,9 +973,39 @@ python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
 
 Take the result — this is `ODOM_TOPIC`.
 
-### Step 3 — Execute based on intent and odometry availability
+### Step 2.5 — Verify topics are live and capture start position
 
-#### Case A — Distance specified, odometry available → `publish-until` (closed loop)
+Before executing, verify both topics are active and record the starting position.
+
+**Verify the velocity topic has active subscribers** (something must be listening — i.e., a controller):
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics details <VEL_TOPIC>
+```
+Check the output for `subscriber_count > 0`. If no subscribers: the controller may not be running. Check `control list-controllers` and activate the correct controller before proceeding.
+
+**Check for emergency stop / safety interlock state:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py control list-controllers
+```
+Verify that the motion controller is in `active` state. If it is `inactive`, `unconfigured`, or missing: do not publish velocity — activate it first or notify the user that the controller is not ready.
+
+**Verify the odometry topic has an active publisher** (not stale):
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics details <ODOM_TOPIC>
+```
+Check `publisher_count > 0`. Then confirm it is actively publishing by subscribing briefly:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 3
+```
+If no message arrives within the timeout: the odometry source is stale or not running. Fall back to Case D (open-loop) and notify the user.
+
+**Capture start position** (for distance reporting after motion):
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <ODOM_TOPIC> --max-messages 1
+```
+Record `pose.pose.position.x`, `pose.pose.position.y` from the result — this is the start pose.
+
+### Step 3 — Execute based on intent and odometry availability
 
 ```bash
 # Step 1 result: VEL_TOPIC = <discovered, e.g. /base/cmd_vel or /robot/cmd_vel>
@@ -1029,6 +1095,16 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
   '[5.0, 0.5]'
 ```
 
+### Step 4 — Report completion
+
+After `publish-until` or `publish-sequence` completes, capture the end position and report to the user:
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <ODOM_TOPIC> --max-messages 1
+```
+
+Compare with the start pose from Step 2.5. By default, report only: **"Done. Moved X.XX m."** (or "Done. Rotated X deg.") and any errors or anomalies. Report detailed topic selections, odometry values, and per-step data only if the user explicitly asked for verbose output.
+
 ---
 
 ## Quick Examples
@@ -1047,8 +1123,9 @@ See the [Movement Workflow](#movement-workflow-canonical) section — it covers 
 
 ### 3. Read Sensors
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/LaserScan
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /scan --duration 3
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+# → subscribe to the discovered topic name, not /scan
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <LASER_TOPIC> --duration 3
 ```
 
 ### 4. Call a Service

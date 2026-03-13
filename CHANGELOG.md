@@ -2,6 +2,51 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.8] - 2026-03-13
+
+### Added / Fixed — Active introspection, liveness checks, safety interlocks, reporting rule
+
+Addresses 10 gaps identified against the closed-loop control spec:
+
+#### New Rule 6 — Minimal reporting by default
+
+Added an explicit reporting rule: by default report only the outcome (e.g. "Done. Moved 1.02 m.") and errors. Detailed topic selections, type discoveries, and odometry data are only emitted when the user explicitly requests verbose output. This was entirely absent before.
+
+#### Movement Workflow Step 2.5 — Pre-motion liveness and safety checks
+
+Added a new mandatory step between odometry discovery and execution:
+- **Active subscriber check on velocity topic**: `topics details <VEL_TOPIC>` — verifies `subscriber_count > 0`. A topic with no subscribers means the controller is not running. Instructs agent to check `control list-controllers` and activate before proceeding.
+- **Safety interlock / controller state check**: `control list-controllers` — verifies the motion controller is in `active` state before any velocity is published. If inactive or missing: do not publish, notify user.
+- **Odometry publisher liveness check**: `topics details <ODOM_TOPIC>` — verifies `publisher_count > 0`, then subscribes briefly (`--max-messages 1 --timeout 3`) to confirm messages are flowing. If no message arrives: falls back to Case D (open-loop) and notifies user.
+- **Start position capture**: subscribes to odom once before motion to record start pose for distance reporting.
+
+#### Movement Workflow Step 4 — End position capture and reporting
+
+After motion completes, the agent now subscribes to the odometry topic once to capture the end pose, computes actual distance/angle travelled, and reports it. By default: one line ("Done. Moved X.XX m."). Anomalies always reported.
+
+#### Error Recovery — New "Movement / publish-until Failures" table
+
+Added recovery procedures for:
+- `publish-until` timeout: check if odom publisher died, send estop if so
+- Odometry stops updating mid-motion: immediately send estop, never continue publishing with stale feedback
+- Velocity topic with no subscribers: check and activate controller, re-verify before retrying
+
+#### Agent Decision Framework — Step 5 safety limits uses discovered node names
+
+Step 5 now uses `nodes list` to find controller nodes first, records the actual node name, then does `params list <CTRL_NODE>` and `params get <CTRL_NODE>:<param>` using the discovered name. Hardcoded names like `/diff_drive_controller` and `/base_controller` removed entirely.
+
+#### Agent Decision Framework — "Stop the robot" row
+
+Fixed to include `topics type` confirmation step and TwistStamped variant, matching the full introspection requirement.
+
+#### Quick Examples and Command Quick Reference — Hardcoded sensor topic names removed
+
+"Read Sensors" examples no longer use `/scan`, `/odom`, `/joint_states` as subscribed names. Replaced with `<LASER_TOPIC>`, `<ODOM_TOPIC>`, `<JOINT_STATE_TOPIC>` placeholders populated from discovery results.
+
+#### Launch section — Confirmation-seeking language removed (Rule 5 alignment)
+
+Removed `"I found navigation2. Launch it?"` and `"I assume you mean X. Launch it?"` patterns. Rule is now: exactly one match → launch immediately; multiple unresolvable matches → list and ask; no match → ask for name. No confirmation on single clear match.
+
 ## [1.0.7] - 2026-03-13
 
 ### Fixed — Full auto-introspection; eliminated all hardcoded topic/type assumptions
