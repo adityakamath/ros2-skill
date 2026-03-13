@@ -2669,6 +2669,107 @@ Output (nothing received):
 
 ---
 
+## launch run `<package>` `<launch_file>` [args...]
+
+Run a ROS 2 launch file in a tmux session.
+
+**Discovery workflow:** Before running, always introspect the robot:
+1. `ros2 pkg list` — find available packages
+2. `ros2 pkg files <package>` — find launch files in a package
+3. `launch list` — check for running sessions
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `package` | Yes | Package name containing the launch file |
+| `launch_file` | Yes | Launch file name (e.g., `navigation2.launch.py`) |
+| `args` | No | Additional launch arguments |
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--presets NAME` | No | — | Comma-separated preset names to apply before launch |
+| `--params "k:v"` | No | — | Inline parameters (comma-separated key:value pairs) |
+| `--config-path PATH` | No | auto | Path to config directory |
+| `--timeout SECONDS` | No | 30 | Timeout for launch to start |
+
+**Run a launch file:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.py
+```
+
+**Run with parameters:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.py --params "speed:1.0,max_velocity:2.0"
+```
+
+**Run with presets:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.py --presets indoor
+```
+
+**Output:**
+```json
+{
+  "success": true,
+  "session": "launch_navigation2_navigation2",
+  "command": "ros2 launch navigation2 navigation2.launch.py",
+  "package": "navigation2",
+  "launch_file": "navigation2.launch.py",
+  "status": "running",
+  "presets_applied": ["indoor"],
+  "params_applied": {"speed": 1.0}
+}
+```
+
+---
+
+## launch list / launch ls
+
+List running launch sessions in tmux.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch list
+```
+
+**Output:**
+```json
+{
+  "all_sessions": ["launch_navigation2_navigation2", "launch_turtlesim_turtlesim"],
+  "launch_sessions": ["launch_navigation2_navigation2"],
+  "launch_sessions_detail": [
+    {
+      "session": "launch_navigation2_navigation2",
+      "command": "ros2 launch navigation2 navigation2.launch.py",
+      "status": "running"
+    }
+  ]
+}
+```
+
+---
+
+## launch kill `<session>`
+
+Kill a running launch session.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `session` | Yes | Session name to kill (must start with `launch_`) |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch kill launch_navigation2_navigation2
+```
+
+**Output:**
+```json
+{
+  "success": true,
+  "session": "launch_navigation2_navigation2",
+  "message": "Session 'launch_navigation2_navigation2' killed"
+}
+```
+
+---
+
 ## interface list
 
 List all interface types (messages, services, actions) installed on this ROS 2 system. Reads from the ament resource index — no running ROS 2 graph required.

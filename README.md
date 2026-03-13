@@ -65,7 +65,7 @@ No user clarification needed — the agent uses ros2-skill tools to answer all i
 | Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `hz`, `bw`, `delay`, `find` |
 | Services | `list`, `type`, `details`, `call`, `find`, `echo` |
 | Nodes | `list`, `details` |
-| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete` |
+| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete`, `preset-*` |
 | Actions | `list`, `details`, `type`, `send`, `cancel`, `echo`, `find` |
 | Lifecycle | `nodes`, `list`, `get`, `set` |
 | Control | `list-controller-types`, `list-controllers`, `list-hardware-components`, `list-hardware-interfaces`, `load-controller`, `unload-controller`, `configure-controller`, `reload-controller-libraries`, `set-controller-state`, `set-hardware-component-state`, `switch-controllers`, `view-controller-chains` |
@@ -73,6 +73,7 @@ No user clarification needed — the agent uses ros2-skill tools to answer all i
 | Wtf | alias for `doctor` — same commands |
 | Multicast | `send`, `receive` |
 | Interface | `list`, `show`, `proto`, `packages`, `package` |
+| Launch | `run`, `list`, `ls`, `kill` |
 
 All commands output JSON. See [`SKILL.md`](SKILL.md) for quick reference and [`references/COMMANDS.md`](references/COMMANDS.md) for full details with examples.
 
@@ -84,11 +85,12 @@ Capabilities that go beyond standard `ros2` CLI parity — designed specifically
 |---------|------------|-------------|
 | **Emergency stop** | `estop` | Send zero-velocity command to halt mobile robots safely |
 | **Publish sequence** | `topics publish-sequence` | Publish a timed sequence of different messages in one call |
-| **Publish-until** | `topics publish-until` | Publish repeatedly and stop automatically when a condition is met (supports Euclidean distance) |
+| **Publish-until** | `topics publish-until` | Publish repeatedly and stop automatically when a condition is met (supports Euclidean distance and rotation) |
 | **Image capture** | `topics capture-image` | Grab a frame from any ROS 2 image topic and save to `.artifacts/` |
 | **Diagnostics monitoring** | `topics diag-list`, `topics diag` | Discover and read `DiagnosticArray` topics by type, with human-readable level names |
 | **Battery monitoring** | `topics battery-list`, `topics battery` | Discover and read `BatteryState` topics by type, with decoded status, health, and technology names |
 | **Parameter presets** | `params preset-save/load/list/delete` | Save and restore complete parameter sets for a node by name |
+| **Launch files** | `launch run/list/kill` | Run launch files in tmux sessions, list/kill running sessions |
 | **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token |
 
 ### Global Options
