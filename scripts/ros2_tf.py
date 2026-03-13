@@ -109,6 +109,19 @@ def cmd_tf_list(args):
         rclpy.shutdown()
 
 
+def _available_frames(tf_buffer):
+    """Return sorted list of frame names currently in the tf buffer."""
+    try:
+        import yaml
+        raw = tf_buffer.all_frames_as_yaml()
+        if not raw:
+            return []
+        parsed = yaml.safe_load(raw)
+        return sorted(parsed.keys()) if parsed else []
+    except Exception:
+        return []
+
+
 def cmd_tf_lookup(args):
     """Lookup transform between source and target frames."""
     source = args.source
@@ -135,7 +148,6 @@ def cmd_tf_lookup(args):
     timeout = getattr(args, 'timeout', 5.0)
     
     try:
-        # Use node's clock to get current time
         now = node.get_clock().now()
         transform = tf_buffer.lookup_transform(
             target,
@@ -162,12 +174,14 @@ def cmd_tf_lookup(args):
             },
             "timestamp": str(transform.header.stamp)
         })
-    except tf2_ros.LookupException as e:
+    except (tf2_ros.LookupException, tf2_ros.ConnectivityException) as e:
+        frames = _available_frames(tf_buffer)
         rclpy.shutdown()
-        return output({"error": f"Transform not found: {e}"})
-    except tf2_ros.ConnectivityException as e:
-        rclpy.shutdown()
-        return output({"error": f"No path between frames: {e}"})
+        return output({
+            "error": f"Transform not found: {e}",
+            "available_frames": frames,
+            "suggestion": "Run 'tf list' to see all frames in the tf tree."
+        })
     except tf2_ros.ExtrapolationException as e:
         rclpy.shutdown()
         return output({"error": f"Transform extrapolation failed: {e}"})
@@ -203,11 +217,13 @@ def cmd_tf_echo(args):
     try:
         for i in range(count):
             try:
-                now = node.get_clock().now()
+                # Use Time(0) to request the latest available transform, avoiding
+                # extrapolation errors caused by requesting exactly "now" on a
+                # freshly-started buffer that hasn't caught up yet.
                 transform = tf_buffer.lookup_transform(
                     target,
                     source,
-                    now,
+                    rclpy.time.Time(),
                     timeout=rclpy.duration.Duration(seconds=timeout)
                 )
                 
@@ -219,6 +235,13 @@ def cmd_tf_echo(args):
                     "translation": {"x": round(t.x, 4), "y": round(t.y, 4), "z": round(t.z, 4)},
                     "rotation": {"x": round(r.x, 4), "y": round(r.y, 4), "z": round(r.z, 4), "w": round(r.w, 4)},
                     "euler": {"roll": round(roll, 4), "pitch": round(pitch, 4), "yaw": round(yaw, 4)}
+                })
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException) as e:
+                frames = _available_frames(tf_buffer)
+                results.append({
+                    "error": str(e),
+                    "available_frames": frames,
+                    "suggestion": "Run 'tf list' to see all frames in the tf tree."
                 })
             except Exception as e:
                 results.append({"error": str(e)})
@@ -478,28 +501,34 @@ def cmd_tf_transform_point(args):
         from tf2_ros import Buffer, TransformListener
         from geometry_msgs.msg import PointStamped
         import tf2_ros
+        try:
+            import tf2_geometry_msgs  # registers PointStamped/Vector3Stamped type adapters
+        except ImportError:
+            pass
     except ImportError:
         return output({
             "error": "tf2_ros not available",
             "suggestion": "Install with: sudo apt install ros-{distro}-tf2-ros"
         })
-    
+
     rclpy.init()
     node = rclpy.node.Node("tf_transform_point")
     tf_buffer = Buffer()
     tf_listener = TransformListener(tf_buffer, node)
-    
+
+    # Spin briefly so the buffer can populate
+    rclpy.spin_once(node, timeout_sec=1.0)
+
     timeout = getattr(args, 'timeout', 5.0)
-    
+
     try:
         point = PointStamped()
         point.header.frame_id = source
-        point.header.stamp = node.get_clock().now().to_msg()
+        point.header.stamp = rclpy.time.Time().to_msg()  # time=0 → latest available
         point.point.x = x
         point.point.y = y
         point.point.z = z
-        
-        now = node.get_clock().now()
+
         transformed = tf_buffer.transform(
             point,
             target,
@@ -543,28 +572,34 @@ def cmd_tf_transform_vector(args):
         from tf2_ros import Buffer, TransformListener
         from geometry_msgs.msg import Vector3Stamped
         import tf2_ros
+        try:
+            import tf2_geometry_msgs  # registers PointStamped/Vector3Stamped type adapters
+        except ImportError:
+            pass
     except ImportError:
         return output({
             "error": "tf2_ros not available",
             "suggestion": "Install with: sudo apt install ros-{distro}-tf2-ros"
         })
-    
+
     rclpy.init()
     node = rclpy.node.Node("tf_transform_vector")
     tf_buffer = Buffer()
     tf_listener = TransformListener(tf_buffer, node)
-    
+
+    # Spin briefly so the buffer can populate
+    rclpy.spin_once(node, timeout_sec=1.0)
+
     timeout = getattr(args, 'timeout', 5.0)
-    
+
     try:
         vector = Vector3Stamped()
         vector.header.frame_id = source
-        vector.header.stamp = node.get_clock().now().to_msg()
+        vector.header.stamp = rclpy.time.Time().to_msg()  # time=0 → latest available
         vector.vector.x = x
         vector.vector.y = y
         vector.vector.z = z
-        
-        now = node.get_clock().now()
+
         transformed = tf_buffer.transform(
             vector,
             target,

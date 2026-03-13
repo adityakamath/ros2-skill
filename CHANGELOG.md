@@ -79,9 +79,12 @@ Both `launch` and `run` commands automatically source local ROS 2 workspaces bef
 - Fixed TF2 commands: `tf list`, `tf lookup`, `tf echo`, `tf monitor`, `tf transform-point`, `tf transform-vector` — now properly handle time and message types
 - Fixed `launch new` argument validation: fuzzy matching now only matches against real arguments fetched via `--show-args`. Unknown args are dropped and the user is notified — the launch still proceeds. Invented argument names are never passed.
 - Fixed `tf echo`: added `--once` flag to echo a single transform
+- Fixed `tf echo`: use `rclpy.time.Time()` (latest available) instead of `node.get_clock().now()` to avoid extrapolation errors on a freshly-started buffer
 - Fixed `tf static`: added named argument form (`--from`, `--to`, `--xyz`, `--rpy`) as alternative to positional arguments
 - Fixed `tf quat2euler` / `tf euler2quat` unrecognised subcommand: added as aliases for `euler-from-quaternion` and `quaternion-from-euler`
 - Fixed `tf point` / `tf vector` unrecognised subcommand: added as aliases for `transform-point` and `transform-vector`
+- Fixed `tf transform-point` / `tf transform-vector`: import `tf2_geometry_msgs` to register `PointStamped`/`Vector3Stamped` type adapters; use `rclpy.time.Time()` on message stamp to avoid extrapolation errors
+- Fixed `tf lookup` / `tf echo`: LookupException and ConnectivityException now include `available_frames` in the error output so the user knows what frames are actually in the tf tree
 
 ### Refactoring
 
