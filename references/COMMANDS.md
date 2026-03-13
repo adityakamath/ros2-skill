@@ -2688,8 +2688,7 @@ Run a ROS 2 launch file in a tmux session. System ROS is assumed to be already s
 
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
-| `--presets NAME` | No | — | Comma-separated preset names to apply before launch |
-| `--params "k:v"` | No | — | Inline parameters (comma-separated key:value pairs) |
+| `--params "k:=v"` | No | — | Inline parameters (comma-separated key:=value or key:value) |
 | `--config-path PATH` | No | auto | Path to config directory |
 | `--timeout SECONDS` | No | 30 | Timeout for launch to start |
 | `--refresh` | No | false | Force refresh package cache before checking |
@@ -2701,12 +2700,7 @@ python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.
 
 **Run with parameters:**
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py --params "speed:1.0,max_velocity:2.0"
-```
-
-**Run with presets:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py --presets indoor
+python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py --params "speed:=1.0,max_velocity:=2.0"
 ```
 
 **Run with package cache refresh:**
@@ -2723,8 +2717,7 @@ python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.
   "package": "navigation2",
   "launch_file": "navigation2.launch.py",
   "status": "running",
-  "presets_applied": ["indoor"],
-  "params_applied": {"speed": 1.0}
+  "params_applied": {"speed": 1.0, "max_velocity": 2.0}
 }
 ```
 
@@ -2918,7 +2911,7 @@ Run a ROS 2 executable in a tmux session. System ROS is assumed to be already so
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `--presets NAME` | No | — | Comma-separated preset names to apply before running |
-| `--params "k:v"` | No | — | Inline parameters (comma-separated key:value pairs) |
+| `--params "k:=v"` | No | — | Inline parameters (comma-separated key:=value or key:value) |
 | `--config-path PATH` | No | auto | Path to config directory |
 | `--refresh` | No | false | Force refresh package cache before checking |
 

@@ -20,6 +20,7 @@ Added launch and run commands for running ROS 2 launch files and executables in 
 ### Run Commands
 
 - `run new <package> <executable> [args...]` — run a ROS 2 executable in a tmux session
+- `run new --presets <preset>` — apply preset parameters before running
 - `run new --params "key:=value"` — set inline parameters (comma-separated, supports key:=value and key:value)
 - `run new --config-path PATH` — path to config directory
 - `run new --refresh` — force refresh package cache before checking
@@ -34,7 +35,7 @@ Both `launch` and `run` commands automatically source local ROS 2 workspaces bef
 ### Session Management
 
 - Explicit session handling: fails if session exists, requires `launch/run kill` or `restart`
-- Restart preserves original parameters (package, executable, args, params, config-path)
+- Restart preserves original parameters (package, executable, args, presets, params, config-path)
 - Session metadata saved to `~/.ros2_cli_sessions.json` for restart functionality
 - Session alive check verifies process is actually running (not just tmux shell)
 

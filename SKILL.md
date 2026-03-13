@@ -499,10 +499,7 @@ export ROS2_LOCAL_WS=~/my_robot_ws
 python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py
 
 # With parameters
-python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py --params "speed:1.0"
-
-# With presets (apply params before launch)
-python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py --presets indoor
+python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py --params "speed:=1.0,max_velocity:=2.0"
 
 # With config path
 python3 {baseDir}/scripts/ros2_cli.py launch my_robot my_robot.launch.py --config-path /path/to/config
