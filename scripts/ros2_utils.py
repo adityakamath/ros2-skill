@@ -432,6 +432,14 @@ def source_local_ws(user_provided_ws=None):
     
     best_status = "not_found"
     best_path = None
+    ros2_local_ws_error = None
+    
+    # Check if ROS2_LOCAL_WS is set but invalid
+    ros2_local_ws = os.environ.get('ROS2_LOCAL_WS')
+    if ros2_local_ws:
+        expanded = os.path.expanduser(ros2_local_ws)
+        if not os.path.exists(expanded):
+            ros2_local_ws_error = f"ROS2_LOCAL_WS is set to '{ros2_local_ws}' but path does not exist"
     
     for ws_pattern in ws_patterns:
         if not ws_pattern:
@@ -454,7 +462,13 @@ def source_local_ws(user_provided_ws=None):
     
     # Return best effort: found a workspace but none are built
     if best_path:
+        if ros2_local_ws_error:
+            return None, "invalid"
         return None, "not_built"
+    
+    # ROS2_LOCAL_WS was set but invalid - return error
+    if ros2_local_ws_error:
+        return None, "invalid"
     
     # No workspace found
     return None, "not_found"

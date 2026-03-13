@@ -271,7 +271,12 @@ def cmd_launch_run(args):
     ws_path, ws_status = source_local_ws()
     
     warning = None
-    if ws_status == "not_built":
+    if ws_status == "invalid":
+        return output({
+            "error": "ROS2_LOCAL_WS is set but path does not exist",
+            "suggestion": "Unset ROS2_LOCAL_WS or set a valid path"
+        })
+    elif ws_status == "not_built":
         warning = f"Warning: Local workspace found but not built. Build with 'colcon build' first."
     elif ws_status == "not_found":
         # No local workspace found - continue without sourcing
@@ -501,7 +506,12 @@ def cmd_launch_foxglove(args):
     ws_path, ws_status = source_local_ws()
     
     warning = None
-    if ws_status == "not_built":
+    if ws_status == "invalid":
+        return output({
+            "error": "ROS2_LOCAL_WS is set but path does not exist",
+            "suggestion": "Unset ROS2_LOCAL_WS or set a valid path"
+        })
+    elif ws_status == "not_built":
         warning = f"Warning: Local workspace found but not built. Build with 'colcon build' first."
     elif ws_status == "not_found":
         ws_path = None
