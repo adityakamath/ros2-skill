@@ -1129,6 +1129,7 @@ def build_parser():
     # launch
     # ------------------------------------------------------------------
     launch = sub.add_parser("launch", help="Launch ROS 2 nodes and launch files")
+    launch.set_defaults(subcommand=None)
     launch.add_argument("package", nargs="?", help="Package name containing the launch file")
     launch.add_argument("launch_file", nargs="?", help="Launch file name (without path)")
     launch.add_argument("args", nargs="*", help="Additional launch arguments")
@@ -1158,6 +1159,7 @@ def build_parser():
     # run
     # ------------------------------------------------------------------
     run = sub.add_parser("run", help="Run ROS 2 executables in tmux sessions")
+    run.set_defaults(subcommand=None)
     run.add_argument("package", nargs="?", help="Package name containing the executable")
     run.add_argument("executable", nargs="?", help="Executable name")
     run.add_argument("args", nargs="*", help="Additional arguments")
