@@ -166,14 +166,6 @@ def _find_config_files(package, config_path=None):
     return config_files
 
 
-def _apply_presets(package, presets):
-    """Apply preset parameters to a package/node."""
-    # Presets are applied via params set before launch
-    # This would require connecting to the running node
-    # For now, return the presets that would be applied
-    return presets
-
-
 def _apply_params(params_str):
     """Parse and return params from key:value or key:=value string."""
     if not params_str:
@@ -212,7 +204,6 @@ def cmd_launch_run(args):
     package = args.package
     launch_file = args.launch_file
     launch_args = args.args or []
-    presets = args.presets
     params_str = args.params
     config_path = args.config_path
     force_refresh = getattr(args, 'refresh', False)
@@ -269,11 +260,6 @@ def cmd_launch_run(args):
     
     # Generate session name
     session_name = generate_session_name("launch", package, launch_file.replace('.launch.py', '').replace('.launch', ''))
-    
-    # Apply presets if specified
-    applied_presets = []
-    if presets:
-        applied_presets = [p.strip() for p in presets.split(',')]
     
     # Apply params if specified
     applied_params = _apply_params(params_str) if params_str else {}
@@ -335,7 +321,6 @@ def cmd_launch_run(args):
         "package": package,
         "launch_file": os.path.basename(launch_path),
         "status": status.strip() if status else "unknown",
-        "presets_applied": applied_presets,
         "params_applied": applied_params,
     }
     
@@ -354,7 +339,6 @@ def cmd_launch_run(args):
         "package": package,
         "launch_file": os.path.basename(launch_path),
         "launch_args": launch_args,
-        "presets": presets,
         "params": params_str,
         "command": launch_cmd
     })
@@ -428,7 +412,6 @@ def cmd_launch_restart(args):
         package = metadata.get("package")
         launch_file = metadata.get("launch_file")
         launch_args = metadata.get("launch_args", [])
-        presets = metadata.get("presets")
         params_str = metadata.get("params")
         
         if not package or not launch_file:
@@ -441,7 +424,6 @@ def cmd_launch_restart(args):
             'package': package,
             'launch_file': launch_file,
             'args': launch_args,
-            'presets': presets,
             'params': params_str,
             'config_path': None,
             'refresh': False

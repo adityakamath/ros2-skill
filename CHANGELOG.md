@@ -9,8 +9,7 @@ Added launch and run commands for running ROS 2 launch files and executables in 
 ### Launch Commands
 
 - `launch new <package> <launch_file> [args...]` — run a ROS 2 launch file in a tmux session
-- `launch new --presets <preset>` — apply preset parameters before launching
-- `launch new --params "key:value"` — set inline parameters before launching
+- `launch new --params "key:=value"` — set inline parameters (comma-separated, supports key:=value and key:value)
 - `launch new --config-path PATH` — path to config directory
 - `launch new --refresh` — force refresh package cache before checking
 - `launch list` — list running launch sessions in tmux
@@ -21,8 +20,7 @@ Added launch and run commands for running ROS 2 launch files and executables in 
 ### Run Commands
 
 - `run new <package> <executable> [args...]` — run a ROS 2 executable in a tmux session
-- `run new --presets <preset>` — apply preset parameters before running
-- `run new --params "key:value"` — set inline parameters before running
+- `run new --params "key:=value"` — set inline parameters (comma-separated, supports key:=value and key:value)
 - `run new --config-path PATH` — path to config directory
 - `run new --refresh` — force refresh package cache before checking
 - `run list` — list running run sessions in tmux
@@ -36,7 +34,7 @@ Both `launch` and `run` commands automatically source local ROS 2 workspaces bef
 ### Session Management
 
 - Explicit session handling: fails if session exists, requires `launch/run kill` or `restart`
-- Restart preserves original parameters (package, executable, args, presets, params, config-path)
+- Restart preserves original parameters (package, executable, args, params, config-path)
 - Session metadata saved to `~/.ros2_cli_sessions.json` for restart functionality
 - Session alive check verifies process is actually running (not just tmux shell)
 
@@ -45,6 +43,9 @@ Both `launch` and `run` commands automatically source local ROS 2 workspaces bef
 - Fixed duplicate subparser bug in ros2_cli.py
 - Fixed missing json import in ros2_launch.py
 - Fixed argument parsing for launch/run commands
+- Fixed parameter passing to ros2 launch command
+- Fixed param parsing to accept both key:=value and key:value formats
+- Improved session duplicate detection with double-verification
 
 ### Refactoring
 
