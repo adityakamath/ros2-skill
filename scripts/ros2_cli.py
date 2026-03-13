@@ -1138,7 +1138,7 @@ def build_parser():
     p.add_argument("launch_file", help="Launch file name (without path)")
     p.add_argument("args", nargs="*", help="Additional launch arguments")
     p.add_argument("--presets", help="Preset parameters to load before launch (comma-separated)")
-    p.add_argument("--params", help="Parameters to set (comma-separated key:value pairs)")
+    p.add_argument("--params", help="Parameters to set (comma-separated key:=value or key:value pairs)")
     p.add_argument("--config-path", help="Path to config directory (auto-discovered if not provided)")
     p.add_argument("--timeout", type=float, default=30.0, help="Timeout for launch to start (default: 30)")
     p.add_argument("--refresh", action="store_true", help="Force refresh of package cache before checking")

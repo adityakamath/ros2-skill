@@ -175,23 +175,28 @@ def _apply_presets(package, presets):
 
 
 def _apply_params(params_str):
-    """Parse and return params from key:value string."""
+    """Parse and return params from key:value or key:=value string."""
     if not params_str:
         return {}
     
     params = {}
     for pair in params_str.split(','):
         pair = pair.strip()
-        if ':' in pair:
+        # Handle both "key:value" and "key:=value" formats
+        if ':=' in pair:
+            key, value = pair.split(':=', 1)
+        elif ':' in pair:
             key, value = pair.split(':', 1)
-            # Try to parse value as number
-            try:
-                if '.' in value:
-                    params[key.strip()] = float(value)
-                else:
-                    params[key.strip()] = int(value)
-            except ValueError:
-                params[key.strip()] = value.strip()
+        else:
+            continue
+        # Try to parse value as number
+        try:
+            if '.' in value:
+                params[key.strip()] = float(value)
+            else:
+                params[key.strip()] = int(value)
+        except ValueError:
+            params[key.strip()] = value.strip()
     
     return params
 
@@ -254,6 +259,12 @@ def cmd_launch_run(args):
     # Build launch command
     cmd_parts = ["ros2 launch", package, os.path.basename(launch_path)]
     cmd_parts.extend(launch_args)
+    
+    # Add params to command if specified (key:=value format for ROS 2)
+    if params_str:
+        for key, value in applied_params.items():
+            cmd_parts.append(f"{key}:={value}")
+    
     launch_cmd = " ".join(cmd_parts)
     
     # Generate session name

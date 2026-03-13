@@ -563,7 +563,13 @@ def generate_session_name(session_type, package, name):
 def session_exists(session_name):
     """Check if a tmux session exists."""
     check_cmd = f"tmux has-session -t {session_name} 2>/dev/null"
-    _, _, rc = run_cmd(check_cmd)
+    stdout, stderr, rc = run_cmd(check_cmd)
+    # Also check if there's any tmux session with a similar name (partial match)
+    if rc == 0:
+        return True
+    # Double-check with list-sessions to handle edge cases
+    list_cmd = f"tmux list-sessions -F '#{{session_name}}' 2>/dev/null | grep -e '^{session_name}$'"
+    stdout, _, rc = run_cmd(list_cmd)
     return rc == 0
 
 
