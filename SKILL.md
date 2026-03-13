@@ -54,6 +54,22 @@ This rule exists because:
 
 **Introspection commands return discovered names. Use those names — not the ones you expect.**
 
+### Rule 0.5 — Never hallucinate commands, flags, or names
+
+**If you are not certain a command, flag, topic name, or argument exists — verify it before using it. Do not guess.**
+
+The failure mode to avoid: inventing a flag like `--yaw-delta` or `--rotate-degrees` because it sounds plausible, then failing and asking the user for help. That is the worst possible outcome — the error was self-inflicted and the user had nothing to do with it.
+
+**The verification chain:**
+1. **Check this skill first.** The full command reference is in [references/COMMANDS.md](references/COMMANDS.md). If a flag or command is not listed there, it does not exist.
+2. **If still unsure, introspect the live system.** Run the command with `--help` (if supported), or check what topics/services/actions actually exist before referencing them.
+3. **If still stuck after checking both, ask the user.** This is the only acceptable reason to ask — not because you assumed something and it failed.
+
+**Never:**
+- Invent a flag and try it, then report failure to the user
+- Assume a capability exists because it would be logical or convenient
+- Ask the user to resolve an error you caused by guessing
+
 ### Rule 1 — Discover before you act, never ask
 
 **Never ask the user for names, types, or IDs that can be discovered from the live system.** This includes topic names, service names, action names, node names, parameter names, message types, and controller names. Always query the robot first.
