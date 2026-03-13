@@ -14,6 +14,10 @@ Added run commands for running ROS 2 executables in tmux sessions.
 - `run kill <session>` — kill a running run session
 - `run restart <session>` — restart a run session (preserves original parameters)
 
+### Workspace Sourcing
+
+Both `launch` and `run` commands automatically source local ROS 2 workspaces before executing. Workspaces are searched in order: `ROS2_LOCAL_WS` env var, `~/ros2_ws`, `~/colcon_ws`, `~/dev_ws`, `~/workspace`, `~/ros2`.
+
 ### Refactoring
 
 - Extracted common tmux/session helpers to `ros2_utils.py` to avoid duplication

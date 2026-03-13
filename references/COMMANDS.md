@@ -2907,6 +2907,8 @@ Error (no metadata):
 
 Run a ROS 2 executable in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
 
+**Workspace sourcing:** If the executable is in a local workspace, the skill automatically sources it. Set `ROS2_LOCAL_WS` environment variable if the workspace is not in the default search paths (`~/ros2_ws`, `~/colcon_ws`, `~/dev_ws`, `~/workspace`, `~/ros2`).
+
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `package` | Yes | Package name containing the executable |
