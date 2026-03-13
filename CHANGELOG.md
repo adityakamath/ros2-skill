@@ -2,6 +2,32 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.4] - TBD
+
+Added launch commands for running launch files in tmux sessions, and publish-until rotation support.
+
+### Launch Commands
+
+- `launch run <package> <launch_file> [args...]` — run a ROS 2 launch file in a tmux session
+- `launch run --presets <preset> <package> <file>` — apply preset parameters before launching
+- `launch run --params "key:value" <package> <file>` — set inline parameters before launching
+- `launch list` — list running launch sessions in tmux
+- `launch kill <session>` — kill a running launch session
+- Sessions are named `launch_<package>_<file>` for easy identification
+
+### Topics — Rotation Support
+
+- Added `--rotate` flag to `publish-until` for easy rotation commands
+- `--rotate N` — rotate by N radians (auto-detects orientation from odometry)
+- `--rotate N --degrees` — rotate by N degrees
+- Handles quaternion math internally, no manual calculation needed
+
+### Internal
+
+- Package list caching: `ros2 pkg list` results are cached and only refreshed when a package is not found
+
+---
+
 ## [1.0.3] - 2026-03-09
 
 Added parameter preset commands, diagnostics monitoring, battery monitoring, and global timeout/retry configuration.
