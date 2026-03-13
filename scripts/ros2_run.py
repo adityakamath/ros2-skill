@@ -118,6 +118,16 @@ def cmd_run(args):
     # Apply params if specified
     applied_params = _apply_params(params_str) if params_str else {}
     
+    # Find config files from config_path
+    config_files = []
+    if config_path:
+        if os.path.isdir(config_path):
+            for f in os.listdir(config_path):
+                if f.endswith(('.yaml', '.yml')):
+                    config_files.append(os.path.join(config_path, f))
+        elif os.path.isfile(config_path):
+            config_files = [config_path]
+    
     # Build run command
     cmd_parts = ["ros2 run", package, executable]
     cmd_parts.extend(run_args)
@@ -126,6 +136,10 @@ def cmd_run(args):
     if params_str:
         for key, value in applied_params.items():
             cmd_parts.append(f"{key}:={value}")
+    
+    # Add params-file arguments for config files
+    for config_file in config_files:
+        cmd_parts.append(f"--params-file {config_file}")
     
     run_cmd_str = " ".join(cmd_parts)
     
@@ -189,6 +203,7 @@ def cmd_run(args):
         "presets_applied": applied_presets,
         "params_applied": applied_params,
         "config_path": config_path,
+        "config_files": config_files,
     }
     
     if ws_path:
