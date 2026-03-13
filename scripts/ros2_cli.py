@@ -722,6 +722,8 @@ def build_parser():
                        help="Publish repeatedly for this many seconds (--timeout is an alias)")
         p.add_argument("--rate", type=float, default=10.0,
                        help="Publish rate in Hz (default: 10)")
+        p.add_argument("--retries", type=int, default=None,
+                       help="Number of attempts before giving up (overrides global --retries)")
     for _seq_name in ("publish-sequence", "pub-seq"):
         p = tsub.add_parser(_seq_name,
                             help="Publish message sequence with delays"
@@ -770,6 +772,8 @@ def build_parser():
                    help="Publish rate in Hz (default: 10)")
     p.add_argument("--timeout", type=float, default=60.0,
                    help="Safety timeout in seconds (default: 60)")
+    p.add_argument("--retries", type=int, default=None,
+                   help="Number of attempts before giving up (overrides global --retries)")
     p.add_argument("--msg-type", dest="msg_type", default=None,
                    help="Publish topic message type (auto-detected)")
     p.add_argument("--monitor-msg-type", dest="monitor_msg_type", default=None,

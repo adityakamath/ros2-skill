@@ -412,7 +412,7 @@ class TestGlobalOverrides(unittest.TestCase):
             from types import SimpleNamespace
             args = SimpleNamespace(service="/s", srv_type="std_srvs/srv/Empty", request="{}", timeout=1.0, retries=3, global_timeout=None)
             
-            with patch("ros2_service.get_message"), patch("ros2_service.time"):
+            with patch("ros2_service.get_srv_type"), patch("ros2_service.time"):
                 ros2_service.cmd_services_call(args)
             
             self.assertEqual(mock_client.wait_for_service.call_count, 3)
