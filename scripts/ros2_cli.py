@@ -1174,8 +1174,6 @@ def build_parser():
     p.add_argument("--config-path", help="Path to config directory (auto-discovered if not provided)")
     p.add_argument("--refresh", action="store_true", help="Force refresh of package cache before checking")
 
-    rsub = run.add_subparsers(dest="subcommand")
-
     rsub.add_parser("list", help="List running run sessions")
     rsub.add_parser("ls", help="Alias for list")
 
