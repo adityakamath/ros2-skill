@@ -90,7 +90,7 @@ Capabilities that go beyond standard `ros2` CLI parity — designed specifically
 | **Diagnostics monitoring** | `topics diag-list`, `topics diag` | Discover and read `DiagnosticArray` topics by type, with human-readable level names |
 | **Battery monitoring** | `topics battery-list`, `topics battery` | Discover and read `BatteryState` topics by type, with decoded status, health, and technology names |
 | **Parameter presets** | `params preset-save/load/list/delete` | Save and restore complete parameter sets for a node by name |
-| **Launch files** | `launch run/list/kill` | Run launch files in tmux sessions, list/kill running sessions |
+| **Launch files** | `launch run/list/kill/restart/foxglove` | Run launch files in tmux sessions, list/kill/restart running sessions, launch foxglove_bridge |
 | **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token |
 
 ### Global Options

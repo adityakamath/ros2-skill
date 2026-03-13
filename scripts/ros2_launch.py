@@ -27,6 +27,14 @@ def _run_cmd(cmd, timeout=10):
         return "", str(e), 1
 
 
+def _refresh_package_cache():
+    """Force refresh of the package cache."""
+    global _package_cache, _package_cache_initialized
+    _package_cache = {}
+    _package_cache_initialized = False
+    _list_packages()
+
+
 def _get_package_prefix(package):
     """Get the prefix path for a package."""
     stdout, _, rc = _run_cmd(f"ros2 pkg prefix {package}")
@@ -35,9 +43,13 @@ def _get_package_prefix(package):
     return None
 
 
-def _list_packages():
+def _list_packages(force_refresh=False):
     """List all ROS 2 packages (cached)."""
     global _package_cache, _package_cache_initialized
+    
+    if force_refresh:
+        _package_cache = {}
+        _package_cache_initialized = False
     
     if _package_cache_initialized:
         return _package_cache
@@ -52,17 +64,68 @@ def _list_packages():
     return _package_cache
 
 
-def _package_exists(package):
-    """Check if a package exists (uses cache, refreshes if not found)."""
-    packages = _list_packages()
+def _package_exists(package, force_refresh=False):
+    """Check if a package exists (uses cache, refreshes if not found or force_refresh=True)."""
+    packages = _list_packages(force_refresh=force_refresh)
     if package in packages:
         return True
     
-    # Refresh cache if package not found
+    # Auto-refresh if package not found and not already refreshed
     global _package_cache_initialized
-    _package_cache_initialized = False
-    _list_packages()
-    return package in _list_packages()
+    if not force_refresh:
+        _package_cache_initialized = False
+        _list_packages()
+        return package in _list_packages()
+    
+    return False
+
+
+def _get_sessions_file():
+    """Get path to session metadata file."""
+    return os.path.expanduser("~/.ros2_cli_sessions.json")
+
+
+def _load_sessions():
+    """Load session metadata from file."""
+    sessions_file = _get_sessions_file()
+    if os.path.exists(sessions_file):
+        try:
+            with open(sessions_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def _save_session(session_name, metadata):
+    """Save session metadata to file."""
+    sessions_file = _get_sessions_file()
+    sessions = _load_sessions()
+    sessions[session_name] = metadata
+    try:
+        with open(sessions_file, 'w') as f:
+            json.dump(sessions, f)
+    except IOError:
+        pass  # Silently fail if we can't write
+
+
+def _get_session_metadata(session_name):
+    """Get session metadata from file."""
+    sessions = _load_sessions()
+    return sessions.get(session_name)
+
+
+def _delete_session_metadata(session_name):
+    """Delete session metadata from file."""
+    sessions_file = _get_sessions_file()
+    sessions = _load_sessions()
+    if session_name in sessions:
+        del sessions[session_name]
+        try:
+            with open(sessions_file, 'w') as f:
+                json.dump(sessions, f)
+        except IOError:
+            pass
 
 
 def _find_launch_files(package):
@@ -152,6 +215,48 @@ def _generate_session_name(session_type, package, name):
     return f"{session_type}_{package}_{safe_name}"[:50]
 
 
+def _session_exists(session_name):
+    """Check if a tmux session exists."""
+    check_cmd = f"tmux has-session -t {session_name} 2>/dev/null"
+    _, _, rc = _run_cmd(check_cmd)
+    return rc == 0
+
+
+def _kill_session(session_name):
+    """Kill a tmux session."""
+    kill_cmd = f"tmux kill-session -t {session_name}"
+    stdout, stderr, rc = _run_cmd(kill_cmd)
+    return rc == 0
+
+
+def _check_session_alive(session_name):
+    """Check if session has a running process (not just empty shell)."""
+    # Get the PID of the process in the pane
+    pid_cmd = f"tmux list-panes -t {session_name} -F '#{{pane_pid}}' 2>/dev/null | head -1"
+    pid_out, _, _ = _run_cmd(pid_cmd)
+    
+    if not pid_out:
+        return False
+    
+    # Check if process is still running (not zombie/defunct)
+    proc_cmd = f"ps -p {pid_out.strip()} -o state= 2>/dev/null | tr -d ' '"
+    state_out, _, _ = _run_cmd(proc_cmd)
+    
+    # Running states: R (running), S (sleeping), D (disk sleep)
+    if state_out.strip() in ('R', 'S', 'D'):
+        return True
+    
+    return False
+
+
+def _quote_path(path):
+    """Quote a path to handle spaces and special characters."""
+    if not path:
+        return path
+    # Escape backslashes first, then quotes
+    return '"' + path.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
 def cmd_launch_run(args):
     """Run a ROS 2 launch file in a tmux session."""
     if not _check_tmux():
@@ -166,9 +271,10 @@ def cmd_launch_run(args):
     presets = args.presets
     params_str = args.params
     config_path = args.config_path
+    force_refresh = getattr(args, 'refresh', False)
     
     # Check package exists
-    if not _package_exists(package):
+    if not _package_exists(package, force_refresh=force_refresh):
         return output({
             "error": f"Package '{package}' not found",
             "available_packages": list(_list_packages().keys())[:20]
@@ -222,7 +328,7 @@ def cmd_launch_run(args):
     # Apply params if specified
     applied_params = _apply_params(params_str) if params_str else {}
     
-    # Get local workspace to source
+    # Get local workspace to source (auto-detected)
     ws_path, ws_status = source_local_ws()
     
     warning = None
@@ -232,10 +338,20 @@ def cmd_launch_run(args):
         # No local workspace found - continue without sourcing
         ws_path = None
     
+    # Handle existing session with same name - require explicit kill or restart
+    if _session_exists(session_name):
+        return output({
+            "error": f"Session '{session_name}' already exists",
+            "suggestion": "Use 'launch restart {session_name}' to restart, or 'launch kill {session_name}' to kill first",
+            "session": session_name
+        })
+    
     # Build tmux command with or without sourcing
     # Use bash -c to support source command (sh doesn't support source)
-    if ws_path:
-        tmux_cmd = f"tmux new-session -d -s {session_name} 'bash -c \"source {ws_path} && {launch_cmd}\" 2>&1'"
+    # Quote paths to handle spaces
+    quoted_ws = _quote_path(ws_path) if ws_path else None
+    if quoted_ws:
+        tmux_cmd = f"tmux new-session -d -s {session_name} 'bash -c \"source {quoted_ws} && {launch_cmd}\" 2>&1'"
     else:
         tmux_cmd = f"tmux new-session -d -s {session_name} '{launch_cmd} 2>&1'"
     
@@ -249,9 +365,9 @@ def cmd_launch_run(args):
             "session": session_name
         })
     
-    # Check if session is running
-    check_cmd = f"tmux has-session -t {session_name} 2>/dev/null && echo 'running' || echo 'not running'"
-    status, _, _ = _run_cmd(check_cmd)
+    # Check if session is actually alive (has running process)
+    is_alive = _check_session_alive(session_name)
+    status = "running" if is_alive else "crashed"
     
     # Get PID if available
     pid_cmd = f"tmux list-panes -t {session_name} -F '{{{{pane_pid}}}}' 2>/dev/null | head -1"
@@ -276,6 +392,17 @@ def cmd_launch_run(args):
     
     if pid_output:
         result["pid"] = pid_output.strip()
+    
+    # Save session metadata for restart
+    _save_session(session_name, {
+        "type": "run",
+        "package": package,
+        "launch_file": os.path.basename(launch_path),
+        "launch_args": launch_args,
+        "presets": presets,
+        "params": params_str,
+        "command": launch_cmd
+    })
     
     output(result)
 
@@ -362,8 +489,211 @@ def cmd_launch_kill(args):
             "session": session
         })
     
+    # Clean up session metadata
+    _delete_session_metadata(session)
+    
     output({
         "success": True,
         "session": session,
         "message": f"Session '{session}' killed"
     })
+
+
+def cmd_launch_restart(args):
+    """Restart a launch session (kill and re-launch with same session name)."""
+    if not _check_tmux():
+        return output({
+            "error": "tmux is not installed"
+        })
+    
+    session = args.session
+    
+    # Validate session name starts with launch_
+    if not session.startswith('launch_'):
+        return output({
+            "error": f"Session '{session}' is not a launch session",
+            "hint": "Launch sessions start with 'launch_'"
+        })
+    
+    # Check if session exists
+    if not _session_exists(session):
+        return output({
+            "error": f"Session '{session}' does not exist",
+            "suggestion": "Use 'launch run' to start a new session",
+            "available_sessions": []
+        })
+    
+    # Load session metadata
+    metadata = _get_session_metadata(session)
+    
+    if not metadata:
+        return output({
+            "error": f"No metadata found for session '{session}'",
+            "suggestion": "Use 'launch run' to start a fresh session",
+            "session": session
+        })
+    
+    # Kill existing session
+    _kill_session(session)
+    
+    # Re-launch based on session type
+    if metadata.get("type") == "foxglove":
+        port = metadata.get("port", 8765)
+        args_restart = type('Args', (), {
+            'port': port,
+            'refresh': False
+        })()
+        result = cmd_launch_foxglove(args_restart)
+        result["message"] = "Session restarted"
+        return result
+    
+    elif metadata.get("type") == "run":
+        package = metadata.get("package")
+        launch_file = metadata.get("launch_file")
+        launch_args = metadata.get("launch_args", [])
+        presets = metadata.get("presets")
+        params_str = metadata.get("params")
+        
+        if not package or not launch_file:
+            return output({
+                "error": f"Incomplete metadata for session '{session}'",
+                "suggestion": "Use 'launch run' to start a fresh session"
+            })
+        
+        args_restart = type('Args', (), {
+            'package': package,
+            'launch_file': launch_file,
+            'args': launch_args,
+            'presets': presets,
+            'params': params_str,
+            'config_path': None,
+            'refresh': False
+        })()
+        
+        result = cmd_launch_run(args_restart)
+        result["message"] = "Session restarted"
+        return result
+    
+    else:
+        return output({
+            "error": f"Unknown session type for '{session}'",
+            "suggestion": "Use 'launch run' to start a fresh session"
+        })
+
+
+def cmd_launch_foxglove(args):
+    """Launch foxglove_bridge in a tmux session."""
+    if not _check_tmux():
+        return output({
+            "error": "tmux is not installed. Install with: sudo apt install tmux"
+        })
+    
+    port = args.port
+    ros_distro = os.environ.get('ROS_DISTRO', 'unknown')
+    force_refresh = getattr(args, 'refresh', False)
+    
+    # Validate port range
+    if port < 1 or port > 65535:
+        return output({
+            "error": f"Invalid port: {port}",
+            "suggestion": "Port must be between 1 and 65535"
+        })
+    
+    # Check package exists
+    if not _package_exists("foxglove_bridge", force_refresh=force_refresh):
+        return output({
+            "error": "Package 'foxglove_bridge' not found",
+            "suggestion": f"Install for your ROS 2 distro with:\n  sudo apt install ros-{ros_distro}-foxglove-bridge\n\nOr build from source:\n  git clone https://github.com/foxglove/ros2-foxglove-bridge.git",
+            "current_distro": ros_distro,
+            "available_packages": list(_list_packages().keys())[:20]
+        })
+    
+    # Check if launch file exists (search multiple locations)
+    prefix = _get_package_prefix("foxglove_bridge")
+    possible_launch_paths = [
+        os.path.join(prefix, "share", "foxglove_bridge", "launch", "foxglove_bridge_launch.xml"),
+        os.path.join(prefix, "lib", "foxglove_bridge", "launch", "foxglove_bridge_launch.xml"),
+        os.path.join(prefix, "share", "foxglove_bridge", "foxglove_bridge_launch.xml"),
+    ]
+    
+    launch_path = None
+    for p in possible_launch_paths:
+        if os.path.exists(p):
+            launch_path = p
+            break
+    
+    if not launch_path:
+        return output({
+            "error": "Launch file 'foxglove_bridge_launch.xml' not found in foxglove_bridge package",
+            "suggestion": f"The foxglove_bridge package is installed but may be for a different ROS distro.\nCurrent distro: {ros_distro}\n\nReinstall for your distro:\n  sudo apt install ros-{ros_distro}-foxglove-bridge\n\nOr check installed packages:\n  dpkg -l | grep foxglove",
+            "package_path": prefix,
+            "searched_paths": possible_launch_paths
+        })
+    
+    # Build launch command
+    launch_cmd = f"ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:={port}"
+    
+    # Generate session name
+    session_name = _generate_session_name("launch", "foxglove_bridge", f"port{port}")
+    
+    # Get local workspace to source (auto-detected)
+    ws_path, ws_status = source_local_ws()
+    
+    warning = None
+    if ws_status == "not_built":
+        warning = f"Warning: Local workspace found but not built. Build with 'colcon build' first."
+    elif ws_status == "not_found":
+        ws_path = None
+    
+    # Handle existing session with same name - require explicit kill or restart
+    if _session_exists(session_name):
+        return output({
+            "error": f"Session '{session_name}' already exists",
+            "suggestion": f"Use 'launch restart {session_name}' to restart, or 'launch kill {session_name}' to kill first",
+            "session": session_name
+        })
+    
+    # Build tmux command
+    quoted_ws = _quote_path(ws_path) if ws_path else None
+    if quoted_ws:
+        tmux_cmd = f"tmux new-session -d -s {session_name} 'bash -c \"source {quoted_ws} && {launch_cmd}\" 2>&1'"
+    else:
+        tmux_cmd = f"tmux new-session -d -s {session_name} '{launch_cmd} 2>&1'"
+    
+    stdout, stderr, rc = _run_cmd(tmux_cmd, timeout=30)
+    
+    if rc != 0:
+        return output({
+            "error": f"Failed to start foxglove_bridge: {stderr}",
+            "command": launch_cmd,
+            "session": session_name
+        })
+    
+    # Check if session is actually alive (has running process)
+    is_alive = _check_session_alive(session_name)
+    status = "running" if is_alive else "crashed"
+    
+    result = {
+        "success": True,
+        "session": session_name,
+        "command": launch_cmd,
+        "package": "foxglove_bridge",
+        "launch_file": "foxglove_bridge_launch.xml",
+        "port": port,
+        "status": status
+    }
+    
+    if ws_path:
+        result["workspace_sourced"] = ws_path
+    
+    if warning:
+        result["warning"] = warning
+    
+    # Save session metadata for restart
+    _save_session(session_name, {
+        "type": "foxglove",
+        "port": port,
+        "command": launch_cmd
+    })
+    
+    output(result)

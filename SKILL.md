@@ -472,7 +472,7 @@ If the skill finds a match but there's any doubt (multiple candidates, ambiguous
 **System ROS is assumed to be already sourced** (via systemd service or manually). The skill automatically sources any local workspace on top of system ROS.
 
 **Search order:**
-1. `ROS2_LOCAL_WS` environment variable (user override)
+1. `ROS2_LOCAL_WS` environment variable
 2. `~/ros2_ws`
 3. `~/colcon_ws`
 4. `~/dev_ws`
@@ -486,12 +486,9 @@ If the skill finds a match but there's any doubt (multiple candidates, ambiguous
 | Workspace found + NOT built | Warn user, run without sourcing |
 | Workspace NOT found | Continue without sourcing (system ROS only) |
 
-**If launch file not found:**
-- Error message includes hint to set `ROS2_LOCAL_WS`
-- User can provide workspace path via environment variable
-
-**To set local workspace:**
+**Override option:**
 ```bash
+# Set environment variable before running
 export ROS2_LOCAL_WS=~/my_robot_ws
 ```
 
@@ -511,6 +508,19 @@ python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.
 python3 {baseDir}/scripts/ros2_cli.py launch run my_robot my_robot.launch.py --config-path /path/to/config
 ```
 
+### Launch foxglove_bridge
+
+```bash
+# Default port (8765)
+python3 {baseDir}/scripts/ros2_cli.py launch foxglove
+
+# Custom port
+python3 {baseDir}/scripts/ros2_cli.py launch foxglove --port 9000
+
+# Refresh package cache before launching
+python3 {baseDir}/scripts/ros2_cli.py launch foxglove --refresh
+```
+
 ### List Running Launches
 
 ```bash
@@ -522,6 +532,22 @@ python3 {baseDir}/scripts/ros2_cli.py launch list
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py launch kill launch_navigation2_navigation2
 ```
+
+### Restart a Launch
+
+```bash
+# Restart any launch session (preserves all arguments)
+python3 {baseDir}/scripts/ros2_cli.py launch restart launch_navigation2_navigation2
+python3 {baseDir}/scripts/ros2_cli.py launch restart launch_foxglove_bridge_port8765
+```
+
+### Session Collision Handling
+
+If a session with the same name already exists, the command will fail with an error. Use `launch restart` to restart any session, or `launch kill` first then `launch run`.
+
+### Package Cache
+
+The package cache auto-refreshes when a package is not found. Use `--refresh` to force a manual refresh before checking.
 
 ## Command Quick Reference
 

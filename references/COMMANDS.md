@@ -2692,6 +2692,7 @@ Run a ROS 2 launch file in a tmux session. System ROS is assumed to be already s
 | `--params "k:v"` | No | — | Inline parameters (comma-separated key:value pairs) |
 | `--config-path PATH` | No | auto | Path to config directory |
 | `--timeout SECONDS` | No | 30 | Timeout for launch to start |
+| `--refresh` | No | false | Force refresh package cache before checking |
 
 **Run a launch file:**
 ```bash
@@ -2708,6 +2709,11 @@ python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.
 python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.py --presets indoor
 ```
 
+**Run with package cache refresh:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.py --refresh
+```
+
 **Output:**
 ```json
 {
@@ -2719,6 +2725,15 @@ python3 {baseDir}/scripts/ros2_cli.py launch run navigation2 navigation2.launch.
   "status": "running",
   "presets_applied": ["indoor"],
   "params_applied": {"speed": 1.0}
+}
+```
+
+Error (session already exists):
+```json
+{
+  "error": "Session 'launch_navigation2_navigation2' already exists",
+  "suggestion": "Use 'launch kill launch_navigation2_navigation2' to kill first",
+  "session": "launch_navigation2_navigation2"
 }
 ```
 
@@ -2767,6 +2782,122 @@ python3 {baseDir}/scripts/ros2_cli.py launch kill launch_navigation2_navigation2
   "success": true,
   "session": "launch_navigation2_navigation2",
   "message": "Session 'launch_navigation2_navigation2' killed"
+}
+```
+
+---
+
+## launch foxglove
+
+Launch foxglove_bridge in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--port PORT` | No | 8765 | Foxglove bridge port |
+| `--refresh` | No | false | Force refresh package cache before checking |
+
+**Run foxglove_bridge:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch foxglove
+```
+
+**Run with custom port:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch foxglove --port 9000
+```
+
+**Run with package cache refresh:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py launch foxglove --refresh
+```
+
+**Output:**
+```json
+{
+  "success": true,
+  "session": "launch_foxglove_bridge_port8765",
+  "command": "ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765",
+  "package": "foxglove_bridge",
+  "launch_file": "foxglove_bridge_launch.xml",
+  "port": 8765,
+  "status": "running"
+}
+```
+
+Error (session already exists):
+```json
+{
+  "error": "Session 'launch_foxglove_bridge_port8765' already exists",
+  "suggestion": "Use 'launch restart launch_foxglove_bridge_port8765' to restart, or 'launch kill launch_foxglove_bridge_port8765' to kill first",
+  "session": "launch_foxglove_bridge_port8765"
+}
+```
+
+Error (package not found):
+```json
+{
+  "error": "Package 'foxglove_bridge' not found",
+  "suggestion": "Install for your ROS 2 distro with:\n  sudo apt install ros-$ROS_DISTRO-foxglove-bridge\n\nOr build from source:\n  git clone https://github.com/foxglove/ros2-foxglove-bridge.git",
+  "current_distro": "jazzy"
+}
+```
+
+Error (launch file not found):
+```json
+{
+  "error": "Launch file 'foxglove_bridge_launch.xml' not found in foxglove_bridge package",
+  "suggestion": "The foxglove_bridge package is installed but may be for a different ROS distro.\nCurrent distro: jazzy\n\nReinstall for your distro:\n  sudo apt install ros-jazzy-foxglove-bridge\n\nOr check installed packages:\n  dpkg -l | grep foxglove",
+  "package_path": "/opt/ros/jazzy/share/foxglove_bridge"
+}
+```
+
+---
+
+## launch restart `<session>`
+
+Restart a launch session. Kills the existing session and re-launches with the same parameters that were used originally. Works for all session types (both `launch run` and `launch foxglove`).
+
+Session metadata is saved when launching and used for restart.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `session` | Yes | Session name to restart |
+
+**Restart any launch session:**
+```bash
+# Restart a generic launch
+python3 {baseDir}/scripts/ros2_cli.py launch restart launch_navigation2_navigation2
+
+# Restart foxglove_bridge
+python3 {baseDir}/scripts/ros2_cli.py launch restart launch_foxglove_bridge_port8765
+```
+
+**Output:**
+```json
+{
+  "success": true,
+  "session": "launch_navigation2_navigation2",
+  "command": "ros2 launch navigation2 navigation2.launch.py",
+  "status": "running",
+  "message": "Session restarted"
+}
+```
+
+Error (session not found):
+```json
+{
+  "error": "Session 'launch_navigation2_navigation2' does not exist",
+  "suggestion": "Use 'launch run' to start a new session",
+  "available_sessions": []
+}
+```
+
+Error (no metadata):
+```json
+{
+  "error": "No metadata found for session 'launch_navigation2_navigation2'",
+  "suggestion": "Use 'launch run' to start a fresh session",
+  "session": "launch_navigation2_navigation2"
 }
 ```
 

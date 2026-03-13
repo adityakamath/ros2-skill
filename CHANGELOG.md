@@ -2,7 +2,7 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.4] - TBD
+## [1.0.4] - 2026-03-13
 
 Added launch commands for running launch files in tmux sessions.
 
@@ -11,13 +11,32 @@ Added launch commands for running launch files in tmux sessions.
 - `launch run <package> <launch_file> [args...]` — run a ROS 2 launch file in a tmux session
 - `launch run --presets <preset> <package> <file>` — apply preset parameters before launching
 - `launch run --params "key:value" <package> <file>` — set inline parameters before launching
+- `launch run --refresh` — force refresh package cache before checking
 - `launch list` — list running launch sessions in tmux
 - `launch kill <session>` — kill a running launch session
-- Sessions are named `launch_<package>_<file>` for easy identification
+- `launch restart <session>` — restart any launch session (preserves original parameters)
+
+### Launch foxglove_bridge
+
+- Launches `foxglove_bridge_launch.xml` with configurable port
+- Auto-detects and sources local ROS 2 workspaces
+- Validates port range (1-65535)
+- Searches multiple paths for launch file
+
+### Session Management
+
+- Explicit session handling: fails if session exists, requires `launch kill` or `launch restart`
+- `launch restart` kills and re-launches with original parameters (works for all session types)
+- Session metadata saved to `~/.ros2_cli_sessions.json` for restart functionality
+- Session alive check verifies process is actually running (not just tmux shell)
 
 ### Internal
 
-- Package list caching: `ros2 pkg list` results are cached and only refreshed when a package is not found
+- Package list caching: `ros2 pkg list` results are cached and auto-refreshed when package not found
+- `--refresh` flag for manual cache refresh
+- Local workspace sourcing: supports install/, build/, devel/ layouts and merge-install
+- Path quoting to handle spaces in workspace paths
+- Symlink resolution for workspaces
 
 ---
 

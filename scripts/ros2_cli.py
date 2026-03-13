@@ -530,6 +530,8 @@ from ros2_launch import (
     cmd_launch_run,
     cmd_launch_list,
     cmd_launch_kill,
+    cmd_launch_restart,
+    cmd_launch_foxglove,
 )
 from ros2_lifecycle import (
     cmd_lifecycle_nodes,
@@ -1132,12 +1134,23 @@ def build_parser():
     p.add_argument("--params", help="Parameters to set (comma-separated key:value pairs)")
     p.add_argument("--config-path", help="Path to config directory (auto-discovered if not provided)")
     p.add_argument("--timeout", type=float, default=30.0, help="Timeout for launch to start (default: 30)")
+    p.add_argument("--refresh", action="store_true", help="Force refresh of package cache before checking")
 
     lsub.add_parser("list", help="List running launch sessions")
     lsub.add_parser("ls", help="Alias for list")
 
     p = lsub.add_parser("kill", help="Kill a running launch session")
     p.add_argument("session", help="Session name to kill")
+
+    # launch restart
+    p = lsub.add_parser("restart", help="Restart a launch session (kill and re-launch)")
+    p.add_argument("session", help="Session name to restart")
+    p.add_argument("args", nargs="*", help="Optional: new launch arguments (if different)")
+
+    # launch foxglove
+    p = lsub.add_parser("foxglove", help="Launch foxglove_bridge")
+    p.add_argument("--port", type=int, default=8765, help="Foxglove bridge port (default: 8765)")
+    p.add_argument("--refresh", action="store_true", help="Force refresh of package cache before checking")
 
     # ------------------------------------------------------------------
     # interface
@@ -1291,6 +1304,8 @@ DISPATCH = {
     ("launch", "list"):   cmd_launch_list,
     ("launch", "ls"):    cmd_launch_list,
     ("launch", "kill"):  cmd_launch_kill,
+    ("launch", "restart"): cmd_launch_restart,
+    ("launch", "foxglove"): cmd_launch_foxglove,
     # interface
     ("interface", "list"):     cmd_interface_list,
     ("interface", "ls"):       cmd_interface_list,

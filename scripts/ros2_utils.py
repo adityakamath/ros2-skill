@@ -367,18 +367,22 @@ def resolve_output_path(filename_or_path):
 # Local workspace helpers
 # ---------------------------------------------------------------------------
 
-def source_local_ws():
+def source_local_ws(user_provided_ws=None):
     """Get local ROS 2 workspace path to source before running commands.
     
     System ROS is assumed to be already sourced (via systemd or manually).
     This helper finds the local workspace to source on top of system ROS.
     
+    Args:
+        user_provided_ws: Optional user-provided workspace path (from ROS2_LOCAL_WS env var)
+    
     Search order:
     1. ROS2_LOCAL_WS environment variable
     2. ~/ros2_ws
     3. ~/colcon_ws
-    4. ~/workspace
-    5. ~/ros2
+    4. ~/dev_ws
+    5. ~/workspace
+    6. ~/ros2
     
     Returns:
         tuple: (path_to_setup_bash, status)
@@ -398,6 +402,36 @@ def source_local_ws():
         '~/ros2',        # Generic
     ]
     
+    def find_setup_files(ws_path):
+        """Find valid setup files in workspace, handling various build layouts."""
+        if not ws_path or not os.path.exists(ws_path):
+            return None
+        
+        # Resolve symlinks
+        ws_path = os.path.realpath(ws_path)
+        
+        # Try different setup file locations and build types
+        possible_setups = [
+            ('install/local_setup.bash', 'install/setup.bash'),
+            ('install/setup.bash', 'install/setup.bash'),
+            ('build/local_setup.bash', 'build/setup.bash'),
+            ('build/setup.bash', 'build/setup.bash'),
+            ('devel/local_setup.bash', 'devel/setup.bash'),
+            ('devel/setup.bash', 'devel/setup.bash'),
+            ('install/local_setup.bash', 'install/local_setup.bash'),  # merge-install
+            ('setup.bash', 'setup.bash'),  # root-level (merge-install)
+        ]
+        
+        for local_setup, fallback in possible_setups:
+            local_path = os.path.join(ws_path, local_setup)
+            if os.path.exists(local_path):
+                return local_path
+        
+        return None
+    
+    best_status = "not_found"
+    best_path = None
+    
     for ws_pattern in ws_patterns:
         if not ws_pattern:
             continue
@@ -408,17 +442,17 @@ def source_local_ws():
         if not os.path.exists(ws_path):
             continue
         
-        # Try local_setup.bash first (preferred)
-        local_setup = os.path.join(ws_path, 'install', 'local_setup.bash')
-        if os.path.exists(local_setup):
-            return local_setup, "found"
+        setup_path = find_setup_files(ws_path)
         
-        # Fallback to setup.bash
-        setup_bash = os.path.join(ws_path, 'setup.bash')
-        if os.path.exists(setup_bash):
-            return setup_bash, "found"
-        
-        # Workspace exists but not built
+        if setup_path:
+            return setup_path, "found"
+        elif best_status == "not_found":
+            # Mark as found but not built - continue searching for better options
+            best_path = ws_path
+            best_status = "not_built"
+    
+    # Return best effort: found a workspace but none are built
+    if best_path:
         return None, "not_built"
     
     # No workspace found
