@@ -2,6 +2,15 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.5] - 2026-03-13
+
+### Fixed — Odometry rule enforcement
+
+- **Merged duplicate Rule 3**: The EXECUTION RULES section had a weaker, softer copy of Rule 3 ("Movement Requires Feedback") that omitted the explicit `❌ Never` prohibitions and the mandatory user notification on fallback. Replaced with a hard pointer to the top-level Agent Behaviour Rule 3, which is authoritative.
+- **Fixed "Move a Robot" Quick Reference example**: Primary example was `publish-sequence` with a fixed time, giving agents a copy-paste pattern that bypassed odometry entirely. Replaced with `publish-until` + odometry as primary; `publish-sequence` moved to a clearly-labelled fallback.
+- **Fixed "Move a Robot" Quick Examples section**: Same fix — odometry + `publish-until` is now the primary example; `publish-sequence` is labelled as fallback only.
+- **Fixed COMMANDS.md `publish-sequence` examples**: Added a prominent `⚠️ WARNING` block explaining `publish-sequence` is open-loop and time-based, must not be used when distance/angle is specified and odometry is available, and all existing examples relabelled as `[FALLBACK]`.
+
 ## [1.0.4] - 2026-03-13
 
 Added launch and run commands for running ROS 2 launch files and executables in tmux sessions.

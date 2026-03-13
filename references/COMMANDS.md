@@ -156,21 +156,26 @@ Publish a sequence of messages in order. Each message is repeated at `--rate` Hz
 | `--msg-type TYPE` | auto-detect | Override message type |
 | `--rate HZ` | `10` | Publish rate in Hz for each step |
 
-**Move forward 3 seconds, then stop:**
+**⚠️ WARNING — `publish-sequence` is open-loop and time-based. It has no sensor feedback and cannot guarantee distance or angle accuracy.**
+
+- **DO NOT use `publish-sequence` when the user specifies a distance ("move 1 meter") or angle ("rotate 90 degrees") and odometry is available.** Use `topics publish-until` with `--monitor <odom_topic>` instead (see below).
+- Use `publish-sequence` only when: (a) no distance/angle is specified and a timed motion pattern is acceptable, OR (b) odometry is genuinely unavailable. In case (b), notify the user that accuracy is not guaranteed.
+
+**[FALLBACK] Drive forward for a fixed time, then stop (no distance guarantee):**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
   '[3.0, 0.5]'
 ```
 
-**Forward 2s, turn left 1s, forward 2s, stop:**
+**[FALLBACK] Forward 2s, turn left 1s, forward 2s, stop (choreographed pattern, no sensor feedback):**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics pub-seq /cmd_vel \
   '[{"linear":{"x":0.5},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0.8}},{"linear":{"x":0.5},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
   '[2.0, 1.0, 2.0, 0.5]'
 ```
 
-**Draw a square (turtlesim):**
+**[FALLBACK] Draw a square (turtlesim — simulation only, odometry not relevant):**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
   '[{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":0},"angular":{"z":0}}]' \

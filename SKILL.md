@@ -344,12 +344,13 @@ The agent MUST discover these automatically:
 3. You've checked params on ALL controller nodes and found NO velocity limits
 4. The service/action the user mentions doesn't exist in `services list` / `actions list`
 
-### Rule 3: Movement Requires Feedback
+### Rule 3: Movement Requires Odometry Feedback
 
-**For "move N meters" commands:**
-1. First try: Find Odometry → use `publish-until` with `--delta N`
-2. If no Odometry: Calculate time = distance / velocity → use `publish-sequence`
-3. ALWAYS apply safety limits: `velocity = min(requested, max_velocity)`
+**See Agent Behaviour Rule 3 above — it is absolute and overrides any example in this document.**
+
+In short: for any "move N meters" or "rotate N degrees" command, you MUST find the odometry topic first (`topics find nav_msgs/Odometry`) and use `publish-until --monitor <odom_topic>`. `publish-sequence` with a fixed time is forbidden when odometry is available.
+
+- ALWAYS apply safety limits: `velocity = min(requested, max_velocity)`
 
 ### Rule 4: Always Stop After Movement
 
@@ -676,23 +677,32 @@ python3 {baseDir}/scripts/ros2_cli.py params list /robot_node
 
 **ALWAYS use auto-discovery first** to find the correct velocity topic and message type. Never assume topic names.
 
+**If the user specifies a distance or angle, Rule 3 applies: you MUST use `publish-until` with odometry.**
+
 ```bash
 # Step 1: Discover velocity command topics (check both Twist and TwistStamped)
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/TwistStamped
 
-# Step 2: Get the message structure (for constructing payloads)
-python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+# Step 2: Discover odometry topic (REQUIRED for distance/angle commands)
+python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/Odometry
 
-# Step 3: Publish movement — use discovered topic from Step 1
-# Always include a stop command (all zeros) at the end
+# Step 3a: Distance/angle command — use publish-until with odometry (MANDATORY)
+# Move forward 1 meter
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
+  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+
+# Rotate 90 degrees
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor /odom --rotate 90 --degrees --timeout 30
+
+# Step 3b: FALLBACK ONLY — no distance/angle specified, or odometry genuinely not available
+# Use publish-sequence with a stop command at the end.
+# DO NOT use this when a distance or angle has been requested and odometry exists.
 python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
-  '[2.0, 0.5]'
-
-# If TwistStamped (e.g. /cmd_vel):
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
-  '[{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}},{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}]' \
   '[2.0, 0.5]'
 ```
 
@@ -895,7 +905,13 @@ python3 {baseDir}/scripts/ros2_cli.py services list
 ```bash
 # Discover velocity topic
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
-# Publish: move 2s then stop
+# Discover odometry topic (REQUIRED for distance/angle commands — Rule 3)
+python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/Odometry
+# Move forward 1 meter using odometry feedback (MANDATORY when distance is specified)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
+  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+# FALLBACK ONLY (no distance specified, or no odometry available): publish-sequence with stop
 python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
   '[2.0, 0.5]'
