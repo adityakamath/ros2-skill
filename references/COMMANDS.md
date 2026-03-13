@@ -2813,6 +2813,11 @@ python3 {baseDir}/scripts/ros2_cli.py tf transform-vector map base_link 1 0 0
 
 Run a ROS 2 launch file in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
 
+**Auto-detect features:**
+- Launch arguments are validated against the launch file's available arguments
+- Invalid/unknown arguments show a warning and are ignored
+- Partial argument names are auto-matched (e.g., "mock" → "use_mock")
+
 **Workspace sourcing:** If the launch file is in a local workspace, the skill automatically sources it. Set `ROS2_LOCAL_WS` environment variable if the workspace is not in the default search paths (`~/ros2_ws`, `~/colcon_ws`, `~/dev_ws`, `~/workspace`, `~/ros2`).
 
 **Discovery workflow:** Before running, always introspect the robot:
@@ -3024,6 +3029,8 @@ Error (no metadata):
 ## run `<package>` `<executable>` [args...]
 
 Run a ROS 2 executable in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
+
+**Auto-detect:** Executable names are fuzzy-matched (e.g., "teleop" → "teleop_node").
 
 **Workspace sourcing:** If the executable is in a local workspace, the skill automatically sources it. Set `ROS2_LOCAL_WS` environment variable if the workspace is not in the default search paths (`~/ros2_ws`, `~/colcon_ws`, `~/dev_ws`, `~/workspace`, `~/ros2`).
 

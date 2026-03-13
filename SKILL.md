@@ -537,51 +537,14 @@ python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.
 
 # With additional arguments
 python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py arg1:=value arg2:=value
+
+# Auto-detect: partial argument names are auto-matched (mock → use_mock)
+# Invalid arguments show warning and are ignored
 ```
-
-### Launch foxglove_bridge
-
-**Always use `launch foxglove` command instead of `launch new` with foxglove_bridge package.** The `launch foxglove` command is specifically designed for foxglove_bridge and handles port configuration automatically.
-
-```bash
-# Default port (8765)
-python3 {baseDir}/scripts/ros2_cli.py launch foxglove
-
-# Custom port (positional argument)
-python3 {baseDir}/scripts/ros2_cli.py launch foxglove 9000
-```
-
-### List Running Launches
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch list
-```
-
-### Kill a Launch
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch kill launch_navigation2_navigation2
-```
-
-### Restart a Launch
-
-```bash
-# Restart any launch session (preserves all arguments)
-python3 {baseDir}/scripts/ros2_cli.py launch restart launch_navigation2_navigation2
-python3 {baseDir}/scripts/ros2_cli.py launch restart launch_foxglove_bridge_port8765
-```
-
-### Session Collision Handling
-
-If a session with the same name already exists, the command will fail with an error. Use `launch restart` to restart any session, or `launch kill` first then `launch`.
-
-### Package Cache
-
-The package cache auto-refreshes when a package is not found.
 
 ### Run an Executable
 
-Run a ROS 2 executable in a tmux session. Similar to launch commands but for single executables.
+Run a ROS 2 executable in a tmux session. Similar to launch commands but for single executables. Auto-detects executable names (e.g., "teleop" matches "teleop_node").
 
 ```bash
 # Run an executable
