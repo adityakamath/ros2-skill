@@ -515,28 +515,34 @@ python3 {baseDir}/scripts/ros2_cli.py tf lookup base_link map
 # Echo transform continuously
 python3 {baseDir}/scripts/ros2_cli.py tf echo base_link map --count 10
 
+# Echo transform once
+python3 {baseDir}/scripts/ros2_cli.py tf echo base_link map --once
+
 # Monitor a specific frame
 python3 {baseDir}/scripts/ros2_cli.py tf monitor base_link --count 5
 
-# Publish static transform (runs in tmux)
+# Publish static transform — named form
+python3 {baseDir}/scripts/ros2_cli.py tf static --from base_link --to sensor --xyz 1 2 3 --rpy 0 0 0
+
+# Publish static transform — positional form
 python3 {baseDir}/scripts/ros2_cli.py tf static 0 0 0 0 0 0 base_link odom
 
-# Convert quaternion to Euler (radians)
+# Convert quaternion to Euler (radians) — also: e2q, quat2euler
 python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion 0 0 0 1
 
-# Convert Euler to quaternion (radians)
+# Convert Euler to quaternion (radians) — also: q2e, euler2quat
 python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler 0 0 1.57
 
-# Convert quaternion to Euler (degrees)
+# Convert quaternion to Euler (degrees) — also: e2qdeg
 python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion-deg 0 0 0 1
 
-# Convert Euler to quaternion (degrees)
+# Convert Euler to quaternion (degrees) — also: q2edeg
 python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler-deg 0 0 90
 
-# Transform a point between frames
+# Transform a point between frames — also: tp, point
 python3 {baseDir}/scripts/ros2_cli.py tf transform-point map base_link 1 0 0
 
-# Transform a vector between frames
+# Transform a vector between frames — also: tv, vector
 python3 {baseDir}/scripts/ros2_cli.py tf transform-vector map base_link 1 0 0
 ```
 

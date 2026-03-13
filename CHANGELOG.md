@@ -42,15 +42,16 @@ Added launch and run commands for running ROS 2 launch files and executables in 
 
 - `tf list` — list all coordinate frames
 - `tf lookup <source> <target>` — query transform between frames
-- `tf echo <source> <target>` — continuously echo transforms
+- `tf echo <source> <target> [--once] [--count N]` — echo transforms; `--once` echoes a single transform
 - `tf monitor <frame>` — monitor transform updates for a frame
-- `tf static <x> <y> <z> <roll> <pitch> <yaw> <from> <to>` — publish static transform (runs in tmux)
-- `tf euler-from-quaternion` / `tf e2q` — convert quaternion to Euler (radians)
-- `tf quaternion-from-euler` / `tf q2e` — convert Euler to quaternion (radians)
+- `tf static --from <f> --to <t> --xyz x y z --rpy r p y` — publish static transform (named form)
+- `tf static x y z roll pitch yaw from_frame to_frame` — publish static transform (positional form)
+- `tf euler-from-quaternion` / `tf e2q` / `tf quat2euler` — convert quaternion to Euler (radians)
+- `tf quaternion-from-euler` / `tf q2e` / `tf euler2quat` — convert Euler to quaternion (radians)
 - `tf euler-from-quaternion-deg` / `tf e2qdeg` — convert quaternion to Euler (degrees)
 - `tf quaternion-from-euler-deg` / `tf q2edeg` — convert Euler to quaternion (degrees)
-- `tf transform-point` / `tf tp` — transform a point between frames
-- `tf transform-vector` / `tf tv` — transform a vector between frames
+- `tf transform-point` / `tf tp` / `tf point` — transform a point between frames
+- `tf transform-vector` / `tf tv` / `tf vector` — transform a vector between frames
 
 ### Auto-Refresh
 
@@ -77,6 +78,10 @@ Both `launch` and `run` commands automatically source local ROS 2 workspaces bef
 - Improved session duplicate detection with double-verification
 - Fixed TF2 commands: `tf list`, `tf lookup`, `tf echo`, `tf monitor`, `tf transform-point`, `tf transform-vector` — now properly handle time and message types
 - Fixed `launch new` argument validation: fuzzy matching now only matches against real arguments fetched via `--show-args`. Unknown args are dropped and the user is notified — the launch still proceeds. Invented argument names are never passed.
+- Fixed `tf echo`: added `--once` flag to echo a single transform
+- Fixed `tf static`: added named argument form (`--from`, `--to`, `--xyz`, `--rpy`) as alternative to positional arguments
+- Fixed `tf quat2euler` / `tf euler2quat` unrecognised subcommand: added as aliases for `euler-from-quaternion` and `quaternion-from-euler`
+- Fixed `tf point` / `tf vector` unrecognised subcommand: added as aliases for `transform-point` and `transform-vector`
 
 ### Refactoring
 

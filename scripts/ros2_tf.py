@@ -181,7 +181,7 @@ def cmd_tf_echo(args):
     source = args.source
     target = args.target
     timeout = getattr(args, 'timeout', 5.0)
-    count = getattr(args, 'count', 5)
+    count = 1 if getattr(args, 'once', False) else getattr(args, 'count', 5)
     
     try:
         import rclpy
@@ -298,15 +298,40 @@ def cmd_tf_static(args):
             "error": "tmux is not installed",
             "suggestion": "Install with: sudo apt install tmux"
         })
-    
-    x = args.x
-    y = args.y
-    z = args.z
-    roll = args.roll
-    pitch = args.pitch
-    yaw = args.yaw
-    from_frame = args.from_frame
-    to_frame = args.to_frame
+
+    # Resolve arguments — support both named (--from/--to/--xyz/--rpy) and positional forms
+    pos = getattr(args, 'pos_args', [])
+    named_from = getattr(args, 'from_frame', None)
+    named_to = getattr(args, 'to_frame', None)
+    xyz = getattr(args, 'xyz', None)
+    rpy = getattr(args, 'rpy', None)
+
+    if named_from or named_to or xyz is not None or rpy is not None:
+        # Named form: --from --to --xyz --rpy
+        if not named_from or not named_to or xyz is None or rpy is None:
+            return output({
+                "error": "Named form requires --from, --to, --xyz, and --rpy",
+                "usage": "tf static --from base_link --to sensor --xyz 1 2 3 --rpy 0 0 0"
+            })
+        x, y, z = xyz
+        roll, pitch, yaw = rpy
+        from_frame = named_from
+        to_frame = named_to
+    elif len(pos) == 8:
+        # Positional form: x y z roll pitch yaw from_frame to_frame
+        try:
+            x, y, z, roll, pitch, yaw = [float(v) for v in pos[:6]]
+        except ValueError as e:
+            return output({"error": f"Invalid positional arguments: {e}",
+                           "usage": "tf static x y z roll pitch yaw from_frame to_frame"})
+        from_frame = pos[6]
+        to_frame = pos[7]
+    else:
+        return output({
+            "error": "Invalid arguments for tf static",
+            "usage_named": "tf static --from base_link --to sensor --xyz 1 2 3 --rpy 0 0 0",
+            "usage_positional": "tf static x y z roll pitch yaw from_frame to_frame"
+        })
     
     # Generate session name
     session_name = f"tf_static_{from_frame}_to_{to_frame}"[:50]
