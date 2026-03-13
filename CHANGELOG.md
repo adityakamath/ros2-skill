@@ -2,141 +2,6 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.9] - 2026-03-13
-
-### Fixed — Structural gaps, contradictory rules, and hardcoded example names
-
-Three issues identified in the v1.0.8 review, now resolved:
-
-#### Movement Workflow Step 3 — Restored missing Case A heading
-
-`#### Case A — Distance specified, odometry available → \`publish-until --field\` (closed loop)` heading was accidentally dropped during a prior edit. The content was intact but the subheading was missing, making the case structure harder to parse. Restored.
-
-#### Launch "ALWAYS verify" list — Removed contradictory confirmation item
-
-The list contained `✅ Confirm with user if any doubt about which file/package/argument`, which directly contradicted Rule 5 ("Execute, don't ask") and the launch-specific rule immediately below it ("Exactly one match → launch immediately, no confirmation needed"). Removed. The launch policy is now unambiguous: one clear match → launch immediately; multiple unresolvable matches → list and ask; no match → ask for name.
-
-#### Quick Examples 4 and 5 — Replaced hardcoded names with discover-first pattern
-
-"4. Call a Service" used `/reset` as a call target — a hardcoded name that agents could copy verbatim without verifying the service exists. "5. Send an Action" used `/navigate_to_pose` and `/turtle1/rotate_absolute` inline in the example — robot-specific names that have no business being in a generic skill. Both examples now show the correct three-step discover-first flow: `services list` / `actions list` → `services details` / `actions details` → call/send using `<DISCOVERED_SERVICE>` / `<DISCOVERED_ACTION>` placeholders.
-
-
-
-### Added / Fixed — Active introspection, liveness checks, safety interlocks, reporting rule
-
-Addresses 10 gaps identified against the closed-loop control spec:
-
-#### New Rule 6 — Minimal reporting by default
-
-Added an explicit reporting rule: by default report only the outcome (e.g. "Done. Moved 1.02 m.") and errors. Detailed topic selections, type discoveries, and odometry data are only emitted when the user explicitly requests verbose output. This was entirely absent before.
-
-#### Movement Workflow Step 2.5 — Pre-motion liveness and safety checks
-
-Added a new mandatory step between odometry discovery and execution:
-- **Active subscriber check on velocity topic**: `topics details <VEL_TOPIC>` — verifies `subscriber_count > 0`. A topic with no subscribers means the controller is not running. Instructs agent to check `control list-controllers` and activate before proceeding.
-- **Safety interlock / controller state check**: `control list-controllers` — verifies the motion controller is in `active` state before any velocity is published. If inactive or missing: do not publish, notify user.
-- **Odometry publisher liveness check**: `topics details <ODOM_TOPIC>` — verifies `publisher_count > 0`, then subscribes briefly (`--max-messages 1 --timeout 3`) to confirm messages are flowing. If no message arrives: falls back to Case D (open-loop) and notifies user.
-- **Start position capture**: subscribes to odom once before motion to record start pose for distance reporting.
-
-#### Movement Workflow Step 4 — End position capture and reporting
-
-After motion completes, the agent now subscribes to the odometry topic once to capture the end pose, computes actual distance/angle travelled, and reports it. By default: one line ("Done. Moved X.XX m."). Anomalies always reported.
-
-#### Error Recovery — New "Movement / publish-until Failures" table
-
-Added recovery procedures for:
-- `publish-until` timeout: check if odom publisher died, send estop if so
-- Odometry stops updating mid-motion: immediately send estop, never continue publishing with stale feedback
-- Velocity topic with no subscribers: check and activate controller, re-verify before retrying
-
-#### Agent Decision Framework — Step 5 safety limits uses discovered node names
-
-Step 5 now uses `nodes list` to find controller nodes first, records the actual node name, then does `params list <CTRL_NODE>` and `params get <CTRL_NODE>:<param>` using the discovered name. Hardcoded names like `/diff_drive_controller` and `/base_controller` removed entirely.
-
-#### Agent Decision Framework — "Stop the robot" row
-
-Fixed to include `topics type` confirmation step and TwistStamped variant, matching the full introspection requirement.
-
-#### Quick Examples and Command Quick Reference — Hardcoded sensor topic names removed
-
-"Read Sensors" examples no longer use `/scan`, `/odom`, `/joint_states` as subscribed names. Replaced with `<LASER_TOPIC>`, `<ODOM_TOPIC>`, `<JOINT_STATE_TOPIC>` placeholders populated from discovery results.
-
-#### Launch section — Confirmation-seeking language removed (Rule 5 alignment)
-
-Removed `"I found navigation2. Launch it?"` and `"I assume you mean X. Launch it?"` patterns. Rule is now: exactly one match → launch immediately; multiple unresolvable matches → list and ask; no match → ask for name. No confirmation on single clear match.
-
-## [1.0.7] - 2026-03-13
-
-### Fixed — Full auto-introspection; eliminated all hardcoded topic/type assumptions
-
-The core principle is now enforced throughout: the agent must discover every topic name, service name, action name, and message type from the live ROS 2 graph before acting. No exceptions, not even for "conventional" names like `/cmd_vel` or types like `Twist`.
-
-#### New Rule 0 — Mandatory pre-flight introspection protocol
-
-Added a new **Rule 0** above all other rules in the Agent Behaviour Rules section. It establishes a non-negotiable pre-flight introspection gate before any publish/call/send action:
-- Explicit prohibition list: never use `/cmd_vel`, never use `Twist` payload, never use `/odom` without first discovering them via `topics find`
-- Per-action-type introspection requirements (publish, service call, action send, movement, sensor read, node operations)
-- Clear rationale: convention-based guessing causes silent failures and physical accidents
-
-#### Rule 3 — Added `topics type` confirmation step
-
-Step 1 of the Movement Algorithm now explicitly requires running `topics type <VEL_TOPIC>` after discovery to confirm the exact type. Previously, agents were expected to infer the type from which `topics find` command returned a result — an unreliable heuristic. The confirmed type is what determines the payload structure.
-
-#### Movement Workflow (canonical) — Replaced hardcoded names with discovered variables
-
-All four cases (A–D) in the canonical Movement Workflow section now:
-- State explicitly that `<VEL_TOPIC>` and `<ODOM_TOPIC>` are placeholders for discovered values
-- Show the discovery step (`topics find` + `topics type`) as part of each case block
-- Include both Twist and TwistStamped payload variants in every case
-- Never use `/cmd_vel` or `/odom` as if they are known
-
-#### Goal-Oriented Commands section — Full introspection shown for every example
-
-Replaced bare examples that hardcoded `/cmd_vel`, `/scan`, and `/joint_cmd` with step-by-step flows showing discovery of the command topic, type confirmation, and monitor topic discovery before the `publish-until` call.
-
-#### EXECUTION RULES Rule 4 — Hardcoded names removed
-
-Rule 4 "Always Stop After Movement" no longer shows `/cmd_vel` or `/odom` in examples. All examples use `<VEL_TOPIC>` and `<ODOM_TOPIC>` placeholders with an explicit note that these come from introspection.
-
-#### Quick Reference "1. Explore a Robot System" — Removed hardcoded `/cmd_vel`
-
-The example no longer teaches `topics type /cmd_vel` as a starting point. Replaced with the correct pattern: `topics find <type>` → `topics type <discovered>` → `interface proto <confirmed_type>`.
-
-#### Quick lookup table — Fixed "Move robot" entry
-
-Now shows both `topics find geometry_msgs/msg/Twist` AND `TwistStamped`, followed by `topics type <result>` to confirm. Previously only showed Twist discovery.
-
-#### Velocity Commands section — Added `topics type` confirmation step
-
-The "Velocity Commands (Twist vs TwistStamped)" discovery section now includes the mandatory `topics type <discovered_topic>` step between discovery and payload selection.
-
-#### Agent Decision Framework Step 4 — Added `topics type` as first step
-
-"Get Message Structure" now lists `topics type <discovered_topic>` as the first and most critical step before getting field structures or proto templates.
-
-#### Safety Notes — Added TwistStamped stop payload
-
-Zero-velocity stop payload section now shows both Twist and TwistStamped variants, since the correct one depends on the confirmed type from introspection.
-
-## [1.0.6] - 2026-03-13
-
-### Fixed — Remaining escape hatches allowing time-based movement instead of odometry feedback
-
-Three places in SKILL.md were still routing agents toward `publish-sequence` with a fixed duration for distance/angle commands:
-
-- **Quick Decision Card**: "Is X about controlling/moving? → Use TOPICS PUBLISH" had no distinction between distance-specified and open-ended movement. Now splits explicitly: distance/angle → `publish-until` with odometry (Rule 3); open-ended → `publish-sequence`. Odometry discovery added as a mandatory step when distance or angle is specified.
-- **Agent Decision Framework table**: `"Move/drive/turn (mobile robot)"` row pointed to `publish` for all movement. Split into three distinct rows: open-ended movement (`publish-sequence`), distance commands (`publish-until --field --delta`), and angle/rotation commands (`publish-until --rotate`). Each row calls out Rule 3 for the distance/angle cases.
-- **EXECUTION RULES Rule 4 "Always Stop After Movement"**: The `CORRECT` example showed `publish-sequence` with a 2-second fixed duration — exactly the pattern Rule 3 forbids. Replaced with: `publish-until` as the correct pattern for distance commands (it stops itself automatically), and `publish-sequence` with stop only for the open-ended fallback.
-
-## [1.0.5] - 2026-03-13
-
-### Fixed — Odometry rule enforcement
-
-- **Merged duplicate Rule 3**: The EXECUTION RULES section had a weaker, softer copy of Rule 3 ("Movement Requires Feedback") that omitted the explicit `❌ Never` prohibitions and the mandatory user notification on fallback. Replaced with a hard pointer to the top-level Agent Behaviour Rule 3, which is authoritative.
-- **Fixed "Move a Robot" Quick Reference example**: Primary example was `publish-sequence` with a fixed time, giving agents a copy-paste pattern that bypassed odometry entirely. Replaced with `publish-until` + odometry as primary; `publish-sequence` moved to a clearly-labelled fallback.
-- **Fixed "Move a Robot" Quick Examples section**: Same fix — odometry + `publish-until` is now the primary example; `publish-sequence` is labelled as fallback only.
-- **Fixed COMMANDS.md `publish-sequence` examples**: Added a prominent `⚠️ WARNING` block explaining `publish-sequence` is open-loop and time-based, must not be used when distance/angle is specified and odometry is available, and all existing examples relabelled as `[FALLBACK]`.
-
 ## [1.0.4] - 2026-03-13
 
 Added launch and run commands for running ROS 2 launch files and executables in tmux sessions.
@@ -226,6 +91,21 @@ Both `launch` and `run` commands automatically source local ROS 2 workspaces bef
 - Extracted common tmux/session helpers to `ros2_utils.py` to avoid duplication
 - Shared functions: `run_cmd`, `check_tmux`, `session_exists`, `kill_session`, `check_session_alive`, `quote_path`, `generate_session_name`, `list_sessions`, `kill_session_cmd`, session metadata functions
 - Shared package cache: `list_packages`, `package_exists`, `get_package_prefix`
+
+### Skill
+
+- Added Rule 0: mandatory pre-flight introspection before every publish/call/send — never assume topic names, types, or node names
+- Added Rule 5: execute immediately on clear intent; stop and ask only when genuinely ambiguous
+- Added Rule 6: minimal reporting by default; verbose only on explicit request
+- Movement workflow now requires `topics type <VEL_TOPIC>` after discovery to confirm Twist vs TwistStamped before building any payload
+- Movement workflow step 2.5: verify velocity topic has active subscribers, check controller is `active` via `control list-controllers`, confirm odometry is live, capture start pose — all before executing motion
+- Movement workflow step 4: capture end pose after motion, compute and report actual distance/angle travelled
+- All movement examples use `<VEL_TOPIC>` / `<ODOM_TOPIC>` placeholders; `/cmd_vel` and `/odom` removed throughout
+- Both Twist and TwistStamped payload variants included in every movement case
+- Distance/angle commands always use `publish-until` with odometry feedback; `publish-sequence` restricted to open-ended movement and no-odometry fallback
+- Added movement error recovery table: odom dying mid-motion triggers immediate estop; no-subscriber velocity topic triggers controller check
+- Launch: one clear match launches immediately; confirmation-seeking language removed
+- All examples use discovered placeholders; hardcoded names (`/reset`, `/navigate_to_pose`, `/scan`, `/odom`, etc.) removed throughout
 
 ---
 
