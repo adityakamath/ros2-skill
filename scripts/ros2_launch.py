@@ -145,54 +145,6 @@ def _find_launch_files(package):
     return launch_files
 
 
-def _find_config_files(package, config_path=None):
-    """Find config files in a package or given path."""
-    if config_path and os.path.isdir(config_path):
-        config_dir = config_path
-    else:
-        prefix = _get_package_prefix(package)
-        if not prefix:
-            return []
-        config_dir = os.path.join(prefix, "share", package, "config")
-    
-    if not os.path.isdir(config_dir):
-        return []
-    
-    config_files = []
-    for f in os.listdir(config_dir):
-        if f.endswith(('.yaml', '.yml')):
-            config_files.append(f)
-    
-    return config_files
-
-
-def _apply_params(params_str):
-    """Parse and return params from key:value or key:=value string."""
-    if not params_str:
-        return {}
-    
-    params = {}
-    for pair in params_str.split(','):
-        pair = pair.strip()
-        # Handle both "key:value" and "key:=value" formats
-        if ':=' in pair:
-            key, value = pair.split(':=', 1)
-        elif ':' in pair:
-            key, value = pair.split(':', 1)
-        else:
-            continue
-        # Try to parse value as number
-        try:
-            if '.' in value:
-                params[key.strip()] = float(value)
-            else:
-                params[key.strip()] = int(value)
-        except ValueError:
-            params[key.strip()] = value.strip()
-    
-    return params
-
-
 def cmd_launch_run(args):
     """Run a ROS 2 launch file in a tmux session."""
     if not check_tmux():
@@ -204,8 +156,6 @@ def cmd_launch_run(args):
     package = args.package
     launch_file = args.launch_file
     launch_args = args.args or []
-    params_str = args.params
-    config_path = args.config_path
     
     # Check package exists (auto-refresh if not found)
     if not _package_exists(package, force_refresh=False):
@@ -252,18 +202,10 @@ def cmd_launch_run(args):
     cmd_parts = ["ros2 launch", package, os.path.basename(launch_path)]
     cmd_parts.extend(launch_args)
     
-    # Add params to command if specified (key:=value format for ROS 2)
-    if params_str:
-        for key, value in applied_params.items():
-            cmd_parts.append(f"{key}:={value}")
-    
     launch_cmd = " ".join(cmd_parts)
     
     # Generate session name
     session_name = generate_session_name("launch", package, launch_file.replace('.launch.py', '').replace('.launch', ''))
-    
-    # Apply params if specified
-    applied_params = _apply_params(params_str) if params_str else {}
     
     # Get local workspace to source (auto-detected)
     ws_path, ws_status = source_local_ws()
@@ -322,7 +264,6 @@ def cmd_launch_run(args):
         "package": package,
         "launch_file": os.path.basename(launch_path),
         "status": status.strip() if status else "unknown",
-        "params_applied": applied_params,
     }
     
     if ws_path:
@@ -340,7 +281,6 @@ def cmd_launch_run(args):
         "package": package,
         "launch_file": os.path.basename(launch_path),
         "launch_args": launch_args,
-        "params": params_str,
         "command": launch_cmd
     })
     
@@ -413,7 +353,6 @@ def cmd_launch_restart(args):
         package = metadata.get("package")
         launch_file = metadata.get("launch_file")
         launch_args = metadata.get("launch_args", [])
-        params_str = metadata.get("params")
         
         if not package or not launch_file:
             return output({
@@ -425,9 +364,6 @@ def cmd_launch_restart(args):
             'package': package,
             'launch_file': launch_file,
             'args': launch_args,
-            'params': params_str,
-            'config_path': None,
-            'refresh': False
         })()
         
         result = cmd_launch_run(args_restart)
