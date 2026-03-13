@@ -2,23 +2,6 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.6] - 2026-03-13
-
-### Skill
-
-- Added Rule 0.1 — mandatory session-start checks before any task: health check (`doctor`), simulated time verification (`/clock` liveness), and lifecycle node state check. These run once per session and catch the most common silent-failure conditions.
-- Movement Workflow Step 2.5: added pre-motion check — read current odometry twist fields and abort if the robot is already moving (non-zero velocity); send `estop` and wait before issuing new velocity commands.
-- Movement Workflow Step 2.5: added odometry rate check (`topics hz`) — if rate is below 5 Hz, fall back to open-loop (Case D) and warn the user; 10 Hz minimum required for safe closed-loop control.
-- Movement Workflow Step 1: added velocity topic disambiguation rule for when both Twist and TwistStamped topics exist — prefer the topic with an active subscriber, then prefer `cmd_vel` naming, then prefer TwistStamped as a tiebreaker.
-
-## [1.0.5] - 2026-03-13
-
-### Skill
-
-- Parameter introspection is now a mandatory pre-flight step before any movement command — not advisory. The agent must discover controller nodes, list their parameters, identify velocity/angular limits (`max_vel_x`, `max_vel_theta`, `max_linear_velocity`, `max_angular_velocity`, `speed_limit`, etc.), and cap all commanded velocities at the discovered limits before publishing. If no limits are found, conservative defaults (0.1 m/s linear, 0.3 rad/s angular) are used and noted to the user.
-- Rule 0 pre-flight table updated to include the mandatory parameter introspection block for movement.
-- Movement Workflow Step 2.5 expanded: parameter discovery for velocity/angular limits is now the first sub-step, executed before liveness checks.
-
 ## [1.0.4] - 2026-03-13
 
 Added launch and run commands for running ROS 2 launch files and executables in tmux sessions.
@@ -65,8 +48,14 @@ Added launch and run commands for running ROS 2 launch files and executables in 
 - Package cache auto-refreshes when a package is not found; no manual `--refresh` needed
 - Session management: fails if session exists; restart preserves original parameters
 - Rule 0: mandatory pre-flight introspection before every publish/call/send — never assume topic names, types, or node names
+- Rule 0.1: mandatory session-start checks — `doctor` health check, simulated time / `/clock` liveness, lifecycle node state verification
+- Rule 0.5: never hallucinate commands or flags; verify in COMMANDS.md first, then the live system, then ask
 - Rule 5: execute immediately on clear intent; ask only when genuinely ambiguous
 - Rule 6: minimal reporting by default; verbose only on explicit request
+- Movement: mandatory parameter introspection before any velocity command — discover controller nodes, list params, get velocity/angular limits, cap commanded velocity; conservative defaults if no limits found
+- Movement: pre-motion check — read odom twist fields; abort and `estop` if robot is already moving
+- Movement: odometry rate check (`topics hz`) before closed-loop — fall back to open-loop if rate < 5 Hz
+- Movement: velocity topic disambiguation when both Twist and TwistStamped exist — prefer subscribed topic, then `cmd_vel` naming, then TwistStamped
 - Movement: confirm Twist vs TwistStamped via `topics type` after discovery; verify controller active and odometry live before moving; capture start and end pose; report actual distance/angle
 - Distance/angle commands always use `publish-until` with odometry; `publish-sequence` only for open-ended movement or no-odometry fallback
 - All examples use `<VEL_TOPIC>` / `<ODOM_TOPIC>` placeholders; no hardcoded topic or service names anywhere
