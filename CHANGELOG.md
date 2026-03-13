@@ -2,7 +2,7 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.4] - 2026-03-13
+## [1.0.4] - 2026-03-14
 
 Added launch, run, and tf commands. Hardened movement safety rules and `--rotate` rotation monitoring.
 

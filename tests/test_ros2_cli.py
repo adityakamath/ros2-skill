@@ -182,6 +182,101 @@ class TestBuildParser(unittest.TestCase):
         self.assertEqual(args2.node, "/robot/sensor_node")
         self.assertEqual(args2.transition, "activate")
 
+    def test_estop_no_topic(self):
+        args = self.parser.parse_args(["estop"])
+        self.assertEqual(args.command, "estop")
+        self.assertIsNone(args.topic)
+
+    def test_estop_custom_topic(self):
+        args = self.parser.parse_args(["estop", "--topic", "/mobile_base/cmd_vel"])
+        self.assertEqual(args.topic, "/mobile_base/cmd_vel")
+
+    def test_services_echo_defaults(self):
+        args = self.parser.parse_args(["services", "echo", "/add_two_ints"])
+        self.assertEqual(args.command, "services")
+        self.assertEqual(args.subcommand, "echo")
+        self.assertEqual(args.service, "/add_two_ints")
+        self.assertIsNone(args.duration)
+        self.assertIsNone(args.max_messages)
+        self.assertEqual(args.timeout, 30.0)
+
+    def test_services_echo_with_options(self):
+        args = self.parser.parse_args([
+            "services", "echo", "/my_svc",
+            "--duration", "5", "--max-messages", "10", "--timeout", "20"
+        ])
+        self.assertEqual(args.duration, 5.0)
+        self.assertEqual(args.max_messages, 10)
+        self.assertEqual(args.timeout, 20.0)
+
+    def test_actions_echo_defaults(self):
+        args = self.parser.parse_args(["actions", "echo", "/turtle1/rotate_absolute"])
+        self.assertEqual(args.command, "actions")
+        self.assertEqual(args.subcommand, "echo")
+        self.assertEqual(args.action, "/turtle1/rotate_absolute")
+        self.assertIsNone(args.duration)
+        self.assertEqual(args.max_messages, 100)
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_actions_echo_with_options(self):
+        args = self.parser.parse_args([
+            "actions", "echo", "/navigate",
+            "--duration", "10", "--max-messages", "50", "--timeout", "15"
+        ])
+        self.assertEqual(args.duration, 10.0)
+        self.assertEqual(args.max_messages, 50)
+        self.assertEqual(args.timeout, 15.0)
+
+    def test_actions_find_defaults(self):
+        args = self.parser.parse_args(["actions", "find", "turtlesim/action/RotateAbsolute"])
+        self.assertEqual(args.command, "actions")
+        self.assertEqual(args.subcommand, "find")
+        self.assertEqual(args.action_type, "turtlesim/action/RotateAbsolute")
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_actions_find_custom_timeout(self):
+        args = self.parser.parse_args(["actions", "find", "nav2_msgs/action/NavigateToPose", "--timeout", "10"])
+        self.assertEqual(args.timeout, 10.0)
+
+    def test_params_describe_colon_format(self):
+        args = self.parser.parse_args(["params", "describe", "/turtlesim:background_r"])
+        self.assertEqual(args.command, "params")
+        self.assertEqual(args.subcommand, "describe")
+        self.assertEqual(args.name, "/turtlesim:background_r")
+        self.assertIsNone(args.param_name)
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_params_describe_two_arg_format(self):
+        args = self.parser.parse_args(["params", "describe", "/turtlesim", "background_r"])
+        self.assertEqual(args.name, "/turtlesim")
+        self.assertEqual(args.param_name, "background_r")
+
+    def test_params_dump(self):
+        args = self.parser.parse_args(["params", "dump", "/turtlesim"])
+        self.assertEqual(args.command, "params")
+        self.assertEqual(args.subcommand, "dump")
+        self.assertEqual(args.node, "/turtlesim")
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_params_load_json_string(self):
+        args = self.parser.parse_args(["params", "load", "/turtlesim", '{"background_r":255}'])
+        self.assertEqual(args.command, "params")
+        self.assertEqual(args.subcommand, "load")
+        self.assertEqual(args.node, "/turtlesim")
+        self.assertEqual(args.params, '{"background_r":255}')
+
+    def test_params_delete_single(self):
+        args = self.parser.parse_args(["params", "delete", "/turtlesim:background_r"])
+        self.assertEqual(args.command, "params")
+        self.assertEqual(args.subcommand, "delete")
+        self.assertEqual(args.name, "/turtlesim:background_r")
+        self.assertEqual(args.extra_names, [])
+
+    def test_params_delete_two_arg_format(self):
+        args = self.parser.parse_args(["params", "delete", "/turtlesim", "background_r"])
+        self.assertEqual(args.name, "/turtlesim")
+        self.assertEqual(args.param_name, "background_r")
+
 
 class TestDispatchTable(unittest.TestCase):
     @classmethod
@@ -200,12 +295,16 @@ class TestDispatchTable(unittest.TestCase):
             ("version", None),
             ("topics", "list"), ("topics", "type"), ("topics", "details"),
             ("topics", "message"), ("topics", "subscribe"), ("topics", "publish"),
-            ("topics", "publish-sequence"),
+            ("topics", "publish-sequence"), ("topics", "publish-until"),
+            ("topics", "bw"), ("topics", "delay"),
             ("services", "list"), ("services", "type"), ("services", "details"),
-            ("services", "call"),
+            ("services", "call"), ("services", "echo"),
             ("nodes", "list"), ("nodes", "details"),
             ("params", "list"), ("params", "get"), ("params", "set"),
+            ("params", "describe"), ("params", "dump"), ("params", "load"),
+            ("params", "delete"),
             ("actions", "list"), ("actions", "details"), ("actions", "send"),
+            ("actions", "echo"), ("actions", "find"),
             # lifecycle
             ("lifecycle", "nodes"), ("lifecycle", "list"), ("lifecycle", "ls"),
             ("lifecycle", "get"), ("lifecycle", "set"),
@@ -216,6 +315,33 @@ class TestDispatchTable(unittest.TestCase):
             # params presets
             ("params", "preset-save"), ("params", "preset-load"),
             ("params", "preset-list"), ("params", "preset-delete"),
+            # tf
+            ("tf", "list"), ("tf", "ls"), ("tf", "lookup"), ("tf", "get"),
+            ("tf", "echo"), ("tf", "monitor"), ("tf", "static"),
+            ("tf", "euler-from-quaternion"), ("tf", "e2q"), ("tf", "quat2euler"),
+            ("tf", "quaternion-from-euler"), ("tf", "q2e"), ("tf", "euler2quat"),
+            ("tf", "euler-from-quaternion-deg"), ("tf", "e2qdeg"),
+            ("tf", "quaternion-from-euler-deg"), ("tf", "q2edeg"),
+            ("tf", "transform-point"), ("tf", "tp"), ("tf", "point"),
+            ("tf", "transform-vector"), ("tf", "tv"), ("tf", "vector"),
+            # launch
+            ("launch", "new"), ("launch", "list"), ("launch", "ls"),
+            ("launch", "kill"), ("launch", "restart"), ("launch", "foxglove"),
+            # run
+            ("run", "new"), ("run", "list"), ("run", "ls"),
+            ("run", "kill"), ("run", "restart"),
+            # control — canonical
+            ("control", "list-controller-types"), ("control", "list-controllers"),
+            ("control", "list-hardware-components"), ("control", "list-hardware-interfaces"),
+            ("control", "load-controller"), ("control", "unload-controller"),
+            ("control", "configure-controller"), ("control", "reload-controller-libraries"),
+            ("control", "set-controller-state"), ("control", "set-hardware-component-state"),
+            ("control", "switch-controllers"), ("control", "view-controller-chains"),
+            # control — aliases
+            ("control", "lct"), ("control", "lc"), ("control", "lhc"), ("control", "lhi"),
+            ("control", "load"), ("control", "unload"), ("control", "cc"), ("control", "rcl"),
+            ("control", "scs"), ("control", "shcs"), ("control", "sc"), ("control", "swc"),
+            ("control", "vcc"),
         ]
         for key in expected_keys:
             self.assertIn(key, self.ros2_cli.DISPATCH, f"Missing dispatch key: {key}")
@@ -1365,6 +1491,769 @@ class TestRetryBehavior(unittest.TestCase):
         # timeout must NOT have been injected
         self.assertFalse(hasattr(args, "timeout"),
                          "global_timeout should not inject args.timeout when attr is absent")
+
+
+class TestTFParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for the tf subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_tf_list(self):
+        args = self.parser.parse_args(["tf", "list"])
+        self.assertEqual(args.command, "tf")
+        self.assertEqual(args.subcommand, "list")
+
+    def test_tf_ls_alias(self):
+        args = self.parser.parse_args(["tf", "ls"])
+        self.assertEqual(args.subcommand, "ls")
+
+    def test_tf_lookup_defaults(self):
+        args = self.parser.parse_args(["tf", "lookup", "world", "base_link"])
+        self.assertEqual(args.command, "tf")
+        self.assertEqual(args.subcommand, "lookup")
+        self.assertEqual(args.source, "world")
+        self.assertEqual(args.target, "base_link")
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_tf_lookup_custom_timeout(self):
+        args = self.parser.parse_args(["tf", "lookup", "map", "odom", "--timeout", "10"])
+        self.assertEqual(args.timeout, 10.0)
+
+    def test_tf_get_alias(self):
+        args = self.parser.parse_args(["tf", "get", "world", "base_link"])
+        self.assertEqual(args.subcommand, "get")
+        self.assertEqual(args.source, "world")
+        self.assertEqual(args.target, "base_link")
+
+    def test_tf_echo_defaults(self):
+        args = self.parser.parse_args(["tf", "echo", "world", "base_link"])
+        self.assertEqual(args.subcommand, "echo")
+        self.assertEqual(args.source, "world")
+        self.assertEqual(args.target, "base_link")
+        self.assertEqual(args.timeout, 5.0)
+        self.assertEqual(args.count, 5)
+        self.assertFalse(args.once)
+
+    def test_tf_echo_with_options(self):
+        args = self.parser.parse_args([
+            "tf", "echo", "map", "odom",
+            "--count", "3", "--once", "--timeout", "2"
+        ])
+        self.assertEqual(args.count, 3)
+        self.assertTrue(args.once)
+        self.assertEqual(args.timeout, 2.0)
+
+    def test_tf_monitor_defaults(self):
+        args = self.parser.parse_args(["tf", "monitor", "base_link"])
+        self.assertEqual(args.subcommand, "monitor")
+        self.assertEqual(args.frame, "base_link")
+        self.assertEqual(args.timeout, 5.0)
+        self.assertEqual(args.count, 5)
+
+    def test_tf_monitor_custom(self):
+        args = self.parser.parse_args(["tf", "monitor", "odom", "--count", "10", "--timeout", "3"])
+        self.assertEqual(args.count, 10)
+        self.assertEqual(args.timeout, 3.0)
+
+    def test_tf_static_named_form(self):
+        args = self.parser.parse_args([
+            "tf", "static",
+            "--from", "world", "--to", "base_link",
+            "--xyz", "1.0", "2.0", "3.0",
+            "--rpy", "0.0", "0.0", "1.57"
+        ])
+        self.assertEqual(args.subcommand, "static")
+        self.assertEqual(args.from_frame, "world")
+        self.assertEqual(args.to_frame, "base_link")
+        self.assertEqual(args.xyz, [1.0, 2.0, 3.0])
+        self.assertEqual(args.rpy, [0.0, 0.0, 1.57])
+
+    def test_tf_static_positional_form(self):
+        args = self.parser.parse_args([
+            "tf", "static", "0", "0", "1", "0", "0", "0", "world", "base_link"
+        ])
+        self.assertEqual(args.subcommand, "static")
+        self.assertEqual(args.pos_args, ["0", "0", "1", "0", "0", "0", "world", "base_link"])
+
+    def test_tf_euler_from_quaternion(self):
+        args = self.parser.parse_args(["tf", "euler-from-quaternion", "0", "0", "0", "1"])
+        self.assertEqual(args.subcommand, "euler-from-quaternion")
+        self.assertEqual(args.x, 0.0)
+        self.assertEqual(args.y, 0.0)
+        self.assertEqual(args.z, 0.0)
+        self.assertEqual(args.w, 1.0)
+
+    def test_tf_e2q_alias(self):
+        args = self.parser.parse_args(["tf", "e2q", "0", "0", "0.707", "0.707"])
+        self.assertEqual(args.subcommand, "e2q")
+        self.assertAlmostEqual(args.z, 0.707)
+
+    def test_tf_quat2euler_alias(self):
+        args = self.parser.parse_args(["tf", "quat2euler", "0", "0", "0", "1"])
+        self.assertEqual(args.subcommand, "quat2euler")
+
+    def test_tf_quaternion_from_euler(self):
+        args = self.parser.parse_args(["tf", "quaternion-from-euler", "0", "0", "1.57"])
+        self.assertEqual(args.subcommand, "quaternion-from-euler")
+        self.assertEqual(args.roll, 0.0)
+        self.assertEqual(args.pitch, 0.0)
+        self.assertAlmostEqual(args.yaw, 1.57)
+
+    def test_tf_q2e_alias(self):
+        args = self.parser.parse_args(["tf", "q2e", "0", "0", "0"])
+        self.assertEqual(args.subcommand, "q2e")
+
+    def test_tf_euler2quat_alias(self):
+        args = self.parser.parse_args(["tf", "euler2quat", "0", "0", "0"])
+        self.assertEqual(args.subcommand, "euler2quat")
+
+    def test_tf_euler_from_quaternion_deg(self):
+        args = self.parser.parse_args(["tf", "euler-from-quaternion-deg", "0", "0", "0", "1"])
+        self.assertEqual(args.subcommand, "euler-from-quaternion-deg")
+
+    def test_tf_e2qdeg_alias(self):
+        args = self.parser.parse_args(["tf", "e2qdeg", "0", "0", "0", "1"])
+        self.assertEqual(args.subcommand, "e2qdeg")
+
+    def test_tf_quaternion_from_euler_deg(self):
+        args = self.parser.parse_args(["tf", "quaternion-from-euler-deg", "0", "0", "90"])
+        self.assertEqual(args.subcommand, "quaternion-from-euler-deg")
+        self.assertEqual(args.yaw, 90.0)
+
+    def test_tf_q2edeg_alias(self):
+        args = self.parser.parse_args(["tf", "q2edeg", "0", "0", "90"])
+        self.assertEqual(args.subcommand, "q2edeg")
+
+    def test_tf_transform_point(self):
+        args = self.parser.parse_args(["tf", "transform-point", "base_link", "world", "1", "2", "3"])
+        self.assertEqual(args.subcommand, "transform-point")
+        self.assertEqual(args.target, "base_link")
+        self.assertEqual(args.source, "world")
+        self.assertEqual(args.x, 1.0)
+        self.assertEqual(args.y, 2.0)
+        self.assertEqual(args.z, 3.0)
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_tf_tp_alias(self):
+        args = self.parser.parse_args(["tf", "tp", "base_link", "world", "1", "2", "3"])
+        self.assertEqual(args.subcommand, "tp")
+
+    def test_tf_point_alias(self):
+        args = self.parser.parse_args(["tf", "point", "base_link", "world", "0", "0", "0"])
+        self.assertEqual(args.subcommand, "point")
+
+    def test_tf_transform_vector(self):
+        args = self.parser.parse_args(["tf", "transform-vector", "base_link", "world", "1", "0", "0"])
+        self.assertEqual(args.subcommand, "transform-vector")
+        self.assertEqual(args.target, "base_link")
+
+    def test_tf_tv_alias(self):
+        args = self.parser.parse_args(["tf", "tv", "base_link", "world", "0", "1", "0"])
+        self.assertEqual(args.subcommand, "tv")
+
+    def test_tf_vector_alias(self):
+        args = self.parser.parse_args(["tf", "vector", "base_link", "world", "0", "0", "1"])
+        self.assertEqual(args.subcommand, "vector")
+
+    def test_tf_dispatch_keys_present(self):
+        expected = [
+            ("tf", "list"), ("tf", "ls"),
+            ("tf", "lookup"), ("tf", "get"),
+            ("tf", "echo"), ("tf", "monitor"), ("tf", "static"),
+            ("tf", "euler-from-quaternion"), ("tf", "e2q"), ("tf", "quat2euler"),
+            ("tf", "quaternion-from-euler"), ("tf", "q2e"), ("tf", "euler2quat"),
+            ("tf", "euler-from-quaternion-deg"), ("tf", "e2qdeg"),
+            ("tf", "quaternion-from-euler-deg"), ("tf", "q2edeg"),
+            ("tf", "transform-point"), ("tf", "tp"), ("tf", "point"),
+            ("tf", "transform-vector"), ("tf", "tv"), ("tf", "vector"),
+        ]
+        for key in expected:
+            self.assertIn(key, self.ros2_cli.DISPATCH, f"Missing DISPATCH key: {key}")
+
+    def test_tf_alias_identity(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIs(D[("tf", "ls")], D[("tf", "list")])
+        self.assertIs(D[("tf", "get")], D[("tf", "lookup")])
+        self.assertIs(D[("tf", "e2q")], D[("tf", "euler-from-quaternion")])
+        self.assertIs(D[("tf", "quat2euler")], D[("tf", "euler-from-quaternion")])
+        self.assertIs(D[("tf", "q2e")], D[("tf", "quaternion-from-euler")])
+        self.assertIs(D[("tf", "euler2quat")], D[("tf", "quaternion-from-euler")])
+        self.assertIs(D[("tf", "e2qdeg")], D[("tf", "euler-from-quaternion-deg")])
+        self.assertIs(D[("tf", "q2edeg")], D[("tf", "quaternion-from-euler-deg")])
+        self.assertIs(D[("tf", "tp")], D[("tf", "transform-point")])
+        self.assertIs(D[("tf", "point")], D[("tf", "transform-point")])
+        self.assertIs(D[("tf", "tv")], D[("tf", "transform-vector")])
+        self.assertIs(D[("tf", "vector")], D[("tf", "transform-vector")])
+
+    def test_tf_handlers_callable(self):
+        for key in [k for k in self.ros2_cli.DISPATCH if k[0] == "tf"]:
+            self.assertTrue(callable(self.ros2_cli.DISPATCH[key]),
+                            f"Handler for {key} is not callable")
+
+
+class TestLaunchParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for the launch subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_launch_new_defaults(self):
+        args = self.parser.parse_args(["launch", "new", "turtlesim", "turtlesim.launch.py"])
+        self.assertEqual(args.command, "launch")
+        self.assertEqual(args.subcommand, "new")
+        self.assertEqual(args.package, "turtlesim")
+        self.assertEqual(args.launch_file, "turtlesim.launch.py")
+        self.assertEqual(args.args, [])
+        self.assertEqual(args.timeout, 30.0)
+
+    def test_launch_new_with_args(self):
+        args = self.parser.parse_args([
+            "launch", "new", "nav2_bringup", "bringup.launch.py",
+            "use_sim_time:=true", "map:=/maps/arena.yaml"
+        ])
+        self.assertEqual(args.args, ["use_sim_time:=true", "map:=/maps/arena.yaml"])
+
+    def test_launch_new_custom_timeout(self):
+        args = self.parser.parse_args([
+            "launch", "new", "my_pkg", "my.launch.py", "--timeout", "60"
+        ])
+        self.assertEqual(args.timeout, 60.0)
+
+    def test_launch_list(self):
+        args = self.parser.parse_args(["launch", "list"])
+        self.assertEqual(args.command, "launch")
+        self.assertEqual(args.subcommand, "list")
+
+    def test_launch_ls_alias(self):
+        args = self.parser.parse_args(["launch", "ls"])
+        self.assertEqual(args.subcommand, "ls")
+
+    def test_launch_kill(self):
+        args = self.parser.parse_args(["launch", "kill", "my_session"])
+        self.assertEqual(args.subcommand, "kill")
+        self.assertEqual(args.session, "my_session")
+
+    def test_launch_restart(self):
+        args = self.parser.parse_args(["launch", "restart", "my_session"])
+        self.assertEqual(args.subcommand, "restart")
+        self.assertEqual(args.session, "my_session")
+
+    def test_launch_foxglove_default_port(self):
+        args = self.parser.parse_args(["launch", "foxglove"])
+        self.assertEqual(args.subcommand, "foxglove")
+        self.assertEqual(args.port, 8765)
+
+    def test_launch_foxglove_custom_port(self):
+        args = self.parser.parse_args(["launch", "foxglove", "9000"])
+        self.assertEqual(args.port, 9000)
+
+    def test_launch_dispatch_keys(self):
+        expected = [
+            ("launch", "new"), ("launch", "list"), ("launch", "ls"),
+            ("launch", "kill"), ("launch", "restart"), ("launch", "foxglove"),
+        ]
+        for key in expected:
+            self.assertIn(key, self.ros2_cli.DISPATCH, f"Missing DISPATCH key: {key}")
+            self.assertTrue(callable(self.ros2_cli.DISPATCH[key]))
+
+    def test_launch_ls_same_handler_as_list(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIs(D[("launch", "ls")], D[("launch", "list")])
+
+
+class TestRunParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for the run subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_run_new_minimal(self):
+        args = self.parser.parse_args(["run", "new", "turtlesim", "turtlesim_node"])
+        self.assertEqual(args.command, "run")
+        self.assertEqual(args.subcommand, "new")
+        self.assertEqual(args.package, "turtlesim")
+        self.assertEqual(args.executable, "turtlesim_node")
+        self.assertEqual(args.args, [])
+        self.assertIsNone(args.presets)
+        self.assertIsNone(args.params)
+        self.assertIsNone(args.config_path)
+
+    def test_run_new_with_presets_and_params(self):
+        args = self.parser.parse_args([
+            "run", "new", "my_pkg", "my_node",
+            "--presets", "indoor,slow",
+            "--params", "speed:=0.5"
+        ])
+        self.assertEqual(args.presets, "indoor,slow")
+        self.assertEqual(args.params, "speed:=0.5")
+
+    def test_run_new_with_config_path(self):
+        args = self.parser.parse_args([
+            "run", "new", "my_pkg", "my_node",
+            "--config-path", "/robot/config"
+        ])
+        self.assertEqual(args.config_path, "/robot/config")
+
+    def test_run_list(self):
+        args = self.parser.parse_args(["run", "list"])
+        self.assertEqual(args.command, "run")
+        self.assertEqual(args.subcommand, "list")
+
+    def test_run_ls_alias(self):
+        args = self.parser.parse_args(["run", "ls"])
+        self.assertEqual(args.subcommand, "ls")
+
+    def test_run_kill(self):
+        args = self.parser.parse_args(["run", "kill", "turtlesim_node"])
+        self.assertEqual(args.subcommand, "kill")
+        self.assertEqual(args.session, "turtlesim_node")
+
+    def test_run_restart(self):
+        args = self.parser.parse_args(["run", "restart", "turtlesim_node"])
+        self.assertEqual(args.subcommand, "restart")
+        self.assertEqual(args.session, "turtlesim_node")
+
+    def test_run_dispatch_keys(self):
+        expected = [
+            ("run", "new"), ("run", "list"), ("run", "ls"),
+            ("run", "kill"), ("run", "restart"),
+        ]
+        for key in expected:
+            self.assertIn(key, self.ros2_cli.DISPATCH, f"Missing DISPATCH key: {key}")
+            self.assertTrue(callable(self.ros2_cli.DISPATCH[key]))
+
+    def test_run_ls_same_handler_as_list(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIs(D[("run", "ls")], D[("run", "list")])
+
+
+class TestPublishUntilParsing(unittest.TestCase):
+    """Parser argument tests for topics publish-until."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_publish_until_defaults(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until",
+            "/cmd_vel", '{"linear":{"x":0.3}}',
+            "--monitor", "/odom",
+            "--field", "pose.pose.position.x",
+            "--delta", "1.0"
+        ])
+        self.assertEqual(args.command, "topics")
+        self.assertEqual(args.subcommand, "publish-until")
+        self.assertEqual(args.topic, "/cmd_vel")
+        self.assertEqual(args.monitor, "/odom")
+        self.assertEqual(args.field, ["pose.pose.position.x"])
+        self.assertEqual(args.delta, 1.0)
+        self.assertFalse(args.euclidean)
+        self.assertIsNone(args.above)
+        self.assertIsNone(args.below)
+        self.assertIsNone(args.equals)
+        self.assertIsNone(args.rotate)
+        self.assertFalse(args.degrees)
+        self.assertEqual(args.rate, 10.0)
+        self.assertEqual(args.timeout, 60.0)
+
+    def test_publish_until_euclidean(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until",
+            "/cmd_vel", "{}",
+            "--monitor", "/odom",
+            "--field", "pose.pose.position.x", "pose.pose.position.y",
+            "--euclidean", "--delta", "2.0"
+        ])
+        self.assertTrue(args.euclidean)
+        self.assertEqual(args.field, ["pose.pose.position.x", "pose.pose.position.y"])
+        self.assertEqual(args.delta, 2.0)
+
+    def test_publish_until_above(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until", "/cmd_vel", "{}",
+            "--monitor", "/odom", "--field", "pose.pose.position.x",
+            "--above", "5.0"
+        ])
+        self.assertEqual(args.above, 5.0)
+        self.assertIsNone(args.delta)
+
+    def test_publish_until_below(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until", "/cmd_vel", "{}",
+            "--monitor", "/odom", "--field", "pose.pose.position.x",
+            "--below", "0.5"
+        ])
+        self.assertEqual(args.below, 0.5)
+
+    def test_publish_until_equals(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until", "/cmd_vel", "{}",
+            "--monitor", "/my_topic", "--field", "data",
+            "--equals", "done"
+        ])
+        self.assertEqual(args.equals, "done")
+
+    def test_publish_until_rotate_radians(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until", "/cmd_vel", "{}",
+            "--monitor", "/odom",
+            "--rotate", "1.57"
+        ])
+        self.assertAlmostEqual(args.rotate, 1.57)
+        self.assertFalse(args.degrees)
+
+    def test_publish_until_rotate_degrees(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until", "/cmd_vel", "{}",
+            "--monitor", "/odom",
+            "--rotate", "90", "--degrees"
+        ])
+        self.assertEqual(args.rotate, 90.0)
+        self.assertTrue(args.degrees)
+
+    def test_publish_until_rotate_negative(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until", "/cmd_vel", "{}",
+            "--monitor", "/odom",
+            "--rotate", "-1.57"
+        ])
+        self.assertAlmostEqual(args.rotate, -1.57)
+
+    def test_publish_until_custom_rate_and_timeout(self):
+        args = self.parser.parse_args([
+            "topics", "publish-until", "/cmd_vel", "{}",
+            "--monitor", "/odom", "--field", "x", "--delta", "1",
+            "--rate", "20", "--timeout", "30"
+        ])
+        self.assertEqual(args.rate, 20.0)
+        self.assertEqual(args.timeout, 30.0)
+
+    def test_publish_until_dispatch_wiring(self):
+        key = ("topics", "publish-until")
+        self.assertIn(key, self.ros2_cli.DISPATCH)
+        self.assertTrue(callable(self.ros2_cli.DISPATCH[key]))
+
+
+class TestRotationMath(unittest.TestCase):
+    """Pure-Python tests for quaternion_to_yaw() and normalize_angle()."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_topic
+        cls.ros2_topic = ros2_topic
+
+    def test_quaternion_to_yaw_identity(self):
+        """Identity quaternion (x=0,y=0,z=0,w=1) gives yaw=0."""
+        yaw = self.ros2_topic.quaternion_to_yaw((0.0, 0.0, 0.0, 1.0))
+        self.assertAlmostEqual(yaw, 0.0, places=9)
+
+    def test_quaternion_to_yaw_90_ccw(self):
+        """90 deg CCW about z: yaw approx pi/2."""
+        import math
+        z = math.sin(math.pi / 4)
+        w = math.cos(math.pi / 4)
+        yaw = self.ros2_topic.quaternion_to_yaw((0.0, 0.0, z, w))
+        self.assertAlmostEqual(yaw, math.pi / 2, places=9)
+
+    def test_quaternion_to_yaw_90_cw(self):
+        """90 deg CW about z: yaw approx -pi/2."""
+        import math
+        z = -math.sin(math.pi / 4)
+        w = math.cos(math.pi / 4)
+        yaw = self.ros2_topic.quaternion_to_yaw((0.0, 0.0, z, w))
+        self.assertAlmostEqual(yaw, -math.pi / 2, places=9)
+
+    def test_quaternion_to_yaw_180(self):
+        """180 deg about z: yaw approx pi."""
+        import math
+        yaw = self.ros2_topic.quaternion_to_yaw((0.0, 0.0, 1.0, 0.0))
+        self.assertAlmostEqual(abs(yaw), math.pi, places=9)
+
+    def test_normalize_angle_zero(self):
+        self.assertAlmostEqual(self.ros2_topic.normalize_angle(0.0), 0.0)
+
+    def test_normalize_angle_within_range(self):
+        import math
+        for a in [1.0, -1.0, math.pi - 0.001, -(math.pi - 0.001)]:
+            self.assertAlmostEqual(self.ros2_topic.normalize_angle(a), a, places=9)
+
+    def test_normalize_angle_above_pi(self):
+        import math
+        result = self.ros2_topic.normalize_angle(math.pi + 0.5)
+        self.assertGreater(result, -math.pi)
+        self.assertLessEqual(result, math.pi)
+        self.assertAlmostEqual(result, -(math.pi - 0.5), places=9)
+
+    def test_normalize_angle_below_minus_pi(self):
+        import math
+        result = self.ros2_topic.normalize_angle(-(math.pi + 0.5))
+        self.assertGreater(result, -math.pi)
+        self.assertLessEqual(result, math.pi)
+        self.assertAlmostEqual(result, math.pi - 0.5, places=9)
+
+    def test_normalize_angle_multiple_wraps(self):
+        import math
+        result = self.ros2_topic.normalize_angle(5 * math.pi)
+        self.assertAlmostEqual(result, math.pi, places=9)
+        result2 = self.ros2_topic.normalize_angle(-5 * math.pi)
+        self.assertAlmostEqual(abs(result2), math.pi, places=9)
+
+
+class TestControlParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for the control subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_list_controller_types_defaults(self):
+        args = self.parser.parse_args(["control", "list-controller-types"])
+        self.assertEqual(args.command, "control")
+        self.assertEqual(args.subcommand, "list-controller-types")
+        self.assertEqual(args.controller_manager, "/controller_manager")
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_list_controller_types_custom_cm(self):
+        args = self.parser.parse_args([
+            "control", "list-controller-types",
+            "--controller-manager", "/robot/controller_manager"
+        ])
+        self.assertEqual(args.controller_manager, "/robot/controller_manager")
+
+    def test_list_controllers_defaults(self):
+        args = self.parser.parse_args(["control", "list-controllers"])
+        self.assertEqual(args.subcommand, "list-controllers")
+        self.assertEqual(args.controller_manager, "/controller_manager")
+
+    def test_list_hardware_components(self):
+        args = self.parser.parse_args(["control", "list-hardware-components"])
+        self.assertEqual(args.subcommand, "list-hardware-components")
+
+    def test_list_hardware_interfaces(self):
+        args = self.parser.parse_args(["control", "list-hardware-interfaces"])
+        self.assertEqual(args.subcommand, "list-hardware-interfaces")
+
+    def test_load_controller(self):
+        args = self.parser.parse_args(["control", "load-controller", "joint_trajectory_controller"])
+        self.assertEqual(args.subcommand, "load-controller")
+        self.assertEqual(args.name, "joint_trajectory_controller")
+
+    def test_unload_controller(self):
+        args = self.parser.parse_args(["control", "unload-controller", "joint_trajectory_controller"])
+        self.assertEqual(args.subcommand, "unload-controller")
+        self.assertEqual(args.name, "joint_trajectory_controller")
+
+    def test_configure_controller(self):
+        args = self.parser.parse_args(["control", "configure-controller", "my_ctrl"])
+        self.assertEqual(args.subcommand, "configure-controller")
+        self.assertEqual(args.name, "my_ctrl")
+
+    def test_reload_controller_libraries_default(self):
+        args = self.parser.parse_args(["control", "reload-controller-libraries"])
+        self.assertEqual(args.subcommand, "reload-controller-libraries")
+        self.assertFalse(args.force_kill)
+
+    def test_reload_controller_libraries_force_kill(self):
+        args = self.parser.parse_args(["control", "reload-controller-libraries", "--force-kill"])
+        self.assertTrue(args.force_kill)
+
+    def test_set_controller_state_active(self):
+        args = self.parser.parse_args([
+            "control", "set-controller-state", "joint_trajectory_controller", "active"
+        ])
+        self.assertEqual(args.subcommand, "set-controller-state")
+        self.assertEqual(args.name, "joint_trajectory_controller")
+        self.assertEqual(args.state, "active")
+
+    def test_set_controller_state_inactive(self):
+        args = self.parser.parse_args([
+            "control", "set-controller-state", "my_ctrl", "inactive"
+        ])
+        self.assertEqual(args.state, "inactive")
+
+    def test_set_hardware_component_state(self):
+        args = self.parser.parse_args([
+            "control", "set-hardware-component-state", "my_robot", "active"
+        ])
+        self.assertEqual(args.subcommand, "set-hardware-component-state")
+        self.assertEqual(args.name, "my_robot")
+        self.assertEqual(args.state, "active")
+
+    def test_set_hardware_component_state_choices(self):
+        for state in ["unconfigured", "inactive", "active", "finalized"]:
+            args = self.parser.parse_args([
+                "control", "set-hardware-component-state", "my_hw", state
+            ])
+            self.assertEqual(args.state, state)
+
+    def test_switch_controllers_defaults(self):
+        args = self.parser.parse_args(["control", "switch-controllers"])
+        self.assertEqual(args.subcommand, "switch-controllers")
+        self.assertEqual(args.activate, [])
+        self.assertEqual(args.deactivate, [])
+        self.assertEqual(args.strictness, "BEST_EFFORT")
+        self.assertFalse(args.activate_asap)
+
+    def test_switch_controllers_activate_deactivate(self):
+        args = self.parser.parse_args([
+            "control", "switch-controllers",
+            "--activate", "joint_trajectory_controller",
+            "--deactivate", "cartesian_controller"
+        ])
+        self.assertIn("joint_trajectory_controller", args.activate)
+        self.assertIn("cartesian_controller", args.deactivate)
+
+    def test_switch_controllers_strict(self):
+        args = self.parser.parse_args([
+            "control", "switch-controllers", "--strictness", "STRICT"
+        ])
+        self.assertEqual(args.strictness, "STRICT")
+
+    def test_switch_controllers_activate_asap(self):
+        args = self.parser.parse_args([
+            "control", "switch-controllers", "--activate-asap"
+        ])
+        self.assertTrue(args.activate_asap)
+
+    def test_view_controller_chains_defaults(self):
+        args = self.parser.parse_args(["control", "view-controller-chains"])
+        self.assertEqual(args.subcommand, "view-controller-chains")
+        self.assertEqual(args.output, "controller_diagram.pdf")
+        self.assertIsNone(args.channel_id)
+
+    def test_view_controller_chains_custom(self):
+        args = self.parser.parse_args([
+            "control", "view-controller-chains",
+            "--output", "my.pdf",
+            "--channel-id", "12345"
+        ])
+        self.assertEqual(args.output, "my.pdf")
+        self.assertEqual(args.channel_id, "12345")
+
+    def test_lct_alias(self):
+        args = self.parser.parse_args(["control", "lct"])
+        self.assertEqual(args.subcommand, "lct")
+
+    def test_lc_alias(self):
+        args = self.parser.parse_args(["control", "lc"])
+        self.assertEqual(args.subcommand, "lc")
+
+    def test_lhc_alias(self):
+        args = self.parser.parse_args(["control", "lhc"])
+        self.assertEqual(args.subcommand, "lhc")
+
+    def test_lhi_alias(self):
+        args = self.parser.parse_args(["control", "lhi"])
+        self.assertEqual(args.subcommand, "lhi")
+
+    def test_load_alias(self):
+        args = self.parser.parse_args(["control", "load", "my_ctrl"])
+        self.assertEqual(args.subcommand, "load")
+        self.assertEqual(args.name, "my_ctrl")
+
+    def test_unload_alias(self):
+        args = self.parser.parse_args(["control", "unload", "my_ctrl"])
+        self.assertEqual(args.subcommand, "unload")
+
+    def test_cc_alias(self):
+        args = self.parser.parse_args(["control", "cc", "my_ctrl"])
+        self.assertEqual(args.subcommand, "cc")
+
+    def test_rcl_alias(self):
+        args = self.parser.parse_args(["control", "rcl"])
+        self.assertEqual(args.subcommand, "rcl")
+
+    def test_scs_alias(self):
+        args = self.parser.parse_args(["control", "scs", "my_ctrl", "active"])
+        self.assertEqual(args.subcommand, "scs")
+
+    def test_shcs_alias(self):
+        args = self.parser.parse_args(["control", "shcs", "my_hw", "active"])
+        self.assertEqual(args.subcommand, "shcs")
+
+    def test_sc_alias(self):
+        args = self.parser.parse_args(["control", "sc"])
+        self.assertEqual(args.subcommand, "sc")
+
+    def test_swc_alias(self):
+        args = self.parser.parse_args(["control", "swc"])
+        self.assertEqual(args.subcommand, "swc")
+
+    def test_vcc_alias(self):
+        args = self.parser.parse_args(["control", "vcc"])
+        self.assertEqual(args.subcommand, "vcc")
+
+    def test_control_dispatch_keys_present(self):
+        canonical = [
+            ("control", "list-controller-types"),
+            ("control", "list-controllers"),
+            ("control", "list-hardware-components"),
+            ("control", "list-hardware-interfaces"),
+            ("control", "load-controller"),
+            ("control", "unload-controller"),
+            ("control", "configure-controller"),
+            ("control", "reload-controller-libraries"),
+            ("control", "set-controller-state"),
+            ("control", "set-hardware-component-state"),
+            ("control", "switch-controllers"),
+            ("control", "view-controller-chains"),
+        ]
+        aliases = [
+            ("control", "lct"), ("control", "lc"), ("control", "lhc"), ("control", "lhi"),
+            ("control", "load"), ("control", "unload"), ("control", "cc"), ("control", "rcl"),
+            ("control", "scs"), ("control", "shcs"), ("control", "sc"), ("control", "swc"),
+            ("control", "vcc"),
+        ]
+        for key in canonical + aliases:
+            self.assertIn(key, self.ros2_cli.DISPATCH, f"Missing DISPATCH key: {key}")
+
+    def test_control_alias_identity(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIs(D[("control", "lct")], D[("control", "list-controller-types")])
+        self.assertIs(D[("control", "lc")], D[("control", "list-controllers")])
+        self.assertIs(D[("control", "lhc")], D[("control", "list-hardware-components")])
+        self.assertIs(D[("control", "lhi")], D[("control", "list-hardware-interfaces")])
+        self.assertIs(D[("control", "load")], D[("control", "load-controller")])
+        self.assertIs(D[("control", "unload")], D[("control", "unload-controller")])
+        self.assertIs(D[("control", "cc")], D[("control", "configure-controller")])
+        self.assertIs(D[("control", "rcl")], D[("control", "reload-controller-libraries")])
+        self.assertIs(D[("control", "scs")], D[("control", "set-controller-state")])
+        self.assertIs(D[("control", "shcs")], D[("control", "set-hardware-component-state")])
+        self.assertIs(D[("control", "sc")], D[("control", "switch-controllers")])
+        self.assertIs(D[("control", "swc")], D[("control", "switch-controllers")])
+        self.assertIs(D[("control", "vcc")], D[("control", "view-controller-chains")])
+
+    def test_control_handlers_callable(self):
+        for key in [k for k in self.ros2_cli.DISPATCH if k[0] == "control"]:
+            self.assertTrue(callable(self.ros2_cli.DISPATCH[key]),
+                            f"Handler for {key} is not callable")
 
 
 if __name__ == "__main__":
