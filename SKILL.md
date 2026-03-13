@@ -442,6 +442,31 @@ python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
    - "navigation" → look for `navigation2`, `nav2`, or launch files with `navigation`
    - "camera" → look for camera-related packages
 
+4. **If multiple candidates found:**
+   - Present options to user: "Found 3 launch files. Which one?"
+   - Or ask for confirmation: "I found navigation2. Launch it?"
+
+5. **If no match found:**
+   - Search more broadly: check all packages for matching launch files
+   - Ask user for exact package/file name
+
+### NEVER hallucinate:
+- ❌ Never invent a package name that doesn't exist
+- ❌ Never invent a launch file that doesn't exist
+- ❌ Never assume a package exists without checking
+
+### ALWAYS verify:
+- ✅ Check `ros2 pkg list` for package existence
+- ✅ Check `ros2 pkg files <package>` for launch files
+- ✅ Confirm with user if any doubt about which file/package
+
+### Rule: Confirm before executing if uncertain
+
+If the skill finds a match but there's any doubt (multiple candidates, ambiguous request):
+- "I found multiple options. Which one?"
+- "I assume you mean X. Launch it?"
+- Only proceed without asking if there's exactly ONE clear match
+
 ### Local Workspace Sourcing
 
 **System ROS is assumed to be already sourced** (via systemd service or manually). The skill automatically sources any local workspace on top of system ROS.
