@@ -2,6 +2,16 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.6] - 2026-03-13
+
+### Fixed — Remaining escape hatches allowing time-based movement instead of odometry feedback
+
+Three places in SKILL.md were still routing agents toward `publish-sequence` with a fixed duration for distance/angle commands:
+
+- **Quick Decision Card**: "Is X about controlling/moving? → Use TOPICS PUBLISH" had no distinction between distance-specified and open-ended movement. Now splits explicitly: distance/angle → `publish-until` with odometry (Rule 3); open-ended → `publish-sequence`. Odometry discovery added as a mandatory step when distance or angle is specified.
+- **Agent Decision Framework table**: `"Move/drive/turn (mobile robot)"` row pointed to `publish` for all movement. Split into three distinct rows: open-ended movement (`publish-sequence`), distance commands (`publish-until --field --delta`), and angle/rotation commands (`publish-until --rotate`). Each row calls out Rule 3 for the distance/angle cases.
+- **EXECUTION RULES Rule 4 "Always Stop After Movement"**: The `CORRECT` example showed `publish-sequence` with a 2-second fixed duration — exactly the pattern Rule 3 forbids. Replaced with: `publish-until` as the correct pattern for distance commands (it stops itself automatically), and `publish-sequence` with stop only for the open-ended fallback.
+
 ## [1.0.5] - 2026-03-13
 
 ### Fixed — Odometry rule enforcement

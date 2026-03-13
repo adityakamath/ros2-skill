@@ -168,19 +168,21 @@ python3 {baseDir}/scripts/ros2_cli.py version
 User: "do X"
 Agent thinks:
   1. Is X about reading data? → Use TOPICS SUBSCRIBE
-  2. Is X about controlling/moving? → Use TOPICS PUBLISH
-  3. Is X a one-time trigger? → Use SERVICES CALL or ACTIONS SEND
-  4. Is X about system info? → Use LIST commands
+  2. Is X about moving a specific distance or angle? → Use TOPICS PUBLISH-UNTIL with odometry (Rule 3)
+  3. Is X about controlling/moving with no specific distance? → Use TOPICS PUBLISH or PUBLISH-SEQUENCE
+  4. Is X a one-time trigger? → Use SERVICES CALL or ACTIONS SEND
+  5. Is X about system info? → Use LIST commands
 
 Agent does:
   1. EXPLORE: Run topics/services/actions list
   2. SEARCH: Run find command for relevant message type
-  3. STRUCTURE: Get message structure
-  4. LIMITS: Get params (for movement)
-  5. EXECUTE: Run the command
+  3. If distance/angle: find odometry topic (nav_msgs/Odometry) — REQUIRED before any movement
+  4. STRUCTURE: Get message structure
+  5. LIMITS: Get params (for movement)
+  6. EXECUTE: Run the command
 ```
 
-**Never skip steps 1-4. Always explore first.**
+**Never skip steps 1-5. Always explore first. If distance or angle is specified, odometry must be found before executing.**
 
 ---
 
@@ -205,10 +207,11 @@ Agent does:
 | "Read joystick/gamepad" | Subscribe to Joy | Find Joy topic → subscribe |
 | "Check robot diagnostics/health" | Subscribe to diagnostics | Find /diagnostics topic → subscribe |
 | "Check TF/transforms" | Check TF topics | Find /tf, /tf_static topics → subscribe |
-| "Move/drive/turn (mobile robot)" | Publish Twist | Find Twist/TwistStamped topics → publish |
+| "Move/drive/turn (mobile robot)" | Publish Twist — open-ended, no target distance | Find Twist/TwistStamped topics → **publish-sequence** (with stop at end) |
+| "Move forward/back N meters" | Closed-loop distance command — Rule 3 | Find odom → **publish-until** with `--monitor <odom> --field pose.pose.position.x --delta N` |
+| "Rotate N degrees / turn N radians" | Closed-loop angle command — Rule 3 | Find odom → **publish-until** with `--monitor <odom> --rotate N [--degrees]` |
 | "Move arm/joint (manipulator)" | Publish JointTrajectory | Find JointTrajectory topic → publish |
 | "Control gripper" | Publish GripperCommand or JointTrajectory | Find gripper topic → publish |
-| "Move forward/back N meters" | Publish with feedback | Find odom → publish-until |
 | "Stop the robot" | Publish zero velocity | Find Twist → publish zeros |
 | "Emergency stop" | Publish zero velocity | Run `estop` command |
 | "Call /reset" | Call service | Find service → call |
@@ -354,16 +357,23 @@ In short: for any "move N meters" or "rotate N degrees" command, you MUST find t
 
 ### Rule 4: Always Stop After Movement
 
-**Every movement command MUST end with zero velocity:**
+**`publish-until` stops automatically** when the odometry condition is met — no explicit stop step is needed.
+
+For open-ended publishes (`topics publish` or `publish-sequence` fallback), the final message MUST be all zeros:
 
 ```bash
-# WRONG: Move forward without stopping
-topics publish /cmd_vel '{"linear":{"x":1.0}}'
+# WRONG: open-ended publish with no stop
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel '{"linear":{"x":1.0}}'
 
-# CORRECT: Include stop command
-topics publish-sequence /cmd_vel \
-  '[{"linear":{"x":1.0},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
-  '[2.0, 0.5]'
+# CORRECT (distance specified, odometry available): use publish-until — stops itself
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
+  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
+
+# CORRECT (fallback only — no odometry, no distance specified): publish-sequence with stop at end
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+  '[{"linear":{"x":0.2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
+  '[3.0, 0.5]'
 ```
 
 ### Rule 5: Handle Multiple Same-Type Topics
