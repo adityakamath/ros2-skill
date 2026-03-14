@@ -3558,3 +3558,171 @@ Output (unknown package):
 ```json
 {"error": "Package 'nonexistent_pkg' not found or has no interfaces"}
 ```
+
+---
+
+## Command Quick Reference
+
+### 1. Explore a Robot System
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py version
+python3 {baseDir}/scripts/ros2_cli.py topics list
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+python3 {baseDir}/scripts/ros2_cli.py services list
+python3 {baseDir}/scripts/ros2_cli.py actions list
+
+# Find a topic by type, then inspect it
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+# → get the discovered topic name, then:
+python3 {baseDir}/scripts/ros2_cli.py topics type <discovered_topic>
+python3 {baseDir}/scripts/ros2_cli.py interface proto <confirmed_type>
+```
+
+### 2. Move a Robot
+
+**Emergency stop:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py estop
+```
+
+### 3. Read Sensor Data
+
+**Always use auto-discovery first** to find the correct sensor topics.
+
+```bash
+# Step 1: Discover sensor topics by message type
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/JointState
+# → record each discovered topic name
+
+# Step 2: Subscribe to discovered topics (use the names from Step 1, not hardcoded names)
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <LASER_TOPIC> --duration 3
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <ODOM_TOPIC> --duration 10 --max-messages 50
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <JOINT_STATE_TOPIC> --duration 5
+```
+
+### 4. Use Services
+
+**Always use auto-discovery first** to find available services and their request/response structures.
+
+```bash
+# Step 1: Discover available services
+python3 {baseDir}/scripts/ros2_cli.py services list
+
+# Step 2: Find services by type (optional)
+python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/srv/Empty
+python3 {baseDir}/scripts/ros2_cli.py services find turtlesim/srv/Spawn
+
+# Step 3: Get service request/response structure
+python3 {baseDir}/scripts/ros2_cli.py services details /spawn
+
+# Step 4: Call the service with properly-structured payload
+python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
+  '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
+```
+
+### 5. Actions
+
+**Always use auto-discovery first** to find available actions and their goal/result structures.
+
+```bash
+# Step 1: Discover available actions
+python3 {baseDir}/scripts/ros2_cli.py actions list
+
+# Step 2: Find actions by type (optional)
+python3 {baseDir}/scripts/ros2_cli.py actions find turtlesim/action/RotateAbsolute
+python3 {baseDir}/scripts/ros2_cli.py actions find nav2_msgs/action/NavigateToPose
+
+# Step 3: Get action goal/result structure
+python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
+
+# Step 4: Send goal with properly-structured payload
+python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
+  '{"theta":1.57}'
+
+# Step 5: Monitor feedback — always echo after sending a goal
+python3 {baseDir}/scripts/ros2_cli.py actions echo /turtle1/rotate_absolute --timeout 30
+```
+
+**After every `actions send`, immediately run `actions echo` on the same action server** to monitor feedback.
+
+### 6. Change Parameters
+
+**Always use auto-discovery first** to list available parameters for a node.
+
+```bash
+# Step 1: Discover nodes
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+
+# Step 2: List parameters for a node
+python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
+
+# Step 3: Get current parameter value
+python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+
+# Step 4: Set parameter value
+python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
+
+# Step 5: Read back after set — always verify the change took effect
+python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+```
+
+**After every `params set`, always run `params get` on the same parameter** to confirm the change was accepted.
+
+### 7. Goal-Oriented Commands (publish-until)
+
+For any goal with a sensor-based stop condition — joint angles, temperature limits, proximity, battery level — use `publish-until` with the appropriate monitor topic and condition flag. **Always discover both the command topic and the monitor topic before executing** — never hardcode names.
+
+| User intent | Discover command topic | Discover monitor topic | Condition |
+|-------------|----------------------|----------------------|-----------|
+| Stop near obstacle | `topics find geometry_msgs/Twist` + `TwistStamped` | `topics find sensor_msgs/LaserScan` → field `ranges.0` | `--below 0.5` |
+| Stop at range | same | `topics find sensor_msgs/Range` → field `range` | `--below D` |
+| Stop at temperature | — | `topics find sensor_msgs/Temperature` → field `temperature` | `--above T` |
+| Stop at battery level | — | `topics find sensor_msgs/BatteryState` → field `percentage` | `--below P` |
+| Joint reach angle | `topics find trajectory_msgs/JointTrajectory` or similar | `topics find sensor_msgs/JointState` → field `position.0` | `--equals A` or `--delta D` |
+| Multi-joint distance | same | `topics find sensor_msgs/JointState` → fields `position.0 position.1` | `--euclidean --delta D` |
+
+**`--euclidean`** computes `sqrt(Σ(current_i - start_i)²)` across all `--field` paths. Use it for curved or diagonal paths. **Composite field shorthand**: `--field pose.pose.position` auto-expands to `x, y, z`.
+
+```bash
+# Example: stop when front range sensor reads < 0.5 m
+# Step 1: discover velocity topic
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+
+# Step 2: discover laser scan topic
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+
+# Step 3: execute with discovered names
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '<payload>' \
+  --monitor <SCAN_TOPIC> --field ranges.0 --below 0.5 --timeout 30
+```
+
+### 8. Topic and Service Discovery
+
+**Never guess topic names.** Any time an operation involves a topic, discover the actual topic name from the live graph first.
+
+### Images and Camera
+
+**Always prefer compressed topics** - use much less bandwidth:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Image
+```
+Use `topics capture-image --topic <discovered>` - never `subscribe` for images.
+
+### Velocity Commands (Twist vs TwistStamped)
+
+Check both types to find the topic:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+```
+Then confirm the exact type of the discovered topic:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics type <discovered_topic>
+```
