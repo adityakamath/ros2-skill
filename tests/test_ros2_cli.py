@@ -1646,13 +1646,19 @@ class TestFuzzyMatch(unittest.TestCase):
         self.assertTrue(len(results) > 0)
         self.assertGreaterEqual(results[0][1], 0.7)
 
-    def test_starts_with_score_0_7(self):
-        """Candidate starts with query → score 0.7."""
+    def test_starts_with_scores_0_8_via_substring(self):
+        """A candidate that starts with the query also satisfies the substring
+        branch (score 0.8), which is checked first in the elif chain.
+
+        The dedicated startswith branch (0.7) is only reached when neither
+        string is a substring of the other — a structurally impossible
+        condition for the startswith case.
+        """
         results = self._fuzzy_match("robot", ["robot_name", "unrelated"])
-        # "robotname".startswith("robot") → True
+        # "robot" in "robotname" → True → score 0.8 (substring branch wins)
         match_scores = {c: s for c, s in results}
         self.assertIn("robot_name", match_scores)
-        self.assertEqual(match_scores["robot_name"], 0.7)
+        self.assertEqual(match_scores["robot_name"], 0.8)
 
     def test_no_match_returns_empty(self):
         results = self._fuzzy_match("xyz_unknown", ["use_sim_time", "robot_name"])
@@ -1996,11 +2002,20 @@ class TestArgumentIntrospectionExtended(unittest.TestCase):
     def test_topics_publish_help(self):
         self._assert_help_exits_zero("topics", "publish")
 
-    def test_topics_publish_requires_topic_and_json(self):
-        self._assert_missing_required_fails("topics", "publish")
+    def test_topics_publish_parses_topic_and_json(self):
+        """Parser accepts topic + json_message — both are optional (nargs='?')
+        at argparse level; runtime validation happens inside the command."""
+        ns = self.parser.parse_args(
+            ["topics", "publish", "/cmd_vel", '{"linear":{"x":1.0}}']
+        )
+        self.assertEqual(ns.topic, "/cmd_vel")
+        self.assertIn("linear", ns.msg)
 
-    def test_topics_publish_requires_json_when_topic_given(self):
-        self._assert_missing_required_fails("topics", "publish", "/cmd_vel")
+    def test_topics_publish_parses_topic_alone(self):
+        """topic is nargs='?' so parser accepts a bare topic; msg defaults to None."""
+        ns = self.parser.parse_args(["topics", "publish", "/cmd_vel"])
+        self.assertEqual(ns.topic, "/cmd_vel")
+        self.assertIsNone(ns.msg)
 
     # ------------------------------------------------------------------
     # nodes details (requires node)
@@ -2072,8 +2087,16 @@ class TestArgumentIntrospectionExtended(unittest.TestCase):
     def test_publish_until_help(self):
         self._assert_help_exits_zero("topics", "publish-until")
 
-    def test_publish_until_requires_topic(self):
-        self._assert_missing_required_fails("topics", "publish-until")
+    def test_publish_until_parses_full_command(self):
+        """Verify publish-until recognises all real-world args without error.
+        topic and msg are nargs='?' (validated at runtime, not by argparse)."""
+        ns = self.parser.parse_args([
+            "topics", "publish-until",
+            "/cmd_vel", '{"linear":{"x":0.3}}',
+            "--monitor", "/odom", "--delta", "1.0",
+        ])
+        self.assertEqual(ns.topic, "/cmd_vel")
+        self.assertEqual(ns.monitor, "/odom")
 
 
 if __name__ == "__main__":
