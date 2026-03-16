@@ -27,6 +27,15 @@ This file is an append-only log maintained by the agent. It records rule violati
 
 <!-- Entries are appended below in reverse-chronological order (newest first). -->
 
+### 2026-03-16 — Agent reported stale mid-rotation quaternion as final post-rotation orientation
+
+**Task:** Rotate the robot and report the resulting yaw.
+**Violation:** Computed yaw from a quaternion (z=0.00767, w=0.99997 → ~0.88°) captured during the rotation rather than subscribing fresh after the robot stopped. The actual post-rotation quaternion was (z=0.3418, w=0.9398 → ~39.97°).
+**Self-correction:** Caught post-hoc via user prompt. Should have issued a fresh `topics subscribe <ODOM_TOPIC> --max-messages 1` after `publish-until` completed and the robot was stationary, then computed yaw from that reading.
+**Root cause:** Used an intermediate/cached sensor value from mid-action as if it were the final settled state. Post-action verification was performed with a transient reading, not a fresh one.
+**Rule reference:** Rule 8 (verify the effect — post-action sensor reads must be fresh), Rule 0 (never rely on intermediate values).
+**Outcome:** Rule 8 updated with "movement completion" verification row; Rule 0 "Never" list updated with explicit prohibition on reporting sensor values from mid-action readings.
+
 ### 2026-03-16 — Agent used hallucinated `launch start` subcommand, asked user for permission to retry
 
 **Task:** Run a launch file.

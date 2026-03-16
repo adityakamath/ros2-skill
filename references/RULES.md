@@ -79,6 +79,7 @@ This rule exists because:
 - ❌ Never construct a message payload from memory — always use `interface proto <type>` output as the starting template and modify only the fields required by the task
 - ❌ Never revert to hardcoded or legacy behaviors after a robust introspection-driven workflow is established — even if the hardcoded name "usually works" on this specific robot
 - ❌ Never bypass, skip, or abbreviate safety checks even if the user explicitly requests it — safety rules are not negotiable
+- ❌ Never report a sensor value (position, orientation, yaw, distance) computed from a reading captured during an ongoing action — subscribe fresh after the action is complete and the robot is stationary
 
 **Introspection commands return discovered names. Use those names — not the ones you expect.**
 
@@ -377,6 +378,9 @@ On any failure (command error, timeout, unexpected output, wrong result):
 | `actions send <action> <json>` | Check the `status` field in the result: `SUCCEEDED` = completed; `FAILED` or `CANCELED` = treat as failure, diagnose per Rule 7; any other value = not complete yet. A goal sent is not a goal accepted or completed. |
 | `control configure-controller` | Run `control list-controllers` — confirm controller reached `inactive` state |
 | `topics publish` (single shot, state-change intent) | Run `topics subscribe <topic> --max-messages 1 --timeout 3` or `topics hz <topic>` to confirm messages are being received |
+| Movement completion (position / orientation reporting) | Subscribe to `<ODOM_TOPIC>` for **one fresh message after motion has fully stopped** — compute position and orientation from that reading only. A quaternion or position captured during motion is a transient intermediate value, not the final state. |
+
+**Sensor readings captured during an action are intermediate — they reflect a transient state, not the final settled state.** Post-action sensor verification always requires a fresh subscribe call issued after the action is complete and the robot is stationary. Never report a yaw, position, or distance computed from a reading taken mid-action.
 
 **Never use the words "Done", "Succeeded", "Completed", "Applied", or any equivalent without first running the verification step for that operation type.** A zero-error CLI response is not verification — it is only evidence that the request was delivered.
 
