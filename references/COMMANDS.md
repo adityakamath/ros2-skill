@@ -764,12 +764,12 @@ Get the full field structure of a message type as a JSON template.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `message_type` | Yes | Message type (e.g. `geometry_msgs/msg/Twist`, `sensor_msgs/msg/LaserScan`) |
+| `message_type` | Yes | Message type — full form (`geometry_msgs/msg/Twist`) or short form (`geometry_msgs/Twist`) both accepted |
 
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/msg/Twist
 python3 {baseDir}/scripts/ros2_cli.py topics message-structure geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics message-struct sensor_msgs/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics message-struct sensor_msgs/msg/LaserScan
 ```
 
 Output:
