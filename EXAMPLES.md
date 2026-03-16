@@ -4,28 +4,57 @@ This guide provides practical, high-value examples for common robotics tasks usi
 
 ## 1. Robot Motion & Control
 
-### Publish a Velocity Sequence
-Move a robot forward at 0.5 m/s for 2 seconds, then stop immediately.
+**Always discover topic names before moving — never hardcode `/cmd_vel` or `/odom`.**
+
 ```bash
-python3 scripts/ros2_cli.py topics publish-sequence /cmd_vel \
+# Step 1: discover the velocity command topic (Twist or TwistStamped)
+python3 scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+# Step 2: confirm exact type and payload structure
+python3 scripts/ros2_cli.py topics type <VEL_TOPIC>
+# Step 3: discover the odometry topic
+python3 scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
+```
+
+Use the discovered `<VEL_TOPIC>` and `<ODOM_TOPIC>` in all motion commands below — not hardcoded names.
+
+### Publish a Velocity Sequence
+Move forward at 0.5 m/s for 2 seconds, then stop (open-loop — no distance guarantee).
+```bash
+python3 scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
   '[{"linear":{"x":0.5},"angular":{"z":0.0}}, {"linear":{"x":0.0},"angular":{"z":0.0}}]' \
   '[2.0, 0.5]'
 ```
 
-### Drive Until Condition (Odom)
+### Drive Until Condition (Closed-Loop)
 Drive forward at 0.2 m/s until the robot has moved 1.0 meter from its starting position.
 ```bash
-python3 scripts/ros2_cli.py topics publish-until /cmd_vel \
+python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
   '{"linear":{"x":0.2},"angular":{"z":0.0}}' \
-  --monitor /odom --field pose.pose.position.x --delta 1.0
+  --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta 1.0
 ```
 
-### Rotate by Angle
-Rotate 90 degrees (1.57 radians) counter-clockwise using the internal monitor.
+For diagonal/curved paths, use `--euclidean` across both X and Y:
 ```bash
-python3 scripts/ros2_cli.py topics publish-until /cmd_vel \
+python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":0.2},"angular":{"z":0.1}}' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position.x pose.pose.position.y \
+  --euclidean --delta 1.0
+```
+
+### Rotate by Angle (Closed-Loop)
+Rotate 90 degrees CCW (positive `--rotate`, positive `angular.z`):
+```bash
+python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
   '{"linear":{"x":0.0},"angular":{"z":0.5}}' \
-  --monitor /odom --rotate 1.57
+  --monitor <ODOM_TOPIC> --rotate 90 --degrees --timeout 30
+```
+
+Rotate 90 degrees CW (negative `--rotate`, negative `angular.z`):
+```bash
+python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":0.0},"angular":{"z":-0.5}}' \
+  --monitor <ODOM_TOPIC> --rotate -90 --degrees --timeout 30
 ```
 
 ---

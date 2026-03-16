@@ -245,6 +245,10 @@ Everything else: **just do it.**
 - "Shall I launch the file now?" — No. Launch it.
 - "Do you want me to set this parameter?" — No. Set it.
 - "I found Y — would you like me to use it?" — No. Use it.
+- "Would you like me to use the closed-loop workflow?" — No. Use it.
+- "Would you like me to auto-detect the topics and run the command?" — No. Detect and run.
+- "Would you like me to fetch the --help output?" — No. Fetch it and proceed.
+- "The command timed out — would you like to check odometry / retry / troubleshoot?" — No. Check odometry and report findings immediately, without asking first.
 
 ### Rule 6 — Minimal reporting by default
 
@@ -433,10 +437,13 @@ python3 {baseDir}/scripts/ros2_cli.py params list <NODE_2>
 
 ### Movement / publish-until Failures
 
+**A `publish-until` timeout is a robot or sensor issue — not a missing command.** `publish-until` exists and works; the timeout means the odometry delta was never reached. Do not conclude the command is unavailable.
+
 | Error | Recovery |
 |-------|----------|
-| `publish-until` times out without reaching target | 1. **Immediately send `estop`** — do not wait, do not retry, do not ask the user first<br>2. Subscribe to `<ODOM_TOPIC>` and check `twist.twist.linear` / `twist.twist.angular`: if any value > 0.01, the robot is still moving — keep estop sent and wait for it to stop before continuing |
+| `publish-until` times out without reaching target | 1. **Immediately send `estop`** — do not wait, do not retry, do not ask the user first<br>2. Subscribe to `<ODOM_TOPIC>` — check if odom is publishing and values are changing<br>3. Run `topics hz <ODOM_TOPIC>` — if rate < 5 Hz, odom is stale (robot may not have moved)<br>4. Run `control list-controllers` to verify the velocity controller is active<br>5. Report to user: actual distance covered, odom status, controller state |
 | Odometry not updating during motion | 1. Immediately send zero-velocity: `estop`<br>2. Check `topics details <ODOM_TOPIC>` for publisher count and `topics hz <ODOM_TOPIC>` for rate<br>3. Do NOT continue publishing if odometry is stale — it is a runaway risk |
+| `Could not detect message type` for topic | The topic exists but has no publisher yet. Check `topics details <topic>` for publisher count. Wait for the publisher to connect, or pass `--msg-type` explicitly. |
 
 
 ---

@@ -62,7 +62,7 @@ No user clarification needed — the agent uses ros2-skill tools to answer all i
 | Category | Commands |
 | -------- | -------- |
 | Connection | `version` |
-| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `hz`, `bw`, `delay`, `find`, `capture-image`, `diag-list`, `diag`, `battery-list`, `battery` |
+| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence`, `publish-until`, `hz`, `bw`, `delay`, `find`, `capture-image`, `diag-list`, `diag`, `battery-list`, `battery` |
 | Services | `list`, `type`, `details`, `call`, `find`, `echo` |
 | Nodes | `list`, `details` |
 | Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete`, `preset-save`, `preset-load`, `preset-list`, `preset-delete` |
