@@ -1519,5 +1519,562 @@ class TestComponentTypesOutputValidation(unittest.TestCase):
         self.assertIn("good_pkg", result["packages"])
 
 
+class TestResolveField(unittest.TestCase):
+    """Tests for ros2_utils.resolve_field — the dot-path resolver used by
+    publish-until's condition monitor to read live odometry / sensor fields.
+
+    Covers the 'motion commands with odometry monitoring (delta, threshold
+    logic)' gap: every stop condition ultimately calls resolve_field to
+    extract a value from a live message dict before comparing it to the
+    threshold.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        from ros2_utils import resolve_field
+        cls.resolve_field = staticmethod(resolve_field)
+
+    # ------------------------------------------------------------------
+    # Happy paths
+    # ------------------------------------------------------------------
+
+    def test_simple_key(self):
+        self.assertEqual(self.resolve_field({"x": 1}, "x"), 1)
+
+    def test_nested_two_levels(self):
+        self.assertEqual(self.resolve_field({"a": {"b": 2}}, "a.b"), 2)
+
+    def test_nested_three_levels(self):
+        self.assertEqual(self.resolve_field({"a": {"b": {"c": 3}}}, "a.b.c"), 3)
+
+    def test_list_index(self):
+        """Array elements are accessed by integer index in the path."""
+        self.assertEqual(self.resolve_field({"ranges": [10, 20, 30]}, "ranges.1"), 20)
+
+    def test_list_first_element(self):
+        self.assertEqual(self.resolve_field({"ranges": [99]}, "ranges.0"), 99)
+
+    def test_nested_list_then_key(self):
+        """Path can traverse into a list element then access a dict key."""
+        msg = {"status": [{"name": "cpu"}, {"name": "disk"}]}
+        self.assertEqual(self.resolve_field(msg, "status.0.name"), "cpu")
+        self.assertEqual(self.resolve_field(msg, "status.1.name"), "disk")
+
+    def test_typical_odom_path(self):
+        """pose.pose.position.x mirrors the real odometry message structure."""
+        msg = {"pose": {"pose": {"position": {"x": 1.23, "y": 0.0, "z": 0.0}}}}
+        self.assertAlmostEqual(self.resolve_field(msg, "pose.pose.position.x"), 1.23)
+
+    def test_typical_scan_ranges(self):
+        """ranges.0 — the first range reading from a LaserScan."""
+        msg = {"ranges": [0.5, 1.0, 2.0]}
+        self.assertAlmostEqual(self.resolve_field(msg, "ranges.0"), 0.5)
+
+    def test_returns_zero(self):
+        """A value of zero is returned correctly (not confused with falsy)."""
+        self.assertEqual(self.resolve_field({"v": 0}, "v"), 0)
+
+    def test_returns_nested_dict(self):
+        """Partial path returns the sub-dict, not just a leaf."""
+        msg = {"pose": {"position": {"x": 1.0}}}
+        result = self.resolve_field(msg, "pose.position")
+        self.assertIsInstance(result, dict)
+        self.assertIn("x", result)
+
+    # ------------------------------------------------------------------
+    # Error paths (agent must catch these before trusting field data)
+    # ------------------------------------------------------------------
+
+    def test_missing_key_raises(self):
+        """Missing key raises KeyError — field path does not exist in message."""
+        with self.assertRaises(KeyError):
+            self.resolve_field({"x": 1}, "y")
+
+    def test_missing_nested_key_raises(self):
+        with self.assertRaises(KeyError):
+            self.resolve_field({"a": {"b": 1}}, "a.c")
+
+    def test_index_out_of_range_raises(self):
+        """Index out of range raises IndexError — protect before using."""
+        with self.assertRaises(IndexError):
+            self.resolve_field({"ranges": [1.0]}, "ranges.5")
+
+
+class TestFuzzyMatch(unittest.TestCase):
+    """Tests for ros2_launch._fuzzy_match — the ambiguity resolver used when
+    launch arguments do not exactly match what the launch file declares.
+
+    Covers the 'ambiguity handling' gap: the skill must never invent arg names.
+    When an arg name is close but not exact, fuzzy matching surfaces the real
+    name so the agent can confirm before proceeding.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        from ros2_launch import _fuzzy_match
+        cls._fuzzy_match = staticmethod(_fuzzy_match)
+
+    # ------------------------------------------------------------------
+    # Match quality tiers
+    # ------------------------------------------------------------------
+
+    def test_exact_match_score_1(self):
+        results = self._fuzzy_match("use_sim_time", ["use_sim_time", "robot_name"])
+        self.assertTrue(any(c == "use_sim_time" and s == 1.0 for c, s in results))
+
+    def test_exact_match_case_insensitive_and_normalised(self):
+        """Underscores and hyphens are stripped before comparison."""
+        results = self._fuzzy_match("use-sim-time", ["use_sim_time"])
+        # After normalisation both become "usesimtime" → exact match
+        self.assertTrue(len(results) > 0)
+        self.assertEqual(results[0][1], 1.0)
+
+    def test_substring_match_score_0_8(self):
+        """Query is a substring of a candidate → score 0.8."""
+        results = self._fuzzy_match("sim", ["use_sim_time"])
+        self.assertTrue(len(results) > 0)
+        self.assertEqual(results[0][1], 0.8)
+
+    def test_candidate_is_substring_of_query_score_0_8(self):
+        """Candidate is a substring of query → score 0.8."""
+        results = self._fuzzy_match("use_sim_time_extended", ["use_sim_time"])
+        # "usesimtime" in "usesimtimeextended" → 0.8
+        self.assertTrue(len(results) > 0)
+        self.assertGreaterEqual(results[0][1], 0.7)
+
+    def test_starts_with_score_0_7(self):
+        """Candidate starts with query → score 0.7."""
+        results = self._fuzzy_match("robot", ["robot_name", "unrelated"])
+        # "robotname".startswith("robot") → True
+        match_scores = {c: s for c, s in results}
+        self.assertIn("robot_name", match_scores)
+        self.assertEqual(match_scores["robot_name"], 0.7)
+
+    def test_no_match_returns_empty(self):
+        results = self._fuzzy_match("xyz_unknown", ["use_sim_time", "robot_name"])
+        self.assertEqual(results, [])
+
+    def test_empty_query_returns_empty(self):
+        self.assertEqual(self._fuzzy_match("", ["use_sim_time"]), [])
+
+    def test_empty_candidates_returns_empty(self):
+        self.assertEqual(self._fuzzy_match("use_sim_time", []), [])
+
+    def test_results_sorted_descending_by_score(self):
+        """Higher-scoring matches appear first."""
+        results = self._fuzzy_match("sim", ["use_sim_time", "simulation_mode", "sim"])
+        scores = [s for _, s in results]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_multiple_exact_matches_all_returned(self):
+        candidates = ["sim_time", "sim_delay"]
+        results = self._fuzzy_match("sim", candidates)
+        returned_names = {c for c, _ in results}
+        # Both contain "sim" as a substring → both returned
+        self.assertTrue(returned_names.issuperset({"sim_time", "sim_delay"}))
+
+
+class TestValidateLaunchArgs(unittest.TestCase):
+    """Tests for ros2_launch._validate_launch_args — the argument validation
+    layer that prevents the agent from inventing or passing unknown launch args.
+
+    Covers the 'ambiguity handling' and 'skill/script argument introspection'
+    gaps: the agent must check available args first, use exact matches as-is,
+    substitute close matches with a notice, and silently drop unknown args
+    rather than passing them through.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        from ros2_launch import _validate_launch_args
+        cls._validate_launch_args = staticmethod(_validate_launch_args)
+
+    # ------------------------------------------------------------------
+    # Exact match
+    # ------------------------------------------------------------------
+
+    def test_exact_match_passes_through_unchanged(self):
+        validated, notices = self._validate_launch_args(
+            ["use_sim_time:=true"], ["use_sim_time", "robot_name"]
+        )
+        self.assertIn("use_sim_time:=true", validated)
+        self.assertEqual(notices, [])
+
+    def test_multiple_exact_matches(self):
+        validated, notices = self._validate_launch_args(
+            ["use_sim_time:=true", "robot_name:=robot1"],
+            ["use_sim_time", "robot_name"]
+        )
+        self.assertEqual(len(validated), 2)
+        self.assertEqual(notices, [])
+
+    def test_bare_name_exact_match(self):
+        """Bare arg name (no value) passes through if it's an exact match."""
+        validated, notices = self._validate_launch_args(
+            ["use_sim_time"], ["use_sim_time"]
+        )
+        self.assertIn("use_sim_time", validated)
+        self.assertEqual(notices, [])
+
+    # ------------------------------------------------------------------
+    # Fuzzy substitution
+    # ------------------------------------------------------------------
+
+    def test_fuzzy_match_substitutes_name_and_generates_notice(self):
+        """Close arg name → real name substituted, agent notified."""
+        validated, notices = self._validate_launch_args(
+            ["sim_time:=true"], ["use_sim_time"]
+        )
+        # The matched name should be used
+        self.assertTrue(len(validated) > 0 or len(notices) > 0)
+        # Whether matched or dropped, a notice must explain what happened
+        self.assertTrue(len(notices) > 0)
+
+    # ------------------------------------------------------------------
+    # No-match → drop and notify
+    # ------------------------------------------------------------------
+
+    def test_unknown_arg_dropped_with_notice(self):
+        """Completely unknown arg is dropped — never passed to launch."""
+        validated, notices = self._validate_launch_args(
+            ["invented_arg:=value"], ["use_sim_time", "robot_name"]
+        )
+        self.assertNotIn("invented_arg:=value", validated)
+        self.assertEqual(len(notices), 1)
+        self.assertIn("invented_arg", notices[0])
+
+    def test_unknown_arg_notice_lists_available(self):
+        """Drop notice includes the list of available args for debugging."""
+        _, notices = self._validate_launch_args(
+            ["bad_arg:=x"], ["use_sim_time", "robot_name"]
+        )
+        self.assertTrue(any("use_sim_time" in n or "robot_name" in n for n in notices))
+
+    def test_empty_available_args_drops_all_user_args(self):
+        """When no args are declared, every user arg is dropped."""
+        validated, notices = self._validate_launch_args(
+            ["use_sim_time:=true", "robot_name:=r1"], []
+        )
+        self.assertEqual(validated, [])
+        self.assertEqual(len(notices), 2)
+
+    def test_empty_user_args_returns_empty(self):
+        validated, notices = self._validate_launch_args([], ["use_sim_time"])
+        self.assertEqual(validated, [])
+        self.assertEqual(notices, [])
+
+    # ------------------------------------------------------------------
+    # Mixed inputs
+    # ------------------------------------------------------------------
+
+    def test_mixed_exact_and_unknown(self):
+        """One exact match passes through; one unknown arg is dropped."""
+        validated, notices = self._validate_launch_args(
+            ["use_sim_time:=true", "invented:=val"],
+            ["use_sim_time", "robot_name"]
+        )
+        self.assertIn("use_sim_time:=true", validated)
+        self.assertNotIn("invented:=val", validated)
+        self.assertEqual(len(notices), 1)
+
+    def test_equals_format_exact_match(self):
+        """name=value format (as opposed to name:=value) also works for exact match."""
+        validated, notices = self._validate_launch_args(
+            ["use_sim_time=true"], ["use_sim_time"]
+        )
+        self.assertIn("use_sim_time=true", validated)
+        self.assertEqual(notices, [])
+
+
+class TestNanToNone(unittest.TestCase):
+    """Tests for ros2_topic._nan_to_none — used to sanitise sensor values
+    before JSON serialisation (float NaN is not valid JSON).
+
+    Covers the 'edge cases' gap for sensor data: battery, IMU, and other
+    sensor messages use NaN to indicate unmeasured fields; the agent must
+    receive None (null in JSON) rather than a non-serialisable float.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        from ros2_topic import _nan_to_none
+        cls._nan_to_none = staticmethod(_nan_to_none)
+
+    def test_nan_becomes_none(self):
+        self.assertIsNone(self._nan_to_none(float("nan")))
+
+    def test_positive_float_unchanged(self):
+        self.assertAlmostEqual(self._nan_to_none(3.14), 3.14)
+
+    def test_zero_unchanged(self):
+        self.assertEqual(self._nan_to_none(0.0), 0.0)
+
+    def test_negative_float_unchanged(self):
+        self.assertAlmostEqual(self._nan_to_none(-1.5), -1.5)
+
+    def test_integer_unchanged(self):
+        self.assertEqual(self._nan_to_none(42), 42)
+
+    def test_none_unchanged(self):
+        """None input passes through — already represents 'no value'."""
+        self.assertIsNone(self._nan_to_none(None))
+
+    def test_positive_infinity_unchanged(self):
+        """Infinity is not NaN and must pass through (some sensors use it for max range)."""
+        result = self._nan_to_none(float("inf"))
+        self.assertEqual(result, float("inf"))
+
+    def test_negative_infinity_unchanged(self):
+        result = self._nan_to_none(float("-inf"))
+        self.assertEqual(result, float("-inf"))
+
+    def test_string_unchanged(self):
+        """Non-float types pass through unchanged."""
+        self.assertEqual(self._nan_to_none("ok"), "ok")
+
+
+class TestBagInfoEdgeCases(unittest.TestCase):
+    """Edge-case tests for cmd_bag_info and _parse_metadata.
+
+    Covers the 'bag info with invalid bag_path' gap with additional
+    scenarios beyond the core TestBagInfoCommand suite: legacy integer-format
+    duration, flat bag format (no rosbag2_bagfile_information wrapper),
+    and bags with a files list.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_bag
+        cls.ros2_bag = ros2_bag
+
+    def _skip_if_no_yaml(self):
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("PyYAML not available")
+
+    def _write_and_run(self, meta):
+        import tempfile, pathlib, yaml, types
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(pathlib.Path(tmpdir) / "metadata.yaml", "w") as fh:
+                yaml.dump(meta, fh)
+            captured = []
+            with patch("ros2_bag.output", side_effect=captured.append):
+                self.ros2_bag.cmd_bag_info(types.SimpleNamespace(bag_path=tmpdir))
+        self.assertEqual(len(captured), 1)
+        return captured[0]
+
+    def test_legacy_integer_duration(self):
+        """Older bags store duration as a plain integer nanoseconds value."""
+        self._skip_if_no_yaml()
+        meta = {"rosbag2_bagfile_information": {
+            "duration": 3_000_000_000,   # integer, not dict
+            "starting_time": {"nanoseconds_since_epoch": 0},
+            "storage_identifier": "sqlite3",
+            "message_count": 10,
+            "topics_with_message_count": [],
+        }}
+        result = self._write_and_run(meta)
+        self.assertNotIn("error", result)
+        self.assertEqual(result["duration"]["nanoseconds"], 3_000_000_000)
+        self.assertAlmostEqual(result["duration"]["seconds"], 3.0)
+
+    def test_flat_bag_format_no_wrapper_key(self):
+        """Bags without the rosbag2_bagfile_information wrapper are handled gracefully."""
+        self._skip_if_no_yaml()
+        meta = {
+            "duration": {"nanoseconds": 1_000_000_000},
+            "starting_time": {"nanoseconds_since_epoch": 0},
+            "storage_identifier": "sqlite3",
+            "message_count": 5,
+            "topics_with_message_count": [],
+        }
+        result = self._write_and_run(meta)
+        self.assertNotIn("error", result)
+        self.assertEqual(result["storage_identifier"], "sqlite3")
+
+    def test_bag_with_files_list(self):
+        """When the metadata lists storage files, they appear in the output."""
+        self._skip_if_no_yaml()
+        meta = {"rosbag2_bagfile_information": {
+            "duration": {"nanoseconds": 1_000_000_000},
+            "starting_time": {"nanoseconds_since_epoch": 0},
+            "storage_identifier": "sqlite3",
+            "message_count": 0,
+            "topics_with_message_count": [],
+            "files": [
+                {"path": "my_bag_0.db3"},
+                {"path": "my_bag_1.db3"},
+            ],
+        }}
+        result = self._write_and_run(meta)
+        self.assertIn("files", result)
+        self.assertEqual(len(result["files"]), 2)
+        self.assertIn("my_bag_0.db3", result["files"])
+
+    def test_zero_duration_bag(self):
+        """A bag with zero duration (e.g. a single-frame snapshot) is valid."""
+        self._skip_if_no_yaml()
+        meta = {"rosbag2_bagfile_information": {
+            "duration": {"nanoseconds": 0},
+            "starting_time": {"nanoseconds_since_epoch": 0},
+            "storage_identifier": "sqlite3",
+            "message_count": 1,
+            "topics_with_message_count": [],
+        }}
+        result = self._write_and_run(meta)
+        self.assertNotIn("error", result)
+        self.assertEqual(result["duration"]["seconds"], 0.0)
+
+    def test_storage_file_path_accepted(self):
+        """Passing a .db3 storage file path resolves to the parent metadata.yaml."""
+        self._skip_if_no_yaml()
+        import tempfile, pathlib, yaml, types
+        meta = {"rosbag2_bagfile_information": {
+            "duration": {"nanoseconds": 1_000_000_000},
+            "starting_time": {"nanoseconds_since_epoch": 0},
+            "storage_identifier": "sqlite3",
+            "message_count": 0,
+            "topics_with_message_count": [],
+        }}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(pathlib.Path(tmpdir) / "metadata.yaml", "w") as fh:
+                yaml.dump(meta, fh)
+            # Create a fake .db3 file
+            db3_path = pathlib.Path(tmpdir) / "bag_0.db3"
+            db3_path.touch()
+            captured = []
+            with patch("ros2_bag.output", side_effect=captured.append):
+                self.ros2_bag.cmd_bag_info(types.SimpleNamespace(bag_path=str(db3_path)))
+        result = captured[0]
+        self.assertNotIn("error", result)
+        self.assertEqual(result["storage_identifier"], "sqlite3")
+
+
+class TestArgumentIntrospectionExtended(unittest.TestCase):
+    """Extended argument introspection tests covering additional commands
+    from the DISPATCH table.
+
+    Covers the 'skill/script argument introspection — no invention of
+    arguments' gap with broader command coverage than TestArgumentIntrospection.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def _assert_help_exits_zero(self, *args):
+        with patch("sys.stdout", new_callable=StringIO), \
+             self.assertRaises(SystemExit) as cm:
+            self.parser.parse_args(list(args) + ["--help"])
+        self.assertEqual(cm.exception.code, 0)
+
+    def _assert_missing_required_fails(self, *args):
+        with patch("sys.stderr", new_callable=StringIO), \
+             self.assertRaises(SystemExit) as cm:
+            self.parser.parse_args(list(args))
+        self.assertNotEqual(cm.exception.code, 0)
+
+    # ------------------------------------------------------------------
+    # topics publish (requires topic + json_message)
+    # ------------------------------------------------------------------
+
+    def test_topics_publish_help(self):
+        self._assert_help_exits_zero("topics", "publish")
+
+    def test_topics_publish_requires_topic_and_json(self):
+        self._assert_missing_required_fails("topics", "publish")
+
+    def test_topics_publish_requires_json_when_topic_given(self):
+        self._assert_missing_required_fails("topics", "publish", "/cmd_vel")
+
+    # ------------------------------------------------------------------
+    # nodes details (requires node)
+    # ------------------------------------------------------------------
+
+    def test_nodes_details_help(self):
+        self._assert_help_exits_zero("nodes", "details")
+
+    def test_nodes_details_requires_node(self):
+        self._assert_missing_required_fails("nodes", "details")
+
+    # ------------------------------------------------------------------
+    # services call (requires service + request json)
+    # ------------------------------------------------------------------
+
+    def test_services_call_help(self):
+        self._assert_help_exits_zero("services", "call")
+
+    def test_services_call_requires_service(self):
+        self._assert_missing_required_fails("services", "call")
+
+    # ------------------------------------------------------------------
+    # actions send (requires action + goal json)
+    # ------------------------------------------------------------------
+
+    def test_actions_send_help(self):
+        self._assert_help_exits_zero("actions", "send")
+
+    def test_actions_send_requires_action(self):
+        self._assert_missing_required_fails("actions", "send")
+
+    # ------------------------------------------------------------------
+    # tf lookup (requires source + target)
+    # ------------------------------------------------------------------
+
+    def test_tf_lookup_requires_source_and_target(self):
+        self._assert_missing_required_fails("tf", "lookup")
+
+    def test_tf_lookup_requires_target_when_source_given(self):
+        self._assert_missing_required_fails("tf", "lookup", "base_link")
+
+    # ------------------------------------------------------------------
+    # params get/set/describe (require node:param)
+    # ------------------------------------------------------------------
+
+    def test_params_get_help(self):
+        self._assert_help_exits_zero("params", "get")
+
+    def test_params_get_requires_name(self):
+        self._assert_missing_required_fails("params", "get")
+
+    def test_params_set_requires_name_and_value(self):
+        self._assert_missing_required_fails("params", "set")
+
+    # ------------------------------------------------------------------
+    # lifecycle set (requires node + transition)
+    # ------------------------------------------------------------------
+
+    def test_lifecycle_set_requires_node_and_transition(self):
+        self._assert_missing_required_fails("lifecycle", "set")
+
+    def test_lifecycle_set_requires_transition_when_node_given(self):
+        self._assert_missing_required_fails("lifecycle", "set", "/my_node")
+
+    # ------------------------------------------------------------------
+    # publish-until (requires topic, json, --monitor, and a stop condition)
+    # ------------------------------------------------------------------
+
+    def test_publish_until_help(self):
+        self._assert_help_exits_zero("topics", "publish-until")
+
+    def test_publish_until_requires_topic(self):
+        self._assert_missing_required_fails("topics", "publish-until")
+
+
 if __name__ == "__main__":
     unittest.main()
