@@ -46,17 +46,20 @@ This rule exists because:
 
 | Action type | Required introspection |
 |---|---|
-| Publish to a topic | 1. `topics find <msg_type>` to discover the real topic name<br>2. `topics type <discovered_topic>` to confirm the exact type<br>3. `interface proto <exact_type>` to get the default payload template — **copy this output and modify only the fields required by the task; never construct payloads from memory** |
+| Publish to a topic | 1. `topics find <msg_type>` to discover the real topic name<br>2. `topics type <discovered_topic>` to confirm the exact type<br>3. `interface proto <exact_type>` to get the default payload template — **copy this output and modify only the fields required by the task; never construct payloads from memory**<br>4. **For any field whose type is not a primitive (`bool`, `int*`, `float*`, `string`, `byte`) or a well-known standard type (`geometry_msgs`, `std_msgs`, `builtin_interfaces`):** run `interface show <nested_type>` on each such field type recursively until all leaf fields are primitives. Silently malformed nested fields produce no error — the message is accepted and the payload is wrong. |
 | Call a service | 1. `services list` or `services find <srv_type>` to discover the real name<br>2. `services details <discovered_service>` to get request/response fields |
 | Send an action goal | 1. `actions list` or `actions find <action_type>` to discover the real name<br>2. `actions details <discovered_action>` to get goal/result/feedback fields |
 | Move a robot | Full Movement Workflow — see Rule 3 and the canonical section below |
 | Read a sensor / subscribe | `topics find <msg_type>` to discover the topic; `topics type <topic>` to confirm type; never subscribe to a hardcoded name |
 | Capture a camera image | `topics find sensor_msgs/msg/CompressedImage` and `topics find sensor_msgs/msg/Image` to discover available camera topics; use the result in `topics capture-image --topic <CAMERA_TOPIC>` |
+| Use a camera image or depth image (any visual pipeline) | Before using the camera data: 1. Find the paired `camera_info` topic: `topics find sensor_msgs/msg/CameraInfo` — the result will share a namespace with the image topic (e.g., `/camera/camera_info` pairs with `/camera/image_raw`). 2. Subscribe to confirm calibration is present: `topics subscribe <CAMERA_INFO_TOPIC> --max-messages 1 --timeout 2` — verify `K` (intrinsic matrix) is non-zero. 3. Read the `header.frame_id` from the `camera_info` message; confirm it is present in `tf list`. **A camera with no `camera_info` publisher is uncalibrated. A camera whose `frame_id` is absent from TF will produce wrong spatial results.** Both conditions must be satisfied before using the camera for any spatial or metric task (depth estimation, object localisation, point cloud processing). |
+| Use a sensor topic whose data will be interpreted spatially (camera, LiDAR, IMU, depth, GPS, sonar) | Before consuming the data: 1. Subscribe to the topic for 1 message to read the `header.frame_id`. 2. Run `tf list` to confirm that `frame_id` is present in the TF tree. 3. Run `tf echo <SENSOR_FRAME> <BASE_FRAME> --duration 1` (where `<BASE_FRAME>` is the robot's base frame from `tf list`) to confirm the transform is actively updating and not stale. **Never use sensor data whose frame is absent from TF or has not been updated recently** — spatial computations on stale or missing transforms produce wrong results with no error. |
 | Query a TF transform | `tf list` to discover available frames; never hardcode frame names like `map`, `base_link`, `odom` |
-| Switch or control a controller | `control list-controllers` to discover controller names and states; never hardcode controller names; always use `--strictness STRICT` for `switch-controllers` unless explicitly instructed otherwise |
+| Switch or load a controller | 1. `control list-controllers` to discover controller names and states (never hardcode).<br>2. `control list-hardware-components` to confirm the hardware component is in `active` state.<br>3. `control list-hardware-interfaces` to confirm the relevant hardware interfaces are `available/active`.<br>**Never load, switch, or configure a controller while the hardware component is `inactive` or `unavailable`** — the controller will load without error but will silently discard all commands. Always use `--strictness STRICT` for `switch-controllers` unless explicitly instructed otherwise. |
 | Any operation involving a node | `nodes list` first; never assume a node name |
 | Set a parameter | 1. `nodes list` to discover the node name<br>2. `params list <node>` to discover the parameter name (never assume it)<br>3. `params describe <node:param>` to confirm type (int/float/bool/string), valid range, and read-only status — **never set a parameter without this; wrong type silently truncates or is rejected**<br>4. `params set <node:param> <value>` with value matching the confirmed type; verify with `params get` after (Rule 8) |
 | Get / list / dump parameters | `nodes list` to discover the node name; `params list <node>` to discover parameter names |
+| Load parameters from a YAML file (`params load` or `--params-file` in launch) | 1. `nodes list` to confirm the target node is running.<br>2. `params list <node>` to get the current parameter names on that node.<br>3. Compare YAML file keys against the discovered names — **any YAML key that does not match a declared parameter is silently ignored; no error is raised.** Verify every key you intend to set is present in `params list` output before loading.<br>4. For each YAML key you will set, `params describe <node:param>` to confirm type — a YAML string loaded into an integer parameter silently fails or truncates.<br>5. After loading: `params get <node:param>` on each key to verify values were applied (Rule 8). |
 
 **Parameter introspection is mandatory before any movement command.** Velocity limits can live on any node — not just nodes with "controller" in the name. Before publishing velocity:
 1. Run `nodes list` to get every node currently running
@@ -87,6 +90,12 @@ This rule exists because:
 ### Rule 0.1 — Session-start checks (run once per session, before any task)
 
 **Before executing any user command in a new session, run these checks.** They take seconds and catch the most common causes of silent failure.
+
+**Step 0 — Environment and domain sanity (containerised / multi-system environments):**
+Before anything else, verify the ROS 2 environment is coherent:
+- If `nodes list` or `topics list` returns an unexpectedly large or irrelevant set of names, the `ROS_DOMAIN_ID` may be colliding with another system. Default domain ID is `0`. In container-alongside-host deployments, both sides default to `0` and see each other's nodes — this is the most common container misconfiguration. Verify with the host before proceeding.
+- If the doctor command (Step 1) reports "ROS daemon not running" or "no nodes found" despite the robot stack being up, the daemon may need restarting: `ros2 daemon start` (raw shell command — ros2_cli.py has no daemon management command; this is the one permitted exception under Rule 2). After restarting, re-run doctor before continuing.
+- In containerised environments, `ROS_LOCALHOST_ONLY` being set to `1` isolates all communication to localhost — cross-container and cross-host topics will be invisible. If discovery returns no nodes despite the stack being up, check whether this variable is set in the environment.
 
 **Step 1 — Run a health check:**
 ```bash
@@ -167,6 +176,7 @@ The failure mode to avoid: inventing a subcommand like `launch start` or a flag 
 | Controller names and states | `control list-controllers` |
 | Hardware components | `control list-hardware-components` |
 | Message / service / action type fields | `interface show <type>` or `interface proto <type>` |
+| Nested custom type fields within a message | `interface show <nested_type>` — run recursively on each non-primitive, non-standard field type; repeat until all leaf fields are primitives |
 
 **Only ask the user if**:
 1. The discovery command returns an empty result or an error, **and**
@@ -389,6 +399,22 @@ On any failure (command error, timeout, unexpected output, wrong result):
 - Speculate about the cause without first running the diagnostic commands
 - Ask the user for permission to retry after a self-inflicted error (wrong subcommand, wrong flag) — self-correct and retry immediately
 
+**Pre-escalation diagnostic — elevate log level before asking the user:**
+If the cause of a failure is not apparent from standard introspection (wrong output, unexpected behaviour, silent failure, inconsistent results), elevate the log level for the relevant node before escalating to the user. This often reveals the root cause without user intervention:
+```bash
+# Step 1: find the SetLoggerLevel service for the relevant node
+services find rcl_interfaces/srv/SetLoggerLevel
+
+# Step 2: set log level to DEBUG (level 10 = DEBUG, 20 = INFO, 30 = WARN, 40 = ERROR)
+services call <SET_LOGGER_LEVEL_SERVICE> '{"logger_name": "", "level": 10}'
+
+# Step 3: retry the failing operation and observe the additional output
+
+# Step 4: reset to INFO when done
+services call <SET_LOGGER_LEVEL_SERVICE> '{"logger_name": "", "level": 20}'
+```
+Use `logger_name: ""` to affect the root logger, or specify the node's fully qualified logger name (e.g., `"my_controller"`) to narrow the scope. **Only escalate to the user if debug-level output still does not identify the cause.**
+
 **Motion-error lockout — mandatory after any motion timeout or motion failure:**
 After any `publish-until` or `publish-sequence` timeout, error, or unexpected stop, the robot is in an unknown physical state. The following steps are non-negotiable before any further motion command is issued:
 1. Send `estop`.
@@ -416,7 +442,7 @@ After any `publish-until` or `publish-sequence` timeout, error, or unexpected st
 | `control switch-controllers` | Run `control list-controllers` — confirm new controller is `active`, old is `inactive` |
 | `lifecycle set <node> <transition>` | Run `lifecycle get <node>` — confirm the node reached the expected state |
 | `actions send <action> <json>` | **Pass a timeout flag** (check COMMANDS.md or `actions send --help` for the flag name). On return: check `status` — `SUCCEEDED` = completed; `FAILED` or `CANCELED` = treat as failure, diagnose per Rule 7. **If the command hangs past the timeout:** immediately send `actions cancel <goal_id>` (use the goal ID returned at submission), then diagnose why the action server did not respond. Never leave an action goal orphaned. Monitor feedback messages during execution: if a navigation action sends feedback with no progress for > 10 s, treat as stuck, cancel, and diagnose. |
-| `control configure-controller` | Run `control list-controllers` — confirm controller reached `inactive` state |
+| `control load-controller` / `control switch-controllers` / `control configure-controller` | 1. Run `control list-controllers` — confirm controller reached the expected state (`active` or `inactive`). 2. Run `control list-hardware-components` — confirm the hardware component is still `active`. If the hardware component is `inactive` after a controller operation, no velocity commands will be executed — this is the most common silent failure in ros2_control. |
 | `topics publish` (single shot, state-change intent) | Run `topics subscribe <topic> --max-messages 1 --timeout 3` or `topics hz <topic>` to confirm messages are being received |
 | `estop` (emergency stop) | After sending `estop`, verify it took effect: subscribe `<ODOM_TOPIC> --max-messages 1 --timeout 3` and check `twist.twist.linear.x`, `.y`, and `twist.twist.angular.z` are all < 0.01. If velocity is still non-zero after 3 s: the estop was not received (controller may be down or topic is wrong). **Critical failure — do not proceed with any command.** Report immediately: *"Estop sent but velocity still non-zero — robot may not have stopped. Controller or velocity topic may be offline."* |
 | Movement completion (position / orientation reporting) | **Three-phase protocol — all steps required:** (1) Confirm odom is still live: run `topics hz <ODOM_TOPIC> --duration 1` — if rate < 5 Hz, flag as degraded before reporting. (2) Confirm the robot is stationary: subscribe `<ODOM_TOPIC> --max-messages 1`; check `twist.twist.linear.x`, `twist.twist.linear.y`, and `twist.twist.angular.z` are all < 0.01 m/s or rad/s. If any exceed 0.01, wait 0.5 s and repeat. (3) Once confirmed stationary, subscribe `<ODOM_TOPIC> --max-messages 1` and report position, orientation, or yaw from **this** reading only. **Covariance check:** if `pose.covariance[0]` (x-variance) > 0.1 m² or `pose.covariance[35]` (yaw-variance) > 0.1 rad², qualify the report: *"Pose reported but covariance is high — estimate may be unreliable."* |
@@ -703,6 +729,7 @@ map → odom → base_link (→ sensor frames)
 - Use the `odom` frame for absolute global position when a localiser is running — use `map` instead
 - Assume frame names are exactly `map`, `odom`, `base_link` without first running `tf list` (Rule 0) — they may be namespaced (e.g., `/robot_1/odom`)
 - Confuse a jump in `map` → `odom` (localisation correction) with the robot physically moving
+- Consume spatial sensor data without first verifying the sensor's `frame_id` exists in the TF tree and is not stale — run `tf list` and `tf echo <SENSOR_FRAME> <BASE_FRAME>` before using any sensor's spatial output
 
 ---
 
@@ -879,7 +906,8 @@ Motion command received
 | "disable X / turn off X" *(as a boolean parameter)* | Set boolean param to false | `params describe` → `params set <node:param> false` → verify |
 | "describe X parameter / what type is X / valid range of X / is X read-only / what values can X take / X constraints" | Describe parameter type and constraints | `params describe <node:param>` |
 | "dump parameters / export config / save current params / dump all params / get all params from X" | Dump all params from a node | `params dump <node>` |
-| "load parameters / restore config / load params from file / apply YAML to X" | Load params from YAML file | `params load <node> <file>` |
+| "load parameters / restore config / load params from file / apply YAML to X / load config from file / use config file / load YAML params" | Load params from YAML file — **Rule 0 pre-flight required**: `params list <node>` + `params describe` each key before loading; verify with `params get` after | `params load <node> <file>` |
+| "use params file / pass params file / launch with params file / --params-file / YAML params at launch / load parameters at startup" | Load params at launch time via `--params-file` | Run the node/launch with `--params-file <path>` — but first: `params list <node>` to compare YAML keys, `params describe` each to confirm types; re-verify with `params get` after the node is running |
 | "delete parameter / remove param X" | Delete a parameter | `params delete <node:param>` |
 | "save parameter preset / save config preset / save settings as X / save preset / snapshot parameters / save this config" | Save parameter preset to file | `params preset-save` |
 | "load parameter preset / apply preset X / restore preset X / load saved settings / use preset X" | Load parameter preset | `params preset-load <name>` |
@@ -913,6 +941,11 @@ Motion command received
 | "give me a full system overview / system summary / robot status overview / what's the full state" | Full system snapshot | `doctor` + `topics list` + `nodes list` + `control list-controllers` + `lifecycle nodes` |
 | "test connectivity / test DDS / test network / test multicast / DDS reachability check" | Test DDS multicast connectivity | `doctor hello` |
 | "check skill version / what version is this / what version of ros2_cli / skill info" | Get ros2_cli version | `version` |
+| "is the daemon running / is ROS daemon up / ROS daemon status / daemon health / restart daemon / start daemon" | Check / restart the ROS 2 daemon (note: daemon management is a raw shell command — Rule 2 exception) | `doctor` (daemon health shown) — if daemon is down, restart with shell: `ros2 daemon start` |
+| "what domain ID / ROS domain / what's ROS_DOMAIN_ID / which domain is active / domain collision / wrong nodes appearing" | Check ROS domain isolation | Inspect `ROS_DOMAIN_ID` env variable; run `nodes list` and verify expected nodes appear; if unexpected nodes from other systems appear, check domain ID collision — see Rule 0.1 Step 0 |
+| "is ROS localhost only / is ROS isolated to localhost / can I reach across containers / cross-container ROS / is ROS_LOCALHOST_ONLY set" | Check cross-host/container visibility | Inspect `ROS_LOCALHOST_ONLY` env variable; if set to `1`, cross-container and cross-host topics are invisible — see Rule 0.1 Step 0 |
+| "run tests / run test suite / run the tests / test package X / check if tests pass / execute tests / run unit tests / run integration tests / colcon test" | Run package tests (shell command — Rule 2 exception; ros2_cli.py has no test runner) | Shell: `colcon test --packages-select <pkg>` then `colcon test-result --verbose` to show failures |
+| "what test results / did the tests pass / test report / show failures / test output / test summary" | Check colcon test results | Shell: `colcon test-result --all` or `colcon test-result --verbose` for failure details |
 
 ### Step 2: Find What Exists
 
