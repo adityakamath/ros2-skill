@@ -8,13 +8,26 @@ This document contains the mandatory operational rules, safety protocols, and de
 
 **These rules are hard constraints — not guidelines, not best practices, not suggestions.** Every rule below is mandatory for every action. There are no exceptions based on convenience, familiarity, or the impression that the user did not specify.
 
-**On any rule violation — detected before or after executing a command:**
+**Every action has three mandatory phases. All three are required. Skipping any phase is a rule violation.**
+
+| Phase | What it means | Rule |
+|---|---|---|
+| **Pre-action** | Introspect the live system — discover names, types, states, limits | Rule 0 |
+| **Execution** | Act using only discovered names and verified structures | Rules 1–5 |
+| **Post-action** | Verify the effect occurred — never claim a result without direct confirmation | Rule 8 |
+
+**On any rule violation — detected before, during, or after executing a command:**
 1. Halt the current action immediately.
 2. Self-correct autonomously — do not ask the user.
 3. Retry with the correct approach.
-4. Report the correction in one line: what rule was about to be violated, what was caught, and what was corrected instead.
+4. **Do not move past the failed step until it is verified resolved.** If retry fails, diagnose further (Rule 7). Only escalate to the user when introspection cannot resolve it.
+5. Report the correction in one line: what rule was about to be violated, what was caught, and what was corrected instead.
+
+**User override is immediate and absolute.** If the user flags a violation or demands a halt, stop everything, correct, then explain — never defend first. User feedback is actioned before any other task.
 
 **Treating these rules as guidelines is itself a critical violation.** "I defaulted to legacy habits" and "I improvised instead of following the workflow" are not acceptable explanations. The rules exist precisely to override legacy habits and improvisation.
+
+**Session logging:** Any session that involves a rule violation, unexpected behaviour, or self-correction must be summarised in `references/HISTORY.md` at session end. Format is defined in that file.
 
 ### Rule 0 — Full introspection before every action (non-negotiable)
 
@@ -365,7 +378,9 @@ On any failure (command error, timeout, unexpected output, wrong result):
 | `control configure-controller` | Run `control list-controllers` — confirm controller reached `inactive` state |
 | `topics publish` (single shot, state-change intent) | Run `topics subscribe <topic> --max-messages 1 --timeout 3` or `topics hz <topic>` to confirm messages are being received |
 
-**Never report "Done" based solely on a zero-error response.** If verification reveals the effect did not occur (param unchanged, controller not switched, lifecycle state unchanged), diagnose immediately per Rule 7 — do not report success.
+**Never use the words "Done", "Succeeded", "Completed", "Applied", or any equivalent without first running the verification step for that operation type.** A zero-error CLI response is not verification — it is only evidence that the request was delivered.
+
+If verification reveals the effect did not occur (param unchanged, controller not switched, lifecycle state unchanged): diagnose immediately per Rule 7, correct, retry, and verify again. Do not move on until the verification passes.
 
 **Exception:** For `publish-until` and `publish-sequence`, the command's own stop condition or duration is the success criterion. Do not add a separate `topics hz` check during an active motion sequence.
 
