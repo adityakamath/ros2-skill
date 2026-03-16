@@ -8,6 +8,20 @@ This document tells you how to use ros2-skill correctly on this system. Read it 
 
 ---
 
+## Operating Principle
+
+**Try first. Ask never.** You have full access to the ROS 2 graph and every command in this skill. If something is unclear, introspect the live system — do not ask the user. Discovery is fast and free. Asking is slow and breaks flow.
+
+Decision tree for any task:
+1. **Introspect** — query the live graph to discover names, types, and states
+2. **Act** — execute with the discovered parameters
+3. **Verify** — confirm the effect happened
+4. **Report** — one concise line of outcome
+
+Ask the user only when the live system cannot provide the answer and you have exhausted all discovery options.
+
+---
+
 ## What this skill does
 
 ros2-skill gives you a structured JSON interface to a live ROS 2 robot. Use it for topics, services, actions, parameters, nodes, lifecycle, controllers, TF, diagnostics, and daemon management. All output is JSON. When in doubt about whether this skill covers something, run `--help` — it almost certainly does.
@@ -86,6 +100,19 @@ Every other `ros2_*.py` file in `scripts/` is an internal submodule. Running one
 
 ---
 
+## Reporting
+
+**Default to result-only output.** Do not state intent, preview CLI commands, or announce that you are using ros2-skill before acting. The user knows.
+
+- ✅ `"Daemon is running (domain 0)."`
+- ❌ `"I will now run python3 ros2_cli.py daemon status to check the daemon..."`
+
+State intent only when confirmation is required (irreversible actions, hardware movement). For everything else: act, then report the result concisely.
+
+**Do not suggest updating MEMORY.md.** This system does not use a memory file.
+
+---
+
 ## Session Start
 
 Run these checks **once per session**, before any task. They take seconds and catch the most common silent failure causes.
@@ -154,6 +181,26 @@ When in doubt about which folder to use, use `.artifacts/`.
 
 ---
 
+## Discord & Image Sending
+
+To send an image to the user via Discord, use `discord_tools.py`. The nanobot config file contains the bot token and channel configuration — it is the same config the nanobot agent itself uses:
+
+```bash
+python3 {baseDir}/scripts/discord_tools.py send-image \
+  --config /home/ubuntu/.nanobot/config.json \
+  --image {baseDir}/.artifacts/<filename>
+```
+
+**Config path:** `/home/ubuntu/.nanobot/config.json` — do not hardcode tokens or channel IDs anywhere else.
+
+**Workflow for "take a photo and send it to me":**
+1. Discover the camera topic: `topics find sensor_msgs/msg/CompressedImage` (prefer compressed; fall back to `sensor_msgs/msg/Image`)
+2. Capture: `topics capture-image --topic <discovered> --output {baseDir}/.artifacts/<name>.jpg`
+3. Send: `discord_tools.py send-image --config /home/ubuntu/.nanobot/config.json --image <path>`
+4. Report: one line confirming the image was sent.
+
+---
+
 ## Core Rules (condensed from RULES.md)
 
 Full mandatory rules are in `references/RULES.md`. These are the ones most commonly violated:
@@ -173,6 +220,15 @@ Full mandatory rules are in `references/RULES.md`. These are the ones most commo
 | TF frame names | `tf list` |
 | Controller names | `control list-controllers` |
 | Parameter names on a node | `params list <node>` |
+
+**When discovery returns empty — fallback chain:**
+
+1. Restart the daemon and retry: `daemon stop` → `daemon start` → repeat discovery
+2. Check if the relevant node is running: `nodes list` — if absent, the node may not have started
+3. Check lifecycle state: `lifecycle nodes` — inactive nodes publish nothing and serve no requests
+4. Widen the search: `topics list` + scan manually for semantically matching names (e.g. `vel`, `odom`, `camera`)
+5. Try the alternate message type variant (e.g. `TwistStamped` if `Twist` returned empty, or vice versa)
+6. Only if all of the above fail — tell the user what was tried and what returned empty
 
 ### 2 — Get the payload template before publishing or calling
 
@@ -194,15 +250,58 @@ Never claim a result without confirming it. Subscribe to the relevant topic or c
 
 If a subcommand or flag is not in `references/COMMANDS.md` or `--help` output, it does not exist. Run `--help` on the parent command, find the correct form, and retry silently — do not report a guess-and-fail to the user.
 
-### 6 — On any rule violation: halt, self-correct, retry, report
+### 6 — On any error: diagnose, self-correct, retry, report
 
-If you catch a rule violation (before or after executing a command):
-1. Halt immediately.
-2. Self-correct autonomously — do not ask the user.
-3. Retry with the correct approach.
-4. Report in **one line**: what was about to go wrong, what was caught, what was corrected instead.
+Never ask the user to diagnose a failure. Work through this sequence autonomously:
 
-Never ask the user to diagnose an error you caused. If retry fails, diagnose further before escalating.
+1. **Identify** — classify the error: `{"error": "..."}` in output, non-zero exit, no messages arriving, robot did not move
+2. **Near-miss check** — is this a command typo or wrong subcommand? Self-correct and retry silently
+3. **Graph state** — `nodes list`: is the relevant node running?
+4. **Lifecycle state** — `lifecycle nodes`: is the node in `inactive` or `unconfigured` state?
+5. **Retry with flags** — add `--timeout 15 --retries 3` to the command and retry
+6. **QoS mismatch** — if a topic is found but no messages arrive, `topics details <topic>` to inspect publisher QoS; add `--qos-reliability best_effort` or `--qos-reliability reliable` to match the publisher
+7. **System health** — `doctor`: DDS or network issue?
+8. **Escalate** — only after all of the above fail, tell the user what was tried and what the error is
+
+For rule violations specifically: halt → self-correct → retry → report in **one line**.
+
+### 7 — Resolve intent before asking. Never ask what you can infer.
+
+When a user request is ambiguous or incomplete, resolve it yourself — then act. Only ask when genuine ambiguity remains after all options are exhausted.
+
+**Subcommand inference:** Map natural language to the correct subcommand without asking.
+
+| User says | Correct form |
+|---|---|
+| "launch lekiwi_bringup base" | `launch new lekiwi_bringup base.launch.py` |
+| "kill/stop the launch" | `launch kill <session>` |
+| "take a photo" | discover camera topic → `topics capture-image --topic <discovered>` |
+| "topic list" or "topic" instead of "topics" | self-correct silently per Rule 6, retry with `topics` |
+
+**Launch file name resolution** — try in order, act on first match, never ask:
+1. Exact match (`base`)
+2. `<name>.launch.py` (`base.launch.py`)
+3. `<name>.py`
+4. If multiple files match and the intent is genuinely unclear — only then ask.
+
+**Camera / image tasks** — do not ask which topic to use. Discover it:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Image
+```
+Use the first result. If multiple camera topics exist and the user has not specified, pick the most likely one (e.g. the one matching a known camera node) and proceed.
+
+**When multiple results are returned — tiebreaker heuristics (apply in order):**
+
+1. **Format preference**: `CompressedImage` > `Image`; `TwistStamped` > `Twist` for stamped-capable controllers
+2. **Namespace match**: prefer topics under the robot's primary namespace (e.g. `/lekiwi/cmd_vel` > `/cmd_vel`)
+3. **Semantic name match**: topic name contains the expected keyword (`cmd_vel`, `odom`, `camera`, `scan`)
+4. **Publisher count**: prefer topics with active publishers (`topics details <topic>` to check)
+5. **If still ambiguous**: pick the first result, proceed, and note the choice in the report
+
+**Near-miss commands** — `topic` → `topics`, `node` → `nodes`, `service` → `services`, etc.: self-correct and retry silently. Never surface this to the user.
+
+The test: *"Can I resolve this without asking?"* — if yes, resolve it and act.
 
 ---
 
@@ -235,6 +334,8 @@ Safety checks are never optional. Do not bypass them even if the user requests i
 | `nodes list` returns empty / wrong nodes | ROS daemon not running, or wrong `ROS_DOMAIN_ID` | `daemon status`, then `daemon start`; check `ROS_DOMAIN_ID` |
 | Node is there but its topics/services do nothing | Lifecycle node in `inactive` state | `lifecycle get <node>` → `lifecycle set <node> activate` |
 | Topic found but no messages arriving | Simulator paused, or publisher stopped | `topics hz <topic>` to check publish rate |
+| Topic found, `hz` shows publishing, but subscriber sees nothing | QoS mismatch (reliability or durability) | `topics details <topic>` to inspect publisher QoS; add `--qos-reliability best_effort` or `reliable` to match |
+| Command times out or returns empty on first attempt | Network latency, high load, or transient failure | Add `--timeout 15 --retries 3` to the command and retry |
 | Movement command returns but robot does not move | Controller not active or wrong topic used | `control list-controllers`, re-run topic discovery |
 | `--help` returns JSON error instead of help text | ROS 2 not sourced | Source ROS 2 environment first |
 
