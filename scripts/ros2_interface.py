@@ -175,3 +175,18 @@ def cmd_interface_package(args):
                 "actions": actions, "total": total})
     except Exception as e:
         output({"error": str(e)})
+
+
+if __name__ == "__main__":
+    import sys
+    import os
+    _mod = os.path.basename(__file__)
+    _cli = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ros2_cli.py")
+    print(
+        f"[ros2-skill] '{_mod}' is an internal module — do not run it directly.\n"
+        "Use the main entry point:\n"
+        f"  python3 {_cli} <command> [subcommand] [args]\n"
+        f"See all commands:  python3 {_cli} --help",
+        file=sys.stderr,
+    )
+    sys.exit(1)

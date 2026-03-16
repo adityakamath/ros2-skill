@@ -113,3 +113,18 @@ def cmd_daemon_stop(args):
             output({"status": "stopped", "domain_id": domain_id, "output": text})
     except Exception as exc:
         output({"error": str(exc), "domain_id": domain_id if domain_id is not None else 0})
+
+
+if __name__ == "__main__":
+    import sys
+    import os
+    _mod = os.path.basename(__file__)
+    _cli = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ros2_cli.py")
+    print(
+        f"[ros2-skill] '{_mod}' is an internal module — do not run it directly.\n"
+        "Use the main entry point:\n"
+        f"  python3 {_cli} <command> [subcommand] [args]\n"
+        f"See all commands:  python3 {_cli} --help",
+        file=sys.stderr,
+    )
+    sys.exit(1)
