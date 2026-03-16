@@ -7,7 +7,7 @@ import time
 
 import rclpy
 
-from ros2_utils import ROS2CLI, msg_to_dict, output, resolve_output_path
+from ros2_utils import ROS2CLI, msg_to_dict, output, resolve_output_path, ros2_context
 
 
 def _call_cm_service(node, srv_type, cm_name, svc_suffix, request, timeout, retries=1):
@@ -55,13 +55,12 @@ def cmd_control_list_controller_types(args):
     """List available controller types and their base classes."""
     try:
         from controller_manager_msgs.srv import ListControllerTypes
-        rclpy.init()
-        node = ROS2CLI()
-        result, err = _call_cm_service(
-            node, ListControllerTypes, args.controller_manager,
-            "list_controller_types", ListControllerTypes.Request(), args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            result, err = _call_cm_service(
+                node, ListControllerTypes, args.controller_manager,
+                "list_controller_types", ListControllerTypes.Request(), args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         entries = [
@@ -77,13 +76,12 @@ def cmd_control_list_controllers(args):
     """List loaded controllers, their type and status."""
     try:
         from controller_manager_msgs.srv import ListControllers
-        rclpy.init()
-        node = ROS2CLI()
-        result, err = _call_cm_service(
-            node, ListControllers, args.controller_manager,
-            "list_controllers", ListControllers.Request(), args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            result, err = _call_cm_service(
+                node, ListControllers, args.controller_manager,
+                "list_controllers", ListControllers.Request(), args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         controllers = [msg_to_dict(c) for c in result.controller]
@@ -96,13 +94,12 @@ def cmd_control_list_hardware_components(args):
     """List available hardware components."""
     try:
         from controller_manager_msgs.srv import ListHardwareComponents
-        rclpy.init()
-        node = ROS2CLI()
-        result, err = _call_cm_service(
-            node, ListHardwareComponents, args.controller_manager,
-            "list_hardware_components", ListHardwareComponents.Request(), args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            result, err = _call_cm_service(
+                node, ListHardwareComponents, args.controller_manager,
+                "list_hardware_components", ListHardwareComponents.Request(), args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         components = [msg_to_dict(c) for c in result.component]
@@ -115,13 +112,12 @@ def cmd_control_list_hardware_interfaces(args):
     """List available command and state interfaces."""
     try:
         from controller_manager_msgs.srv import ListHardwareInterfaces
-        rclpy.init()
-        node = ROS2CLI()
-        result, err = _call_cm_service(
-            node, ListHardwareInterfaces, args.controller_manager,
-            "list_hardware_interfaces", ListHardwareInterfaces.Request(), args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            result, err = _call_cm_service(
+                node, ListHardwareInterfaces, args.controller_manager,
+                "list_hardware_interfaces", ListHardwareInterfaces.Request(), args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         output({
@@ -136,15 +132,14 @@ def cmd_control_load_controller(args):
     """Load a controller in the controller manager."""
     try:
         from controller_manager_msgs.srv import LoadController
-        rclpy.init()
-        node = ROS2CLI()
-        request = LoadController.Request()
-        request.name = args.name
-        result, err = _call_cm_service(
-            node, LoadController, args.controller_manager,
-            "load_controller", request, args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            request = LoadController.Request()
+            request.name = args.name
+            result, err = _call_cm_service(
+                node, LoadController, args.controller_manager,
+                "load_controller", request, args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         output({"controller": args.name, "ok": result.ok})
@@ -156,15 +151,14 @@ def cmd_control_unload_controller(args):
     """Unload a controller from the controller manager."""
     try:
         from controller_manager_msgs.srv import UnloadController
-        rclpy.init()
-        node = ROS2CLI()
-        request = UnloadController.Request()
-        request.name = args.name
-        result, err = _call_cm_service(
-            node, UnloadController, args.controller_manager,
-            "unload_controller", request, args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            request = UnloadController.Request()
+            request.name = args.name
+            result, err = _call_cm_service(
+                node, UnloadController, args.controller_manager,
+                "unload_controller", request, args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         output({"controller": args.name, "ok": result.ok})
@@ -176,15 +170,14 @@ def cmd_control_configure_controller(args):
     """Configure a loaded controller (unconfigured → inactive)."""
     try:
         from controller_manager_msgs.srv import ConfigureController
-        rclpy.init()
-        node = ROS2CLI()
-        request = ConfigureController.Request()
-        request.name = args.name
-        result, err = _call_cm_service(
-            node, ConfigureController, args.controller_manager,
-            "configure_controller", request, args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            request = ConfigureController.Request()
+            request.name = args.name
+            result, err = _call_cm_service(
+                node, ConfigureController, args.controller_manager,
+                "configure_controller", request, args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         output({"controller": args.name, "ok": result.ok})
@@ -196,15 +189,14 @@ def cmd_control_reload_controller_libraries(args):
     """Reload controller libraries."""
     try:
         from controller_manager_msgs.srv import ReloadControllerLibraries
-        rclpy.init()
-        node = ROS2CLI()
-        request = ReloadControllerLibraries.Request()
-        request.force_kill = args.force_kill
-        result, err = _call_cm_service(
-            node, ReloadControllerLibraries, args.controller_manager,
-            "reload_controller_libraries", request, args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            request = ReloadControllerLibraries.Request()
+            request.force_kill = args.force_kill
+            result, err = _call_cm_service(
+                node, ReloadControllerLibraries, args.controller_manager,
+                "reload_controller_libraries", request, args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         output({"ok": result.ok, "force_kill": args.force_kill})
@@ -217,25 +209,24 @@ def cmd_control_set_controller_state(args):
     try:
         from controller_manager_msgs.srv import SwitchController
         from builtin_interfaces.msg import Duration
-        rclpy.init()
-        node = ROS2CLI()
-        request = SwitchController.Request()
-        if args.state == "active":
-            request.activate_controllers = [args.name]
-            request.deactivate_controllers = []
-        else:
-            request.activate_controllers = []
-            request.deactivate_controllers = [args.name]
-        # STRICT so a failed transition surfaces as an error rather than being silently skipped
-        request.strictness = SwitchController.Request.STRICT
-        request.activate_asap = False
-        t = args.timeout
-        request.timeout = Duration(sec=int(t), nanosec=int((t % 1) * 1_000_000_000))
-        result, err = _call_cm_service(
-            node, SwitchController, args.controller_manager,
-            "switch_controller", request, args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            request = SwitchController.Request()
+            if args.state == "active":
+                request.activate_controllers = [args.name]
+                request.deactivate_controllers = []
+            else:
+                request.activate_controllers = []
+                request.deactivate_controllers = [args.name]
+            # STRICT so a failed transition surfaces as an error rather than being silently skipped
+            request.strictness = SwitchController.Request.STRICT
+            request.activate_asap = False
+            t = args.timeout
+            request.timeout = Duration(sec=int(t), nanosec=int((t % 1) * 1_000_000_000))
+            result, err = _call_cm_service(
+                node, SwitchController, args.controller_manager,
+                "switch_controller", request, args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         output({"controller": args.name, "state": args.state, "ok": result.ok})
@@ -255,17 +246,16 @@ def cmd_control_set_hardware_component_state(args):
             "active":       (State.PRIMARY_STATE_ACTIVE,       "active"),
             "finalized":    (State.PRIMARY_STATE_FINALIZED,     "finalized"),
         }
-        rclpy.init()
-        node = ROS2CLI()
-        state_id, state_label = _state_ids[args.state]
-        request = SetHardwareComponentState.Request()
-        request.name = args.name
-        request.target_state = State(id=state_id, label=state_label)
-        result, err = _call_cm_service(
-            node, SetHardwareComponentState, args.controller_manager,
-            "set_hardware_component_state", request, args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            state_id, state_label = _state_ids[args.state]
+            request = SetHardwareComponentState.Request()
+            request.name = args.name
+            request.target_state = State(id=state_id, label=state_label)
+            result, err = _call_cm_service(
+                node, SetHardwareComponentState, args.controller_manager,
+                "set_hardware_component_state", request, args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         out = {"component": args.name, "ok": result.ok}
@@ -280,33 +270,31 @@ def cmd_control_set_hardware_component_state(args):
 
 def cmd_control_switch_controllers(args):
     """Atomically switch (activate/deactivate) multiple controllers."""
+    activate   = list(args.activate or [])
+    deactivate = list(args.deactivate or [])
+    if not activate and not deactivate:
+        return output({"error": "At least one of --activate or --deactivate must be non-empty"})
     try:
         from controller_manager_msgs.srv import SwitchController
         from builtin_interfaces.msg import Duration
-        rclpy.init()
-        node = ROS2CLI()
-        strictness_map = {
-            "BEST_EFFORT": SwitchController.Request.BEST_EFFORT,
-            "STRICT":      SwitchController.Request.STRICT,
-        }
-        activate   = list(args.activate or [])
-        deactivate = list(args.deactivate or [])
-        if not activate and not deactivate:
-            rclpy.shutdown()
-            return output({"error": "At least one of --activate or --deactivate must be non-empty"})
-        request = SwitchController.Request()
-        request.activate_controllers   = activate
-        request.deactivate_controllers = deactivate
-        request.strictness   = strictness_map.get(args.strictness,
-                                                   SwitchController.Request.BEST_EFFORT)
-        request.activate_asap = args.activate_asap
-        t = args.timeout
-        request.timeout = Duration(sec=int(t), nanosec=int((t % 1) * 1_000_000_000))
-        result, err = _call_cm_service(
-            node, SwitchController, args.controller_manager,
-            "switch_controller", request, args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            strictness_map = {
+                "BEST_EFFORT": SwitchController.Request.BEST_EFFORT,
+                "STRICT":      SwitchController.Request.STRICT,
+            }
+            request = SwitchController.Request()
+            request.activate_controllers   = activate
+            request.deactivate_controllers = deactivate
+            request.strictness   = strictness_map.get(args.strictness,
+                                                       SwitchController.Request.BEST_EFFORT)
+            request.activate_asap = args.activate_asap
+            t = args.timeout
+            request.timeout = Duration(sec=int(t), nanosec=int((t % 1) * 1_000_000_000))
+            result, err = _call_cm_service(
+                node, SwitchController, args.controller_manager,
+                "switch_controller", request, args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
         output({
@@ -341,13 +329,12 @@ def cmd_control_view_controller_chains(args):
     """Generate a DOT diagram of loaded chained controllers, save to .artifacts/, send via Discord."""
     try:
         from controller_manager_msgs.srv import ListControllers
-        rclpy.init()
-        node = ROS2CLI()
-        svc_result, err = _call_cm_service(
-            node, ListControllers, args.controller_manager,
-            "list_controllers", ListControllers.Request(), args.timeout, getattr(args, 'retries', 1),
-        )
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            svc_result, err = _call_cm_service(
+                node, ListControllers, args.controller_manager,
+                "list_controllers", ListControllers.Request(), args.timeout, getattr(args, 'retries', 1),
+            )
         if err:
             return output(err)
 

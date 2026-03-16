@@ -2,6 +2,33 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.5] - 2026-03-16
+
+Internal refactor: centralized rclpy lifecycle management via `ros2_context()`, removed `MSG_ALIASES`, and eliminated dead code and duplicate helpers. No functional changes to any command.
+
+### Internal — rclpy lifecycle
+
+- Added `ros2_context()` context manager to `ros2_utils.py` — wraps `rclpy.init()` / `rclpy.shutdown()` in a `@contextmanager`; all rclpy-using command functions now use `with ros2_context():` instead of direct init/shutdown calls
+- `rclpy.init()` and `rclpy.shutdown()` now appear **only** inside `ros2_context()` in `ros2_utils.py` — zero occurrences elsewhere in the codebase
+- `ros2_cli.py` — removed safety `rclpy.shutdown()` from `main()` finally block; removed `import rclpy` (no longer needed at the dispatcher level)
+- `ros2_param.py` — refactored `_dump_params()` to accept a `node` argument instead of managing its own rclpy context; callers (`cmd_params_dump`, `cmd_params_preset_save`) now create the context externally and pass the node in
+
+### Internal — dead code and duplicates
+
+- `ros2_launch.py` — removed 5 private session-management helpers (`_get_sessions_file`, `_load_sessions`, `_save_session`, `_get_session_metadata`, `_delete_session_metadata`) that were exact duplicates of already-imported `ros2_utils` functions; removed unused `import json`
+- `ros2_run.py` — fixed `_find_executables()`: lib-dir traversal code was unreachable dead code (it appeared after a `return` statement in a different function); restored into `_find_executables()` where it belongs
+
+### Removed
+
+- `MSG_ALIASES` dict removed from `ros2_utils.py`; message type aliases (e.g. `twist` → `geometry_msgs/Twist`, `odom` → `nav_msgs/Odometry`) are no longer supported — use full type names
+
+### Documentation
+
+- `README.md` — removed "Message Type Aliases" section; updated TF2 helper command list to use full names instead of removed short aliases
+- `references/COMMANDS.md` — removed stale alias references from the `topics message` command table and a broken link to the removed aliases section
+
+---
+
 ## [1.0.4] - 2026-03-14
 
 Added launch, run, and tf commands. Hardened movement safety rules and `--rotate` rotation monitoring.

@@ -5,7 +5,7 @@ import time
 
 import rclpy
 
-from ros2_utils import ROS2CLI, output
+from ros2_utils import ROS2CLI, output, ros2_context
 
 
 def _get_managed_nodes(rclpy_node):
@@ -23,10 +23,9 @@ def _get_managed_nodes(rclpy_node):
 def cmd_lifecycle_nodes(args):
     """List all managed (lifecycle) nodes by scanning for /get_state services."""
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        managed_nodes = _get_managed_nodes(node)
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            managed_nodes = _get_managed_nodes(node)
         output({"managed_nodes": managed_nodes, "count": len(managed_nodes)})
     except Exception as e:
         output({"error": str(e)})
@@ -114,20 +113,16 @@ def cmd_lifecycle_list(args):
     """List available states and transitions for one or all lifecycle nodes."""
     retries = getattr(args, 'retries', 1)
     try:
-        rclpy.init()
-        node = ROS2CLI()
-
-        if args.node:
-            node_name = args.node if args.node.startswith('/') else '/' + args.node
-            info = _lifecycle_query_node(node, node_name, args.timeout, retries)
-            rclpy.shutdown()
-            output(info)
-        else:
-            managed_nodes = _get_managed_nodes(node)
-            results = [_lifecycle_query_node(node, mn, args.timeout, retries)
-                       for mn in managed_nodes]
-            rclpy.shutdown()
-            output({"nodes": results})
+        with ros2_context():
+            node = ROS2CLI()
+            if args.node:
+                node_name = args.node if args.node.startswith('/') else '/' + args.node
+                info = _lifecycle_query_node(node, node_name, args.timeout, retries)
+            else:
+                managed_nodes = _get_managed_nodes(node)
+                info = {"nodes": [_lifecycle_query_node(node, mn, args.timeout, retries)
+                                  for mn in managed_nodes]}
+        output(info)
     except Exception as e:
         output({"error": str(e)})
 
@@ -137,37 +132,33 @@ def cmd_lifecycle_get(args):
     retries = getattr(args, 'retries', 1)
     try:
         from lifecycle_msgs.srv import GetState
-        rclpy.init()
-        node = ROS2CLI()
+        with ros2_context():
+            node = ROS2CLI()
+            node_name = args.node if args.node.startswith('/') else '/' + args.node
+            client = node.create_client(GetState, f"{node_name}/get_state")
 
-        node_name = args.node if args.node.startswith('/') else '/' + args.node
-        client = node.create_client(GetState, f"{node_name}/get_state")
+            for attempt in range(retries):
+                last_attempt = (attempt == retries - 1)
 
-        for attempt in range(retries):
-            last_attempt = (attempt == retries - 1)
+                if not client.wait_for_service(timeout_sec=args.timeout):
+                    if not last_attempt:
+                        continue
+                    return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
 
-            if not client.wait_for_service(timeout_sec=args.timeout):
+                future = client.call_async(GetState.Request())
+                end_time = time.time() + args.timeout
+                while time.time() < end_time and not future.done():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+
+                if future.done():
+                    state = future.result().current_state
+                    output({"node": node_name, "state_id": state.id, "state_label": state.label})
+                    return
+
+                future.cancel()
                 if not last_attempt:
                     continue
-                rclpy.shutdown()
-                return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
 
-            future = client.call_async(GetState.Request())
-            end_time = time.time() + args.timeout
-            while time.time() < end_time and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-
-            if future.done():
-                state = future.result().current_state
-                rclpy.shutdown()
-                output({"node": node_name, "state_id": state.id, "state_label": state.label})
-                return
-
-            future.cancel()
-            if not last_attempt:
-                continue
-
-        rclpy.shutdown()
         output({"error": "Timeout getting lifecycle state"})
     except Exception as e:
         output({"error": str(e)})
@@ -179,111 +170,99 @@ def cmd_lifecycle_set(args):
     try:
         from lifecycle_msgs.srv import ChangeState, GetAvailableTransitions
         from lifecycle_msgs.msg import Transition
-        rclpy.init()
-        node = ROS2CLI()
+        with ros2_context():
+            node = ROS2CLI()
+            node_name = args.node if args.node.startswith('/') else '/' + args.node
 
-        node_name = args.node if args.node.startswith('/') else '/' + args.node
-
-        try:
-            transition_id = int(args.transition)
-        except ValueError:
-            trans_client = node.create_client(
-                GetAvailableTransitions, f"{node_name}/get_available_transitions"
-            )
-            trans_result = None
-            for attempt in range(retries):
-                last_attempt = (attempt == retries - 1)
-                if not trans_client.wait_for_service(timeout_sec=args.timeout):
+            try:
+                transition_id = int(args.transition)
+            except ValueError:
+                trans_client = node.create_client(
+                    GetAvailableTransitions, f"{node_name}/get_available_transitions"
+                )
+                trans_result = None
+                for attempt in range(retries):
+                    last_attempt = (attempt == retries - 1)
+                    if not trans_client.wait_for_service(timeout_sec=args.timeout):
+                        if not last_attempt:
+                            continue
+                        trans_client.destroy()
+                        return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
+                    trans_future = trans_client.call_async(GetAvailableTransitions.Request())
+                    end_time = time.time() + args.timeout
+                    while time.time() < end_time and not trans_future.done():
+                        rclpy.spin_once(node, timeout_sec=0.1)
+                    if trans_future.done():
+                        trans_result = trans_future.result()
+                        break
+                    trans_future.cancel()
                     if not last_attempt:
                         continue
-                    trans_client.destroy()
-                    rclpy.shutdown()
+                trans_client.destroy()
+                if trans_result is None:
+                    return output({"error": "Timeout querying available transitions"})
+                available_transitions = trans_result.available_transitions
+                # 1. Exact match  e.g. "configure", "activate", "cleanup"
+                matching = [
+                    td.transition.id
+                    for td in available_transitions
+                    if td.transition.label == args.transition
+                ]
+                if not matching:
+                    # 2. Suffix match: input is the trailing component after '_'
+                    matching = [
+                        td.transition.id
+                        for td in available_transitions
+                        if td.transition.label.endswith('_' + args.transition)
+                    ]
+                if not matching:
+                    # 3. Prefix match: input is the leading component before '_'
+                    matching = [
+                        td.transition.id
+                        for td in available_transitions
+                        if td.transition.label.startswith(args.transition + '_')
+                    ]
+                if not matching:
+                    # 4. Substring match: input appears anywhere inside the label
+                    matching = [
+                        td.transition.id
+                        for td in available_transitions
+                        if args.transition in td.transition.label
+                    ]
+                if not matching:
+                    available_labels = [td.transition.label for td in available_transitions]
+                    return output({"error": f"Unknown transition '{args.transition}'. Available: {available_labels}"})
+                transition_id = matching[0]
+
+            client = node.create_client(ChangeState, f"{node_name}/change_state")
+
+            for attempt in range(retries):
+                last_attempt = (attempt == retries - 1)
+
+                if not client.wait_for_service(timeout_sec=args.timeout):
+                    if not last_attempt:
+                        continue
                     return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
-                trans_future = trans_client.call_async(GetAvailableTransitions.Request())
+
+                request = ChangeState.Request()
+                transition = Transition()
+                transition.id = transition_id
+                request.transition = transition
+
+                future = client.call_async(request)
                 end_time = time.time() + args.timeout
-                while time.time() < end_time and not trans_future.done():
+                while time.time() < end_time and not future.done():
                     rclpy.spin_once(node, timeout_sec=0.1)
-                if trans_future.done():
-                    trans_result = trans_future.result()
-                    break
-                trans_future.cancel()
+
+                if future.done():
+                    output({"node": node_name, "transition": args.transition,
+                            "success": future.result().success})
+                    return
+
+                future.cancel()
                 if not last_attempt:
                     continue
-            trans_client.destroy()
-            if trans_result is None:
-                rclpy.shutdown()
-                return output({"error": "Timeout querying available transitions"})
-            available_transitions = trans_result.available_transitions
-            # 1. Exact match  e.g. "configure", "activate", "cleanup"
-            matching = [
-                td.transition.id
-                for td in available_transitions
-                if td.transition.label == args.transition
-            ]
-            if not matching:
-                # 2. Suffix match: input is the trailing component after '_'
-                #    e.g. "shutdown"    → "unconfigured_shutdown", "inactive_shutdown", "active_shutdown"
-                #    e.g. "success"     → "on_configure_success", "on_activate_success", …
-                matching = [
-                    td.transition.id
-                    for td in available_transitions
-                    if td.transition.label.endswith('_' + args.transition)
-                ]
-            if not matching:
-                # 3. Prefix match: input is the leading component before '_'
-                #    e.g. "unconfigured" → "unconfigured_shutdown"
-                #    e.g. "on_configure" → "on_configure_success", "on_configure_failure"
-                matching = [
-                    td.transition.id
-                    for td in available_transitions
-                    if td.transition.label.startswith(args.transition + '_')
-                ]
-            if not matching:
-                # 4. Substring match: input appears anywhere inside the label
-                #    e.g. "configure" → "on_configure_success", "on_configure_failure", …
-                matching = [
-                    td.transition.id
-                    for td in available_transitions
-                    if args.transition in td.transition.label
-                ]
-            if not matching:
-                available_labels = [td.transition.label for td in available_transitions]
-                rclpy.shutdown()
-                return output({"error": f"Unknown transition '{args.transition}'. Available: {available_labels}"})
-            transition_id = matching[0]
 
-        client = node.create_client(ChangeState, f"{node_name}/change_state")
-
-        for attempt in range(retries):
-            last_attempt = (attempt == retries - 1)
-
-            if not client.wait_for_service(timeout_sec=args.timeout):
-                if not last_attempt:
-                    continue
-                rclpy.shutdown()
-                return output({"error": f"Lifecycle service not available for {node_name}. Is it a managed node?"})
-
-            request = ChangeState.Request()
-            transition = Transition()
-            transition.id = transition_id
-            request.transition = transition
-
-            future = client.call_async(request)
-            end_time = time.time() + args.timeout
-            while time.time() < end_time and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-
-            if future.done():
-                rclpy.shutdown()
-                output({"node": node_name, "transition": args.transition,
-                        "success": future.result().success})
-                return
-
-            future.cancel()
-            if not last_attempt:
-                continue
-
-        rclpy.shutdown()
         output({"error": "Timeout triggering lifecycle transition"})
     except Exception as e:
         output({"error": str(e)})

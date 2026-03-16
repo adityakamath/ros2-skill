@@ -2,74 +2,69 @@
 """ROS 2 service commands."""
 
 import json
+import re
 import time
 
 import rclpy
 
 from ros2_utils import (
     ROS2CLI, get_srv_type, msg_to_dict, dict_to_msg, output,
+    ros2_context, _get_service_event_qos,
 )
+from ros2_topic import TopicSubscriber
 
 
 def cmd_services_list(args):
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        services = node.get_service_names()
-        service_list = []
-        type_list = []
-        for name, types in services:
-            service_list.append(name)
-            type_list.append(types[0] if types else "")
-        result = {"services": service_list, "types": type_list, "count": len(service_list)}
-        rclpy.shutdown()
-        output(result)
+        with ros2_context():
+            node = ROS2CLI()
+            services = node.get_service_names()
+            service_list = []
+            type_list = []
+            for name, types in services:
+                service_list.append(name)
+                type_list.append(types[0] if types else "")
+        output({"services": service_list, "types": type_list, "count": len(service_list)})
     except Exception as e:
         output({"error": str(e)})
 
 
 def cmd_services_type(args):
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        services = node.get_service_names()
-        result = {"service": args.service, "type": ""}
-        for name, types in services:
-            if name == args.service:
-                result["type"] = types[0] if types else ""
-                break
-        rclpy.shutdown()
-        output(result)
+        with ros2_context():
+            node = ROS2CLI()
+            services = node.get_service_names()
+            svc_type = ""
+            for name, types in services:
+                if name == args.service:
+                    svc_type = types[0] if types else ""
+                    break
+        output({"service": args.service, "type": svc_type})
     except Exception as e:
         output({"error": str(e)})
 
 
 def cmd_services_details(args):
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        services = node.get_service_names()
-
-        result = {"service": args.service, "type": "", "request": {}, "response": {}}
-
-        for name, types in services:
-            if name == args.service:
-                result["type"] = types[0] if types else ""
-                break
-
-        if result["type"]:
-            srv_class = get_srv_type(result["type"])
-            if srv_class:
-                try:
-                    result["request"] = msg_to_dict(srv_class.Request())
-                except Exception:
-                    pass
-                try:
-                    result["response"] = msg_to_dict(srv_class.Response())
-                except Exception:
-                    pass
-
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            services = node.get_service_names()
+            result = {"service": args.service, "type": "", "request": {}, "response": {}}
+            for name, types in services:
+                if name == args.service:
+                    result["type"] = types[0] if types else ""
+                    break
+            if result["type"]:
+                srv_class = get_srv_type(result["type"])
+                if srv_class:
+                    try:
+                        result["request"] = msg_to_dict(srv_class.Request())
+                    except Exception:
+                        pass
+                    try:
+                        result["response"] = msg_to_dict(srv_class.Response())
+                    except Exception:
+                        pass
         output(result)
     except Exception as e:
         output({"error": str(e)})
@@ -91,68 +86,120 @@ def cmd_services_call(args):
     retries = getattr(args, 'retries', 1)
 
     try:
-        rclpy.init()
-        node = ROS2CLI()
+        with ros2_context():
+            node = ROS2CLI()
 
-        service_type = service_type_override or args.service_type
-        if not service_type:
-            services = node.get_service_names()
-            for name, types in services:
-                if name == args.service:
-                    service_type = types[0] if types else ""
-                    break
+            service_type = service_type_override or args.service_type
+            if not service_type:
+                for name, types in node.get_service_names():
+                    if name == args.service:
+                        service_type = types[0] if types else ""
+                        break
 
-        if not service_type:
-            rclpy.shutdown()
-            return output({
-                "error": f"Service not found: {args.service}",
-                "hint": "Use --service-type to specify the type explicitly (e.g. --service-type std_srvs/srv/SetBool)"
-            })
+            if not service_type:
+                return output({
+                    "error": f"Service not found: {args.service}",
+                    "hint": "Use --service-type to specify the type explicitly (e.g. --service-type std_srvs/srv/SetBool)"
+                })
 
-        srv_class = get_srv_type(service_type)
-        if not srv_class:
-            rclpy.shutdown()
-            return output({"error": f"Cannot load service type: {service_type}"})
+            srv_class = get_srv_type(service_type)
+            if not srv_class:
+                return output({"error": f"Cannot load service type: {service_type}"})
 
-        client = node.create_client(srv_class, args.service)
-        timeout = args.timeout
+            client = node.create_client(srv_class, args.service)
+            timeout = args.timeout
 
-        for attempt in range(retries):
-            last_attempt = (attempt == retries - 1)
+            for attempt in range(retries):
+                last_attempt = (attempt == retries - 1)
 
-            if not client.wait_for_service(timeout_sec=timeout):
+                if not client.wait_for_service(timeout_sec=timeout):
+                    if not last_attempt:
+                        continue
+                    return output({"error": f"Service not available: {args.service}"})
+
+                request = dict_to_msg(srv_class.Request, request_data)
+                future = client.call_async(request)
+
+                end_time = time.time() + timeout
+                while time.time() < end_time and not future.done():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+
+                if future.done():
+                    result_dict = msg_to_dict(future.result())
+                    output({"service": args.service, "success": True, "result": result_dict})
+                    return
+
+                future.cancel()
                 if not last_attempt:
                     continue
-                rclpy.shutdown()
-                return output({"error": f"Service not available: {args.service}"})
 
-            request = dict_to_msg(srv_class.Request, request_data)
-            future = client.call_async(request)
-
-            end_time = time.time() + timeout
-            while time.time() < end_time and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-
-            if future.done():
-                result_msg = future.result()
-                result_dict = msg_to_dict(result_msg)
-                rclpy.shutdown()
-                output({"service": args.service, "success": True, "result": result_dict})
-                return
-
-            future.cancel()
-            if not last_attempt:
-                continue
-
-        rclpy.shutdown()
         output({"service": args.service, "success": False, "error": "Service call timeout"})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_services_echo(args):
+    """Echo service request/response events via service introspection."""
+    if not args.service:
+        return output({"error": "service argument is required"})
+
+    service = args.service.rstrip('/')
+    event_topic = service + '/_service_event'
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            all_topics = dict(node.get_topic_names_and_types())
+            node.destroy_node()
+
+            if event_topic not in all_topics:
+                return output({
+                    "error": f"No service event topic found: {event_topic}",
+                    "hint": (
+                        "Service introspection must be enabled on the server/client "
+                        "via configure_introspection(clock, qos, "
+                        "ServiceIntrospectionState.METADATA or CONTENTS)."
+                    ),
+                })
+
+            msg_type = all_topics[event_topic][0]
+            subscriber = TopicSubscriber(event_topic, msg_type,
+                                         qos=_get_service_event_qos())
+
+            if subscriber.sub is None:
+                return output({"error": f"Could not load event message type: {msg_type}"})
+
+            executor = rclpy.executors.SingleThreadedExecutor()
+            executor.add_node(subscriber)
+
+            window = args.duration if args.duration is not None else args.timeout
+            max_events = args.max_messages
+            end_time = time.time() + window
+
+            try:
+                while time.time() < end_time:
+                    if max_events is not None and len(subscriber.messages) >= max_events:
+                        break
+                    executor.spin_once(timeout_sec=0.1)
+            except KeyboardInterrupt:
+                pass
+
+            with subscriber.lock:
+                events = (subscriber.messages[:max_events]
+                          if max_events is not None else subscriber.messages[:])
+
+        output({
+            "service": service,
+            "event_topic": event_topic,
+            "collected_count": len(events),
+            "events": events,
+        })
     except Exception as e:
         output({"error": str(e)})
 
 
 def cmd_services_find(args):
     """Find services of a specific service type."""
-    import re
     if not args.service_type:
         return output({"error": "service_type argument is required"})
 
@@ -164,10 +211,9 @@ def cmd_services_find(args):
     target_norm = _norm_srv(target_raw)
 
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        all_services = node.get_service_names_and_types()
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            all_services = node.get_service_names_and_types()
 
         matched = [
             name for name, types in all_services

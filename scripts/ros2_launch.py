@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """ROS 2 launch commands for running launch files in tmux sessions."""
 
-import json
 import os
 
 from ros2_utils import (
@@ -24,10 +23,6 @@ from ros2_utils import (
     kill_session_cmd,
 )
 
-
-# Cache for package information
-_package_cache = {}
-_package_cache_initialized = False
 
 # Cache for launch arguments: {(package, launch_file): [args]}
 _launch_args_cache = {}
@@ -214,53 +209,6 @@ def _get_package_prefix(package):
     return None
 
 
-def _get_sessions_file():
-    """Get path to session metadata file."""
-    return os.path.expanduser("~/.ros2_cli_sessions.json")
-
-
-def _load_sessions():
-    """Load session metadata from file."""
-    sessions_file = _get_sessions_file()
-    if os.path.exists(sessions_file):
-        try:
-            with open(sessions_file, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            return {}
-    return {}
-
-
-def _save_session(session_name, metadata):
-    """Save session metadata to file."""
-    sessions_file = _get_sessions_file()
-    sessions = _load_sessions()
-    sessions[session_name] = metadata
-    try:
-        with open(sessions_file, 'w') as f:
-            json.dump(sessions, f)
-    except IOError:
-        pass  # Silently fail if we can't write
-
-
-def _get_session_metadata(session_name):
-    """Get session metadata from file."""
-    sessions = _load_sessions()
-    return sessions.get(session_name)
-
-
-def _delete_session_metadata(session_name):
-    """Delete session metadata from file."""
-    sessions_file = _get_sessions_file()
-    sessions = _load_sessions()
-    if session_name in sessions:
-        del sessions[session_name]
-        try:
-            with open(sessions_file, 'w') as f:
-                json.dump(sessions, f)
-        except IOError:
-            pass
-
 
 def _find_launch_files(package):
     """Find launch files in a package."""
@@ -435,7 +383,7 @@ def cmd_launch_run(args):
         result["pid"] = pid_output.strip()
     
     # Save session metadata for restart
-    _save_session(session_name, {
+    save_session(session_name, {
         "type": "run",
         "package": package,
         "launch_file": os.path.basename(launch_path),
@@ -485,7 +433,7 @@ def cmd_launch_restart(args):
         })
     
     # Load session metadata
-    metadata = _get_session_metadata(session)
+    metadata = get_session_metadata(session)
     
     if not metadata:
         return output({
@@ -651,7 +599,7 @@ def cmd_launch_foxglove(args):
         result["warning"] = warning
     
     # Save session metadata for restart
-    _save_session(session_name, {
+    save_session(session_name, {
         "type": "foxglove",
         "port": port,
         "command": launch_cmd

@@ -239,11 +239,11 @@ Error: --channel-id argument is required
 
 ---
 
-## topics publish-sequence `<topic>` `<json_messages>` `<json_durations>` [options] / topics pub-seq
+## topics publish-sequence `<topic>` `<json_messages>` `<json_durations>` [options]
 
 Publish a sequence of messages in order. Each message is repeated at `--rate` Hz for its corresponding duration before moving to the next. Arrays must be the same length. The final message should usually be all-zeros to stop the robot.
 
-**Aliases:** `topics pub-seq`
+**Aliases:** none
 
 **ROS 2 CLI equivalent:** No direct equivalent (requires scripting multiple `ros2 topic pub` calls)
 
@@ -268,13 +268,6 @@ Publish a sequence of messages in order. Each message is repeated at `--rate` Hz
 python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
   '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
   '[3.0, 0.5]'
-```
-
-**[FALLBACK] Forward 2s, turn left 1s, forward 2s, stop (choreographed pattern, no sensor feedback):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics pub-seq /cmd_vel \
-  '[{"linear":{"x":0.5},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0.8}},{"linear":{"x":0.5},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":0}}]' \
-  '[2.0, 1.0, 2.0, 0.5]'
 ```
 
 **[FALLBACK] Draw a square (turtlesim — simulation only, odometry not relevant):**
@@ -773,9 +766,7 @@ Get the full field structure of a message type as a JSON template.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `message_type` | Yes | Full message type (e.g. `geometry_msgs/Twist`, `sensor_msgs/LaserScan`) or alias (e.g. `twist`, `laserscan`) |
-
-**Note:** Message type aliases are supported. You can use short names instead of full type names (e.g. `twist` instead of `geometry_msgs/Twist`). See [Message Type Aliases](#message-type-aliases) section below for the full list.
+| `message_type` | Yes | Full message type (e.g. `geometry_msgs/Twist`, `sensor_msgs/LaserScan`) |
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/Twist
@@ -796,11 +787,11 @@ Output:
 
 ---
 
-## topics subscribe `<topic>` [options] / topics echo / topics sub
+## topics subscribe `<topic>` [options] / topics echo
 
 Subscribe to a topic and receive messages. Without `--duration`, returns the first message received. With `--duration`, collects multiple messages for the specified number of seconds.
 
-**Aliases:** `topics echo`, `topics sub`
+**Aliases:** `topics echo`
 
 **ROS 2 CLI equivalent:** `ros2 topic echo /topic`
 
@@ -819,7 +810,6 @@ Subscribe to a topic and receive messages. Without `--duration`, returns the fir
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe /turtle1/pose
 python3 {baseDir}/scripts/ros2_cli.py topics echo /odom
-python3 {baseDir}/scripts/ros2_cli.py topics sub /scan
 ```
 
 Output (single message):
@@ -833,7 +823,7 @@ Output (single message):
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 5
 python3 {baseDir}/scripts/ros2_cli.py topics echo /scan --duration 10 --max-messages 50
-python3 {baseDir}/scripts/ros2_cli.py topics sub /joint_states --duration 3 --max-msgs 20
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 3 --max-msgs 20
 ```
 
 Output (multiple messages):
@@ -1679,11 +1669,11 @@ Error (not found):
 
 ---
 
-## actions send `<action>` `<json_goal>` [options] / actions send-goal
+## actions send `<action>` `<json_goal>` [options]
 
 Send an action goal and wait for the result. Optionally collects intermediate feedback messages.
 
-**Aliases:** `actions send-goal`
+**Aliases:** none
 
 **ROS 2 CLI equivalent:** `ros2 action send_goal /action turtlesim/action/RotateAbsolute '{"theta": 3.14}'`
 
@@ -1701,10 +1691,6 @@ Send an action goal and wait for the result. Optionally collects intermediate fe
 # Basic goal
 python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
   '{"theta":3.14}'
-
-# Using alias
-python3 {baseDir}/scripts/ros2_cli.py actions send-goal /turtle1/rotate_absolute \
-  '{"theta":1.57}'
 
 # With feedback collection
 python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
@@ -1880,99 +1866,6 @@ No matches:
 ```json
 {"action_type": "turtlesim/action/RotateAbsolute", "actions": [], "count": 0}
 ```
-
----
-
-# Message Type Aliases
-
-The ROS 2 skill supports message type aliases for commonly used message types. Instead of using the full message type name (e.g., `geometry_msgs/Twist`), you can use a short alias (e.g., `twist`). Aliases are case-insensitive.
-
----
-
-## Supported Aliases
-
-### std_msgs
-- `string` → `std_msgs/String`
-- `int32` → `std_msgs/Int32`
-- `int64` → `std_msgs/Int64`
-- `uint8` → `std_msgs/UInt8`
-- `float32` → `std_msgs/Float32`
-- `float64` → `std_msgs/Float64`
-- `bool` → `std_msgs/Bool`
-- `header` → `std_msgs/Header`
-- `empty` → `std_msgs/Empty`
-- `colorrgba` → `std_msgs/ColorRGBA`
-
-### geometry_msgs
-- `twist` → `geometry_msgs/Twist`
-- `pose` → `geometry_msgs/Pose`
-- `posearray` → `geometry_msgs/PoseArray`
-- `point` → `geometry_msgs/Point`
-- `pointstamped` → `geometry_msgs/PointStamped`
-- `quaternion` → `geometry_msgs/Quaternion`
-- `vector3` → `geometry_msgs/Vector3`
-- `posestamped` → `geometry_msgs/PoseStamped`
-- `twiststamped` → `geometry_msgs/TwistStamped`
-- `transform` → `geometry_msgs/Transform`
-- `transformstamped` → `geometry_msgs/TransformStamped`
-- `wrench` → `geometry_msgs/Wrench`
-- `accel` → `geometry_msgs/Accel`
-- `polygon` → `geometry_msgs/Polygon`
-- `polygonstamped` → `geometry_msgs/PolygonStamped`
-
-### sensor_msgs
-- `laserscan` → `sensor_msgs/LaserScan`
-- `image` → `sensor_msgs/Image`
-- `compressedimage` → `sensor_msgs/CompressedImage`
-- `pointcloud2` → `sensor_msgs/PointCloud2`
-- `imu` → `sensor_msgs/Imu`
-- `camerainfo` → `sensor_msgs/CameraInfo`
-- `jointstate` → `sensor_msgs/JointState`
-- `range` → `sensor_msgs/Range`
-- `temperature` → `sensor_msgs/Temperature`
-- `batterystate` → `sensor_msgs/BatteryState`
-- `navsatfix` → `sensor_msgs/NavSatFix`
-- `fluidpressure` → `sensor_msgs/FluidPressure`
-- `magneticfield` → `sensor_msgs/MagneticField`
-
-### nav_msgs
-- `odometry` → `nav_msgs/Odometry`
-- `odom` → `nav_msgs/Odometry`
-- `path` → `nav_msgs/Path`
-- `occupancygrid` → `nav_msgs/OccupancyGrid`
-- `mapmetadata` → `nav_msgs/MapMetaData`
-- `gridcells` → `nav_msgs/GridCells`
-
-### visualization_msgs
-- `marker` → `visualization_msgs/Marker`
-- `markerarray` → `visualization_msgs/MarkerArray`
-
-### action_msgs
-- `goalstatus` → `action_msgs/GoalStatus`
-- `goalstatusarray` → `action_msgs/GoalStatusArray`
-
-### trajectory_msgs
-- `jointtrajectory` → `trajectory_msgs/JointTrajectory`
-- `jointtrajectorypoint` → `trajectory_msgs/JointTrajectoryPoint`
-
----
-
-## Usage Examples
-
-```bash
-# Using alias instead of full type
-python3 scripts/ros2_cli.py topics message twist
-# Equivalent to:
-python3 scripts/ros2_cli.py topics message geometry_msgs/Twist
-
-# Publishing with alias
-python3 scripts/ros2_cli.py topics publish /cmd_vel '{"linear":{"x":1.0}}' --msg-type twist
-
-# Subscribing with alias
-python3 scripts/ros2_cli.py topics subscribe /odom --msg-type odom
-```
-
-Aliases work with all commands that accept message types: `topics message`, `topics publish`, `topics subscribe`, `topics find`, etc.
 
 ---
 
@@ -2197,7 +2090,7 @@ Output (error — unknown label, with available options):
 
 List all controller types available in the pluginlib registry with their base classes.
 
-**Alias:** `lct`
+**Aliases:** none
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -2207,7 +2100,7 @@ List all controller types available in the pluginlib registry with their base cl
 Example:
 ```bash
 python3 scripts/ros2_cli.py control list-controller-types
-python3 scripts/ros2_cli.py control lct --controller-manager /my_robot/controller_manager
+python3 scripts/ros2_cli.py control list-controller-types --controller-manager /my_robot/controller_manager
 ```
 
 Output (success):
@@ -2231,7 +2124,7 @@ Output (error):
 
 List all loaded controllers, their type, and current state.
 
-**Alias:** `lc`
+**Aliases:** none
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -2241,7 +2134,6 @@ List all loaded controllers, their type, and current state.
 Example:
 ```bash
 python3 scripts/ros2_cli.py control list-controllers
-python3 scripts/ros2_cli.py control lc
 ```
 
 Output (success):
@@ -2265,7 +2157,7 @@ Output (error):
 
 List hardware components (actuator, sensor, system) managed by ros2_control.
 
-**Alias:** `lhc`
+**Aliases:** none
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -2275,7 +2167,6 @@ List hardware components (actuator, sensor, system) managed by ros2_control.
 Example:
 ```bash
 python3 scripts/ros2_cli.py control list-hardware-components
-python3 scripts/ros2_cli.py control lhc
 ```
 
 Output (success):
@@ -2298,7 +2189,7 @@ Output (error):
 
 List all available command and state interfaces.
 
-**Alias:** `lhi`
+**Aliases:** none
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -2308,7 +2199,6 @@ List all available command and state interfaces.
 Example:
 ```bash
 python3 scripts/ros2_cli.py control list-hardware-interfaces
-python3 scripts/ros2_cli.py control lhi
 ```
 
 Output (success):
@@ -2389,7 +2279,7 @@ Configure a loaded controller, driving it from the `unconfigured` state to `inac
 
 Use this command when a controller is stuck in `unconfigured` after `load-controller`, or when you need to confirm that configuration succeeds before attempting to activate.
 
-**Alias:** `cc`
+**Aliases:** none
 
 **ROS 2 CLI equivalent:** `ros2 control configure_controller <name>`
 
@@ -2406,8 +2296,6 @@ python3 scripts/ros2_cli.py control load-controller joint_trajectory_controller
 
 # 2. Configure it (unconfigured → inactive); errors from on_configure() are visible here
 python3 scripts/ros2_cli.py control configure-controller joint_trajectory_controller
-# or using alias:
-python3 scripts/ros2_cli.py control cc joint_trajectory_controller
 
 # 3. Activate it (inactive → active)
 python3 scripts/ros2_cli.py control set-controller-state joint_trajectory_controller active
@@ -2432,7 +2320,7 @@ Output (error — service not available):
 
 Reload all controller plugin libraries in the controller manager.
 
-**Alias:** `rcl`
+**Aliases:** none
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -2443,7 +2331,7 @@ Reload all controller plugin libraries in the controller manager.
 Example:
 ```bash
 python3 scripts/ros2_cli.py control reload-controller-libraries
-python3 scripts/ros2_cli.py control rcl --force-kill
+python3 scripts/ros2_cli.py control reload-controller-libraries --force-kill
 ```
 
 Output (success):
@@ -2461,7 +2349,7 @@ Output (error):
 
 Activate or deactivate a single controller via SwitchController (STRICT mode).
 
-**Alias:** `scs`
+**Aliases:** none
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -2473,7 +2361,7 @@ Activate or deactivate a single controller via SwitchController (STRICT mode).
 Example:
 ```bash
 python3 scripts/ros2_cli.py control set-controller-state joint_trajectory_controller active
-python3 scripts/ros2_cli.py control scs joint_trajectory_controller inactive
+python3 scripts/ros2_cli.py control set-controller-state joint_trajectory_controller inactive
 ```
 
 Output (success):
@@ -2491,7 +2379,7 @@ Output (error):
 
 Drive a hardware component through its lifecycle state machine.
 
-**Alias:** `shcs`
+**Aliases:** none
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -2503,7 +2391,7 @@ Drive a hardware component through its lifecycle state machine.
 Example:
 ```bash
 python3 scripts/ros2_cli.py control set-hardware-component-state my_robot active
-python3 scripts/ros2_cli.py control shcs my_robot inactive
+python3 scripts/ros2_cli.py control set-hardware-component-state my_robot inactive
 ```
 
 Output (success):
@@ -2521,7 +2409,7 @@ Output (error):
 
 Atomically activate and/or deactivate multiple controllers in a single call.
 
-**Aliases:** `sc`, `swc`
+**Aliases:** none
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -2536,7 +2424,7 @@ Example:
 ```bash
 python3 scripts/ros2_cli.py control switch-controllers \
     --activate joint_trajectory_controller --deactivate cartesian_controller
-python3 scripts/ros2_cli.py control sc --activate ctrl_a ctrl_b --strictness STRICT
+python3 scripts/ros2_cli.py control switch-controllers --activate ctrl_a ctrl_b --strictness STRICT
 ```
 
 Output (success):
@@ -2559,7 +2447,7 @@ Output (error):
 
 Generate a Graphviz diagram of loaded chained controllers, save as PDF to `.artifacts/`, and optionally send to Discord.
 
-**Alias:** `vcc`
+**Aliases:** none
 
 Requires graphviz: `sudo apt install graphviz`
 
@@ -2574,7 +2462,7 @@ Requires graphviz: `sudo apt install graphviz`
 Example:
 ```bash
 python3 scripts/ros2_cli.py control view-controller-chains
-python3 scripts/ros2_cli.py control vcc --output my_diagram.pdf --channel-id 1234567890
+python3 scripts/ros2_cli.py control view-controller-chains --output my_diagram.pdf --channel-id 1234567890
 ```
 
 Output (success):
@@ -2891,7 +2779,7 @@ Publish static transform. Runs in tmux session.
 python3 {baseDir}/scripts/ros2_cli.py tf static 0 0 0 0 0 0 base_link odom
 ```
 
-### tf euler-from-quaternion / tf e2q / tf quat2euler `<x>` `<y>` `<z>` `<w>`
+### tf euler-from-quaternion `<x>` `<y>` `<z>` `<w>`
 
 Convert quaternion to Euler angles (radians).
 
@@ -2899,7 +2787,7 @@ Convert quaternion to Euler angles (radians).
 python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion 0 0 0 1
 ```
 
-### tf quaternion-from-euler / tf q2e / tf euler2quat `<roll>` `<pitch>` `<yaw>`
+### tf quaternion-from-euler `<roll>` `<pitch>` `<yaw>`
 
 Convert Euler angles to quaternion (radians).
 
@@ -2907,7 +2795,7 @@ Convert Euler angles to quaternion (radians).
 python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler 0 0 1.57
 ```
 
-### tf euler-from-quaternion-deg / tf e2qdeg `<x>` `<y>` `<z>` `<w>`
+### tf euler-from-quaternion-deg `<x>` `<y>` `<z>` `<w>`
 
 Convert quaternion to Euler angles (degrees).
 
@@ -2915,7 +2803,7 @@ Convert quaternion to Euler angles (degrees).
 python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion-deg 0 0 0 1
 ```
 
-### tf quaternion-from-euler-deg / tf q2edeg `<roll>` `<pitch>` `<yaw>`
+### tf quaternion-from-euler-deg `<roll>` `<pitch>` `<yaw>`
 
 Convert Euler angles to quaternion (degrees).
 
@@ -2923,7 +2811,7 @@ Convert Euler angles to quaternion (degrees).
 python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler-deg 0 0 90
 ```
 
-### tf transform-point / tf tp `<target>` `<source>` `<x>` `<y>` `<z>`
+### tf transform-point `<target>` `<source>` `<x>` `<y>` `<z>`
 
 Transform a point from source to target frame.
 
@@ -2931,7 +2819,7 @@ Transform a point from source to target frame.
 python3 {baseDir}/scripts/ros2_cli.py tf transform-point map base_link 1 0 0
 ```
 
-### tf transform-vector / tf tv `<target>` `<source>` `<x>` `<y>` `<z>`
+### tf transform-vector `<target>` `<source>` `<x>` `<y>` `<z>`
 
 Transform a vector from source to target frame.
 

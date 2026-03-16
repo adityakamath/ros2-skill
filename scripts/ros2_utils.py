@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+from contextlib import contextmanager
 
 try:
     import rclpy
@@ -44,74 +45,17 @@ def _get_service_event_qos():
 
 
 # ---------------------------------------------------------------------------
-# Message type aliases
+# rclpy lifecycle
 # ---------------------------------------------------------------------------
 
-MSG_ALIASES = {
-    # std_msgs
-    'string': 'std_msgs/String',
-    'int32': 'std_msgs/Int32',
-    'int64': 'std_msgs/Int64',
-    'uint8': 'std_msgs/UInt8',
-    'float32': 'std_msgs/Float32',
-    'float64': 'std_msgs/Float64',
-    'bool': 'std_msgs/Bool',
-    'header': 'std_msgs/Header',
-    'empty': 'std_msgs/Empty',
-    'colorrgba': 'std_msgs/ColorRGBA',
-
-    # geometry_msgs
-    'twist': 'geometry_msgs/Twist',
-    'pose': 'geometry_msgs/Pose',
-    'posearray': 'geometry_msgs/PoseArray',
-    'point': 'geometry_msgs/Point',
-    'pointstamped': 'geometry_msgs/PointStamped',
-    'quaternion': 'geometry_msgs/Quaternion',
-    'vector3': 'geometry_msgs/Vector3',
-    'posestamped': 'geometry_msgs/PoseStamped',
-    'twiststamped': 'geometry_msgs/TwistStamped',
-    'transform': 'geometry_msgs/Transform',
-    'transformstamped': 'geometry_msgs/TransformStamped',
-    'wrench': 'geometry_msgs/Wrench',
-    'accel': 'geometry_msgs/Accel',
-    'polygon': 'geometry_msgs/Polygon',
-    'polygonstamped': 'geometry_msgs/PolygonStamped',
-
-    # sensor_msgs
-    'laserscan': 'sensor_msgs/LaserScan',
-    'image': 'sensor_msgs/Image',
-    'compressedimage': 'sensor_msgs/CompressedImage',
-    'pointcloud2': 'sensor_msgs/PointCloud2',
-    'imu': 'sensor_msgs/Imu',
-    'camerainfo': 'sensor_msgs/CameraInfo',
-    'jointstate': 'sensor_msgs/JointState',
-    'range': 'sensor_msgs/Range',
-    'temperature': 'sensor_msgs/Temperature',
-    'batterystate': 'sensor_msgs/BatteryState',
-    'navsatfix': 'sensor_msgs/NavSatFix',
-    'fluidpressure': 'sensor_msgs/FluidPressure',
-    'magneticfield': 'sensor_msgs/MagneticField',
-
-    # nav_msgs
-    'odometry': 'nav_msgs/Odometry',
-    'odom': 'nav_msgs/Odometry',
-    'path': 'nav_msgs/Path',
-    'occupancygrid': 'nav_msgs/OccupancyGrid',
-    'mapmetadata': 'nav_msgs/MapMetaData',
-    'gridcells': 'nav_msgs/GridCells',
-
-    # visualization_msgs
-    'marker': 'visualization_msgs/Marker',
-    'markerarray': 'visualization_msgs/MarkerArray',
-
-    # action_msgs
-    'goalstatus': 'action_msgs/GoalStatus',
-    'goalstatusarray': 'action_msgs/GoalStatusArray',
-
-    # trajectory_msgs
-    'jointtrajectory': 'trajectory_msgs/JointTrajectory',
-    'jointtrajectorypoint': 'trajectory_msgs/JointTrajectoryPoint',
-}
+@contextmanager
+def ros2_context():
+    """Initialise rclpy on entry and shut it down on exit."""
+    rclpy.init()
+    try:
+        yield
+    finally:
+        rclpy.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -121,10 +65,6 @@ MSG_ALIASES = {
 def get_msg_type(type_str):
     if not type_str:
         return None
-
-    # Check for aliases (case-insensitive)
-    if type_str.lower() in MSG_ALIASES:
-        type_str = MSG_ALIASES[type_str.lower()]
 
     # Normalize to pkg, msg_name components
     if '/msg/' in type_str:
@@ -327,6 +267,20 @@ class ROS2CLI(Node):
 # ---------------------------------------------------------------------------
 # Misc helpers
 # ---------------------------------------------------------------------------
+
+def resolve_topic_type(node, topic, provided_type=None):
+    """Return the message type for *topic* from the live graph.
+
+    Returns *provided_type* unchanged if already set.  Otherwise queries the
+    topic name/type list from *node*.  Returns None if the topic is not found.
+    """
+    if provided_type:
+        return provided_type
+    for name, types in node.get_topic_names_and_types():
+        if name == topic and types:
+            return types[0]
+    return None
+
 
 def get_msg_fields(msg_type_str):
     try:
