@@ -661,5 +661,217 @@ class TestControlParsing(unittest.TestCase):
             self.assertTrue(callable(self.ros2_cli.DISPATCH[key]))
 
 
+class TestBagParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for the bag subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_bag_info_parsing(self):
+        args = self.parser.parse_args(["bag", "info", "/path/to/my_bag"])
+        self.assertEqual(args.command, "bag")
+        self.assertEqual(args.subcommand, "info")
+        self.assertEqual(args.bag_path, "/path/to/my_bag")
+
+    def test_bag_info_accepts_metadata_path(self):
+        args = self.parser.parse_args(["bag", "info", "/path/to/my_bag/metadata.yaml"])
+        self.assertEqual(args.bag_path, "/path/to/my_bag/metadata.yaml")
+
+    def test_bag_dispatch(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIn(("bag", "info"), D)
+        self.assertTrue(callable(D[("bag", "info")]))
+
+
+class TestBagMetadataLogic(unittest.TestCase):
+    """Pure-Python tests for ros2_bag helpers — no rclpy required."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ros2_bag
+        cls.ros2_bag = ros2_bag
+
+    def test_ns_to_sec(self):
+        self.assertAlmostEqual(self.ros2_bag._ns_to_sec(0), 0.0)
+        self.assertAlmostEqual(self.ros2_bag._ns_to_sec(1_000_000_000), 1.0)
+        self.assertAlmostEqual(self.ros2_bag._ns_to_sec(500_000_000), 0.5)
+        self.assertAlmostEqual(self.ros2_bag._ns_to_sec(1_234_567_890), 1.23456789)
+
+    def test_parse_metadata_from_directory(self):
+        import tempfile
+        import pathlib
+        try:
+            import yaml
+        except ImportError:
+            raise unittest.SkipTest("PyYAML not available")
+
+        meta = {
+            "rosbag2_bagfile_information": {
+                "duration":        {"nanoseconds": 5_000_000_000},
+                "starting_time":   {"nanoseconds_since_epoch": 1_700_000_000_000_000_000},
+                "storage_identifier": "sqlite3",
+                "message_count":   42,
+                "topics_with_message_count": [
+                    {
+                        "topic_metadata": {
+                            "name":                 "/cmd_vel",
+                            "type":                 "geometry_msgs/msg/Twist",
+                            "serialization_format": "cdr",
+                            "offered_qos_profiles": "",
+                        },
+                        "message_count": 10,
+                    },
+                    {
+                        "topic_metadata": {
+                            "name":                 "/odom",
+                            "type":                 "nav_msgs/msg/Odometry",
+                            "serialization_format": "cdr",
+                            "offered_qos_profiles": "",
+                        },
+                        "message_count": 32,
+                    },
+                ],
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meta_path = pathlib.Path(tmpdir) / "metadata.yaml"
+            with open(meta_path, "w") as fh:
+                yaml.dump(meta, fh)
+            result = self.ros2_bag._parse_metadata(tmpdir)
+
+        info = result["rosbag2_bagfile_information"]
+        self.assertEqual(info["storage_identifier"], "sqlite3")
+        self.assertEqual(info["message_count"], 42)
+        self.assertEqual(len(info["topics_with_message_count"]), 2)
+
+    def test_parse_metadata_from_metadata_yaml_path(self):
+        import tempfile
+        import pathlib
+        try:
+            import yaml
+        except ImportError:
+            raise unittest.SkipTest("PyYAML not available")
+
+        meta = {"rosbag2_bagfile_information": {"storage_identifier": "mcap"}}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            meta_path = pathlib.Path(tmpdir) / "metadata.yaml"
+            with open(meta_path, "w") as fh:
+                yaml.dump(meta, fh)
+            # Pass the metadata.yaml path directly
+            result = self.ros2_bag._parse_metadata(str(meta_path))
+
+        self.assertEqual(result["rosbag2_bagfile_information"]["storage_identifier"], "mcap")
+
+    def test_parse_metadata_missing_raises(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(FileNotFoundError):
+                self.ros2_bag._parse_metadata(tmpdir)
+
+
+class TestComponentParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for the component subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_component_types_parsing(self):
+        args = self.parser.parse_args(["component", "types"])
+        self.assertEqual(args.command, "component")
+        self.assertEqual(args.subcommand, "types")
+
+    def test_component_dispatch(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIn(("component", "types"), D)
+        self.assertTrue(callable(D[("component", "types")]))
+
+
+class TestComponentTypesLogic(unittest.TestCase):
+    """Pure-Python tests for ros2_component — no rclpy required."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ros2_component
+        cls.ros2_component = ros2_component
+
+    def test_cmd_component_types_no_ament(self):
+        """When ament_index_python is missing, output contains an error key."""
+        import sys
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python": None}), \
+             patch("ros2_component.output", side_effect=captured.append):
+            self.ros2_component.cmd_component_types(None)
+        self.assertEqual(len(captured), 1)
+        self.assertIn("error", captured[0])
+
+    def test_cmd_component_types_with_ament(self):
+        """With a mocked ament index, components are listed correctly."""
+        import sys
+        from unittest.mock import MagicMock
+
+        mock_ament = MagicMock()
+        mock_ament.get_resources.return_value = {"demo_nodes_cpp": "/opt/ros/humble"}
+        mock_ament.get_resource.return_value = (
+            "demo_nodes_cpp::Talker\ndemo_nodes_cpp::Listener\n# a comment\n\n",
+            "/opt/ros/humble",
+        )
+
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python": mock_ament}), \
+             patch("ros2_component.output", side_effect=captured.append):
+            self.ros2_component.cmd_component_types(None)
+
+        self.assertEqual(len(captured), 1)
+        result = captured[0]
+        self.assertIn("components", result)
+        # Comment and blank lines must be skipped
+        self.assertEqual(result["total"], 2)
+        self.assertIn("demo_nodes_cpp", result["packages"])
+        names = [c["type_name"] for c in result["components"]]
+        self.assertIn("demo_nodes_cpp::Talker", names)
+        self.assertIn("demo_nodes_cpp::Listener", names)
+        self.assertNotIn("warnings", result)
+
+    def test_cmd_component_types_partial_error(self):
+        """A per-package read error populates warnings but does not stop enumeration."""
+        import sys
+        from unittest.mock import MagicMock
+
+        mock_ament = MagicMock()
+        mock_ament.get_resources.return_value = {
+            "good_pkg": "/opt/ros/humble",
+            "bad_pkg":  "/opt/ros/humble",
+        }
+
+        def get_resource(res_type, pkg):
+            if pkg == "bad_pkg":
+                raise RuntimeError("disk error")
+            return ("good_pkg::GoodNode\n", "/opt")
+
+        mock_ament.get_resource.side_effect = get_resource
+
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python": mock_ament}), \
+             patch("ros2_component.output", side_effect=captured.append):
+            self.ros2_component.cmd_component_types(None)
+
+        result = captured[0]
+        self.assertEqual(result["total"], 1)
+        self.assertIn("good_pkg", result["packages"])
+        self.assertIn("warnings", result)
+        self.assertEqual(len(result["warnings"]), 1)
+        self.assertEqual(result["warnings"][0]["package"], "bad_pkg")
+
+
 if __name__ == "__main__":
     unittest.main()

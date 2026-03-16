@@ -427,6 +427,19 @@ Examples:
     List all interface types (messages, services, actions) for a package.
     $ python3 ros2_cli.py interface package std_msgs
     $ python3 ros2_cli.py interface package geometry_msgs
+
+  bag info <bag_path>
+    Show metadata about a ROS 2 bag: duration, topic list with message counts,
+    storage format, and compression.  Parses metadata.yaml — no rclpy or live
+    ROS 2 graph required.  Accepts a bag directory, metadata.yaml, or any
+    storage file inside the bag directory.
+    $ python3 ros2_cli.py bag info /path/to/my_bag
+    $ python3 ros2_cli.py bag info /path/to/my_bag/metadata.yaml
+
+  component types
+    List all registered rclcpp composable node types installed on this system.
+    Reads from the ament resource index — no rclpy or live ROS 2 graph required.
+    $ python3 ros2_cli.py component types
 """
 
 import argparse
@@ -557,6 +570,12 @@ from ros2_interface import (
     cmd_interface_proto,
     cmd_interface_packages,
     cmd_interface_package,
+)
+from ros2_bag import (
+    cmd_bag_info,
+)
+from ros2_component import (
+    cmd_component_types,
 )
 from ros2_control import (
     cmd_control_list_controller_types,
@@ -1271,6 +1290,24 @@ def build_parser():
     p = ifsub.add_parser("package", help="List all interface types for a single package")
     p.add_argument("package", help="Package name (e.g. std_msgs, geometry_msgs)")
 
+    # ------------------------------------------------------------------
+    # bag
+    # ------------------------------------------------------------------
+    bag = sub.add_parser("bag", help="ROS 2 bag file utilities")
+    bagsub = bag.add_subparsers(dest="subcommand")
+
+    p = bagsub.add_parser("info", help="Show metadata for a ROS 2 bag (no graph required)")
+    p.add_argument("bag_path", metavar="bag_path",
+                   help="Path to a bag directory, metadata.yaml, or storage file")
+
+    # ------------------------------------------------------------------
+    # component
+    # ------------------------------------------------------------------
+    comp = sub.add_parser("component", help="ROS 2 composable node utilities")
+    compsub = comp.add_subparsers(dest="subcommand")
+
+    compsub.add_parser("types", help="List all registered rclcpp composable node types (no graph required)")
+
     return parser
 
 
@@ -1415,6 +1452,10 @@ DISPATCH = {
     ("interface", "proto"):    cmd_interface_proto,
     ("interface", "packages"): cmd_interface_packages,
     ("interface", "package"):  cmd_interface_package,
+    # bag
+    ("bag", "info"): cmd_bag_info,
+    # component
+    ("component", "types"): cmd_component_types,
 }
 
 

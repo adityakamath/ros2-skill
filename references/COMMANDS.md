@@ -102,6 +102,12 @@ python3 {baseDir}/scripts/ros2_cli.py launch new --help
 python3 {baseDir}/scripts/ros2_cli.py run new --help
 python3 {baseDir}/scripts/ros2_cli.py interface show --help
 python3 {baseDir}/scripts/ros2_cli.py version --help
+
+# bag (no live ROS 2 graph required)
+python3 {baseDir}/scripts/ros2_cli.py bag info --help
+
+# component (no live ROS 2 graph required)
+python3 {baseDir}/scripts/ros2_cli.py component types --help
 ```
 
 **Rule:** If you are about to use a flag and you have any doubt it exists, run `--help` for that subcommand first. Never guess flag names.
@@ -3415,6 +3421,128 @@ Output:
 Output (unknown package):
 ```json
 {"error": "Package 'nonexistent_pkg' not found or has no interfaces"}
+```
+
+---
+
+## bag info `<bag_path>`
+
+Show metadata for a ROS 2 bag: duration, starting time, storage format, message count, and the topic list with per-topic message counts.
+
+**No live ROS 2 graph required.** Parses `metadata.yaml` from the bag directory using the filesystem only. Works with any storage backend (`sqlite3`, `mcap`, etc.).
+
+**ROS 2 CLI equivalent:** `ros2 bag info <bag_path>`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `bag_path` | Yes | Path to a bag directory (containing `metadata.yaml`), or directly to the `metadata.yaml` file, or to any storage file inside the bag directory |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py bag info /path/to/my_bag
+python3 {baseDir}/scripts/ros2_cli.py bag info /path/to/my_bag/metadata.yaml
+```
+
+Output:
+```json
+{
+  "bag_path": "/absolute/path/to/my_bag",
+  "storage_identifier": "sqlite3",
+  "duration": {
+    "nanoseconds": 10000000000,
+    "seconds": 10.0
+  },
+  "starting_time": {
+    "nanoseconds_since_epoch": 1700000000000000000
+  },
+  "message_count": 1500,
+  "topic_count": 3,
+  "topics": [
+    {
+      "name": "/cmd_vel",
+      "type": "geometry_msgs/msg/Twist",
+      "serialization_format": "cdr",
+      "offered_qos_profiles": "",
+      "message_count": 100
+    },
+    {
+      "name": "/odom",
+      "type": "nav_msgs/msg/Odometry",
+      "serialization_format": "cdr",
+      "offered_qos_profiles": "",
+      "message_count": 1000
+    },
+    {
+      "name": "/scan",
+      "type": "sensor_msgs/msg/LaserScan",
+      "serialization_format": "cdr",
+      "offered_qos_profiles": "",
+      "message_count": 400
+    }
+  ]
+}
+```
+
+Topics are sorted alphabetically by name. The optional `compression_format`, `compression_mode`, and `files` fields are included when present in the bag metadata.
+
+Error (metadata not found):
+```json
+{
+  "error": "metadata.yaml not found in '/path/to/dir'. Provide the path to a bag directory that contains metadata.yaml.",
+  "hint": "Provide the path to a bag directory that contains metadata.yaml."
+}
+```
+
+Error (PyYAML not installed):
+```json
+{"error": "PyYAML is required for bag info: pip install pyyaml"}
+```
+
+---
+
+## component types
+
+List all registered `rclcpp` composable node types installed on this system.
+
+**No live ROS 2 graph required.** Reads the `rclcpp_components` ament resource index from the filesystem. Each package that exports composable nodes registers a resource file whose lines are component class names (e.g. `my_pkg::MyNode`).
+
+**ROS 2 CLI equivalent:** `ros2 component types`
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py component types
+```
+
+Output:
+```json
+{
+  "components": [
+    {"package": "composition", "type_name": "composition::Talker"},
+    {"package": "composition", "type_name": "composition::Listener"},
+    {"package": "composition", "type_name": "composition::NodeLikeListener"},
+    {"package": "my_pkg", "type_name": "my_pkg::MyNode"}
+  ],
+  "total": 4,
+  "packages": ["composition", "my_pkg"]
+}
+```
+
+Components are sorted by package name, then by declaration order within each package's resource file. The `packages` field is an alphabetically sorted list of unique package names. If any package's resource file cannot be read, a `warnings` array is included with per-package error details — remaining packages are still enumerated.
+
+Output (with per-package warning):
+```json
+{
+  "components": [{"package": "good_pkg", "type_name": "good_pkg::GoodNode"}],
+  "total": 1,
+  "packages": ["good_pkg"],
+  "warnings": [{"package": "bad_pkg", "error": "disk error"}]
+}
+```
+
+Error (`ament_index_python` not installed):
+```json
+{
+  "error": "ament_index_python is required: pip install ament-index-python",
+  "detail": "No module named 'ament_index_python'"
+}
 ```
 
 ---

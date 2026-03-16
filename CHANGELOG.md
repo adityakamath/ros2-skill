@@ -4,6 +4,24 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.5] - 2026-03-16
 
+### New Commands
+
+- `bag info <bag_path>` — show metadata for a ROS 2 bag: duration, starting time, storage format, message count, and per-topic message counts. Parses `metadata.yaml` directly — no rclpy or live ROS 2 graph required. Accepts a bag directory, a `metadata.yaml` path, or any storage file inside the bag directory.
+- `component types` — list all registered `rclcpp` composable node types installed on this system. Reads from the `rclcpp_components` ament resource index — no rclpy or live ROS 2 graph required.
+
+### RULES.md Hardening (8 items from ros2-engineering-skills gap analysis)
+
+- **ros2_control hardware interface lifecycle** — Rule 0 pre-flight for controller operations now requires `control list-hardware-components` + `control list-hardware-interfaces` before any load/switch/configure; Rule 8 verification row updated to check hardware component remains `active` after controller operations
+- **TF2 sensor frame validation** — Rule 0 pre-flight: before consuming any spatially-interpreted sensor data (camera, LiDAR, IMU, depth, GPS, sonar), subscribe for 1 message to read `header.frame_id`, verify it exists in `tf list`, and confirm the transform is actively updating via `tf echo`; Rule 17 Never list extended with sensor frame staleness prohibition
+- **Camera pipeline perception check** — Rule 0 pre-flight: before using camera or depth image data, find the paired `camera_info` topic, subscribe to verify `K` matrix is non-zero, and confirm `header.frame_id` is present in TF; added as dedicated row in the action type table
+- **Pre-escalation log level control** — Rule 7 diagnostic toolbox extended: before asking the user, escalate the relevant node's log level to DEBUG via `services call <node>/set_logger_level`; reset to INFO when done
+- **Recursive nested type expansion** — Rule 0 "Publish to a topic" gains step 4: for any field whose type is not a primitive or well-known standard type, run `interface show <nested_type>` recursively until all leaf fields are primitives; Rule 1 discovery table row added
+- **Parameter file pre-flight** — Rule 0 new row for `params load` / `--params-file`: compare YAML keys against `params list`, describe each key's type before loading, verify with `params get` after; vocabulary table updated with `--params-file` trigger words
+- **Deployment / daemon context checks** — Rule 0.1 Step 0 added: verify `ROS_DOMAIN_ID` is not colliding, daemon is running (restart with shell if needed), and `ROS_LOCALHOST_ONLY` is not hiding cross-container topics; three vocabulary rows added for daemon, domain, and localhost-only queries
+- **Testing vocabulary** — Two vocabulary rows added for `colcon test` / `colcon test-result` with Rule 2 shell-exception note
+
+---
+
 Internal refactor: centralized rclpy lifecycle management via `ros2_context()`, removed `MSG_ALIASES`, and eliminated dead code and duplicate helpers. No functional changes to any command.
 
 ### Internal — rclpy lifecycle
