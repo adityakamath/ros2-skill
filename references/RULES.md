@@ -97,25 +97,28 @@ A node in `unconfigured` or `inactive` state will silently fail when its topics 
 
 **If you are not certain a command, flag, topic name, or argument exists — verify it before using it. Do not guess.**
 
-The failure mode to avoid: inventing a flag like `--yaw-delta` or `--rotate-degrees` because it sounds plausible, then failing and asking the user for help. That is the worst possible outcome — the error was self-inflicted and the user had nothing to do with it.
+The failure mode to avoid: inventing a subcommand like `launch start` or a flag like `--yaw-delta` because it sounds plausible, then failing and asking the user for help. That is the worst possible outcome — the error was self-inflicted and the user had nothing to do with it.
 
 **The verification chain:**
-1. **Check this skill first.** The full command reference is in [references/COMMANDS.md](references/COMMANDS.md). If a flag or command is not listed there, it does not exist.
-2. **If still unsure, run `--help` on the exact subcommand before constructing the call.** Every subcommand supports `--help` and prints its accepted flags without requiring a live ROS 2 graph. This is mandatory, not optional.
+1. **Check this skill first.** The full command reference is in [references/COMMANDS.md](references/COMMANDS.md). If a subcommand, flag, or argument is not listed there, it does not exist.
+2. **If still unsure, run `--help` on the top-level command to list valid subcommands, or on the exact subcommand to list valid flags.** This is mandatory before any call you are not certain about.
    ```bash
+   python3 {baseDir}/scripts/ros2_cli.py launch --help         # lists: new, list, ls, kill, restart, foxglove
    python3 {baseDir}/scripts/ros2_cli.py topics publish-until --help
-   python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence --help
    python3 {baseDir}/scripts/ros2_cli.py actions send --help
-   # etc. — use the exact subcommand you are about to call
+   # etc. — use the exact command/subcommand you are about to call
    ```
 3. **If still stuck after checking both, ask the user.** This is the only acceptable reason to ask — not because you assumed something and it failed.
+
+**If the CLI returns "subcommand not found" or "unknown command":** you used a hallucinated subcommand. Do **not** ask the user what to do. Run `--help` on the parent command immediately, identify the correct subcommand from the output, and retry — all without reporting back to the user until you have a result.
 
 **`--help` requires ROS 2 to be sourced.** Running `--help` before ROS 2 is sourced will return a JSON error instead of help text. This is not a concern in practice — ROS 2 must be sourced before any robot operation (it is a hard precondition of this skill), so `--help` will always be available during normal use. If you see a `Missing ROS 2 dependency` error from `--help`, fix the ROS 2 environment first (see Setup section and Rule 0.1).
 
 **Never:**
-- Invent a flag and try it, then report failure to the user
-- Assume a capability exists because it would be logical or convenient
+- Invent a subcommand (e.g., `launch start`) or flag and try it, then report the failure to the user
+- Assume a subcommand exists because it would be logical or convenient (`start`, `run`, `execute` are not subcommands of `launch`)
 - Ask the user to resolve an error you caused by guessing
+- Report "the subcommand does not exist — would you like me to retry?" — just retry with the correct subcommand
 
 ### Rule 1 — Discover before you act, never ask
 
@@ -289,6 +292,8 @@ If neither condition applies: **just do it.**
 - "Would you like me to auto-detect the topics and run the command?" — No. Detect and run.
 - "Would you like me to fetch the --help output?" — No. Fetch it and proceed.
 - "The command timed out — would you like to check odometry / retry / troubleshoot?" — No. Check odometry and report findings immediately, without asking first.
+- "The subcommand does not exist — would you like me to retry with the correct one?" — No. Run `--help`, find the correct subcommand, retry immediately.
+- "I used the wrong subcommand — shall I try again?" — No. Try again.
 
 ### Rule 6 — Minimal reporting by default
 
@@ -324,10 +329,15 @@ On any failure (command error, timeout, unexpected output, wrong result):
 - Present a menu of options ("would you like to check odometry / retry / troubleshoot?") — pick the right action and do it
 - Silently ignore an error or continue as if it did not happen
 - Speculate about the cause without first running the diagnostic commands
+- Ask the user for permission to retry after a self-inflicted error (wrong subcommand, wrong flag) — self-correct and retry immediately
 
 **Example — publish-until timeout:**
 - ❌ *"The command timed out. Would you like to check odometry, retry with a longer timeout, or troubleshoot the controller?"*
 - ✅ Run `estop`. Run `topics hz <ODOM_TOPIC>`. Run `control list-controllers`. Report: *"Timed out after 60 s. Odom rate: 0 Hz (no publisher active). No velocity controller running. Robot did not move. Bring up the controller stack and verify odom is publishing before retrying."*
+
+**Example — wrong subcommand:**
+- ❌ *"The launch command does not support the `start` subcommand. Available subcommands are: new, list, ls, kill, restart, foxglove. Would you like me to retry using the correct subcommands?"*
+- ✅ Recognise `launch start` is invalid. Run `launch new <package> <file>` immediately. Report the result only.
 
 ### Rule 8 — Verify the effect; never trust exit codes alone
 
