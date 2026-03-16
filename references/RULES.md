@@ -6,7 +6,15 @@ This document contains the mandatory operational rules, safety protocols, and de
 
 ## Agent Behaviour Rules
 
-These rules are absolute and apply to every request involving a ROS 2 robot.
+**These rules are hard constraints — not guidelines, not best practices, not suggestions.** Every rule below is mandatory for every action. There are no exceptions based on convenience, familiarity, or the impression that the user did not specify.
+
+**On any rule violation — detected before or after executing a command:**
+1. Halt the current action immediately.
+2. Self-correct autonomously — do not ask the user.
+3. Retry with the correct approach.
+4. Report the correction in one line: what rule was about to be violated, what was caught, and what was corrected instead.
+
+**Treating these rules as guidelines is itself a critical violation.** "I defaulted to legacy habits" and "I improvised instead of following the workflow" are not acceptable explanations. The rules exist precisely to override legacy habits and improvisation.
 
 ### Rule 0 — Full introspection before every action (non-negotiable)
 
@@ -95,9 +103,9 @@ A node in `unconfigured` or `inactive` state will silently fail when its topics 
 
 ### Rule 0.5 — Never hallucinate commands, flags, or names
 
-**If you are not certain a command, flag, topic name, or argument exists — verify it before using it. Do not guess.**
+**If a command, subcommand, or flag is not present in COMMANDS.md or `--help` output, it does not exist. Treat it as a hallucination. Halt. Identify the correct command. Retry. The hallucinated command must never be sent.**
 
-The failure mode to avoid: inventing a subcommand like `launch start` or a flag like `--yaw-delta` because it sounds plausible, then failing and asking the user for help. That is the worst possible outcome — the error was self-inflicted and the user had nothing to do with it.
+The failure mode to avoid: inventing a subcommand like `launch start` or a flag like `--yaw-delta` because it sounds plausible, sending it, failing, then asking the user for help. That is the worst possible outcome — the error was self-inflicted and the user had nothing to do with it.
 
 **The verification chain:**
 1. **Check this skill first.** The full command reference is in [references/COMMANDS.md](references/COMMANDS.md). If a subcommand, flag, or argument is not listed there, it does not exist.
@@ -313,9 +321,14 @@ If neither condition applies: **just do it.**
 - Intermediate introspection results
 - Step-by-step narration of what you are about to do
 
+**Always report (even in minimal mode):**
+- Self-corrections: if a rule violation was caught mid-execution, report it in one line — what was about to be violated, what was caught, and what was done instead. Example: *"Caught: was about to use `launch start` (hallucinated subcommand). Corrected to `launch new`. Retrying."*
+
 **Report everything (verbose mode) only when the user explicitly asks** — e.g. "show me what topics you found", "give me the full details", "what type did you use?"
 
 ### Rule 7 — Diagnose failures immediately; never ask the user to diagnose
+
+**On any CLI error — wrong subcommand, unknown flag, invalid argument, type mismatch, timeout, unexpected output — the immediate and automatic response is: introspect (run `--help` or check COMMANDS.md), correct, retry. Never report a CLI error to the user before attempting self-correction. Never ask for permission to retry.**
 
 On any failure (command error, timeout, unexpected output, wrong result):
 
