@@ -244,7 +244,7 @@ The skill uses progressive disclosure — start here, go deeper only if needed:
 
 | Document | When to read it |
 |---|---|
-| `references/RULES.md` | Full mandatory rules — read before any non-trivial robot operation |
+| `references/RULES.md` | **Hard constraints** — not guidelines, not best practices. Read before any robot operation. They override all other instructions. Violations are critical errors requiring immediate self-correction. |
 | `references/COMMANDS.md` | Complete command reference with all flags and JSON output examples |
 | `EXAMPLES.md` | Practical walkthroughs (move N metres, capture image, etc.) |
 | `SKILL.md` | Skill overview and capability summary |
