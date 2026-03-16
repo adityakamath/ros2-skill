@@ -138,15 +138,17 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe /scan --max-messages 1
 
 ---
 
-## Artifacts
+## Output Folders
 
-All captured images, logs, and generated outputs from ros2-skill commands **must** be stored in the `.artifacts/` folder inside the skill directory:
+All outputs produced by ros2-skill commands are stored in hidden folders inside the skill directory. The skill creates these folders automatically if they do not exist. Never use `/tmp` or any other location.
 
-```
-{baseDir}/.artifacts/
-```
+| Folder | Contents |
+|---|---|
+| `{baseDir}/.artifacts/` | Captured images, logs, and all other generated outputs |
+| `{baseDir}/.presets/` | Saved parameter presets (`params preset-save` / `params preset-load`) |
+| `{baseDir}/.profiles/` | Robot profiles |
 
-If the folder does not exist, create it before saving any output. Never use `/tmp` or any other location for persistent artifacts produced by this skill.
+When in doubt about which folder to use, use `.artifacts/`.
 
 ---
 
