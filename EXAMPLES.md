@@ -77,20 +77,27 @@ python3 scripts/ros2_cli.py topics diag --duration 10 --max-messages 5
 
 ## 3. Parameters & Configuration
 
-### Save and Restore Presets
-Capture the current state of a node's parameters (e.g., camera settings) and restore them later.
+**Always discover the node name first — never hardcode it.**
+
 ```bash
-# Save current settings
-python3 scripts/ros2_cli.py params preset-save /camera_server indoor_mode
+# Discover the node name
+python3 scripts/ros2_cli.py nodes list
+```
+
+### Save and Restore Presets
+Capture the current state of a node's parameters and restore them later.
+```bash
+# Save current settings (use the node name discovered above)
+python3 scripts/ros2_cli.py params preset-save <NODE_NAME> my_preset
 
 # Restore later
-python3 scripts/ros2_cli.py params preset-load /camera_server indoor_mode
+python3 scripts/ros2_cli.py params preset-load <NODE_NAME> my_preset
 ```
 
 ### Bulk Update from File
 Update multiple parameters at once using a JSON file.
 ```bash
-python3 scripts/ros2_cli.py params load /turtlesim ./configs/standard_colors.json
+python3 scripts/ros2_cli.py params load <NODE_NAME> ./configs/params.json
 ```
 
 ---
@@ -105,11 +112,18 @@ python3 scripts/ros2_cli.py control lhi
 ```
 
 ### Atomic Controller Switch
-Deactivate a 'position' controller and activate a 'velocity' controller in a single transaction.
+**Always discover controller names before switching — never hardcode them.**
+
+```bash
+# Discover available controllers and their current states
+python3 scripts/ros2_cli.py control list-controllers
+```
+
+Deactivate one controller and activate another in a single atomic transaction:
 ```bash
 python3 scripts/ros2_cli.py control switch-controllers \
-  --deactivate joint_position_controller \
-  --activate joint_velocity_controller \
+  --deactivate <ACTIVE_CONTROLLER> \
+  --activate <INACTIVE_CONTROLLER> \
   --strictness STRICT
 ```
 
@@ -117,29 +131,46 @@ python3 scripts/ros2_cli.py control switch-controllers \
 
 ## 5. Transforms (TF2)
 
-### Lookup Transform
-Get the current transform between the `map` and `base_link` frames.
+**Always discover frame names first — never hardcode `map`, `base_link`, `odom`, or any frame name.**
+
 ```bash
-python3 scripts/ros2_cli.py tf lookup map base_link
+# Discover all available TF frames
+python3 scripts/ros2_cli.py tf list
+```
+
+### Lookup Transform
+Get the current transform between two frames (use names from `tf list`):
+```bash
+python3 scripts/ros2_cli.py tf lookup <SOURCE_FRAME> <TARGET_FRAME>
 ```
 
 ### Transform a Point
-Transform a coordinate from the `sensor_frame` to the `odom` frame.
+Transform a coordinate from one frame to another:
 ```bash
-python3 scripts/ros2_cli.py tf transform-point odom sensor_frame 1.0 0.5 0.0
+python3 scripts/ros2_cli.py tf transform-point <TARGET_FRAME> <SOURCE_FRAME> 1.0 0.5 0.0
 ```
 
 ---
 
 ## 6. Vision & Perception
 
+**Always discover the camera topic — never hardcode `/camera/image_raw/compressed` or similar.**
+
+```bash
+# Discover available image topics
+python3 scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
+python3 scripts/ros2_cli.py topics find sensor_msgs/msg/Image
+```
+
 ### Capture Image
-Grab a frame from a compressed camera stream.
+Grab a frame from the discovered camera topic:
 ```bash
 python3 scripts/ros2_cli.py topics capture-image \
-  --topic /camera/image_raw/compressed \
+  --topic <CAMERA_TOPIC> \
   --output robot_view.jpg
 ```
+
+If multiple camera topics are found, prefer the one matching the user's context (front, rear, color, depth). If ambiguous, use the first result.
 
 ### Visualise Controller Chains
 Generate a Graphviz diagram of how controllers are chained together.
@@ -149,13 +180,23 @@ python3 scripts/ros2_cli.py control vcc --output controller_map.pdf
 
 ---
 
-## 7. Global Overrides
+## 7. Services
 
-### Reliable Service Calls
-Increase timeout and retry count for a service call on a high-latency network.
+**Always discover the service name and request structure — never hardcode them.**
+
 ```bash
-python3 scripts/ros2_cli.py --timeout 30 --retries 3 services call /spawn \
-  '{"x": 2.0, "y": 2.0, "name": "extra_turtle"}'
+# Discover available services
+python3 scripts/ros2_cli.py services list
+
+# Get the request/response structure for the target service
+python3 scripts/ros2_cli.py services details <SERVICE_NAME>
+```
+
+### Reliable Service Call
+Increase timeout and retry count for a call on a slow or unreliable system:
+```bash
+python3 scripts/ros2_cli.py --timeout 30 --retries 3 services call <SERVICE_NAME> \
+  '<json_request>'
 ```
 
 ---

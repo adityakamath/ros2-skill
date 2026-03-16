@@ -16,6 +16,9 @@ This rule exists because:
 - The velocity topic is not always `/cmd_vel`. It may be `/base/cmd_vel`, `/robot/cmd_vel`, `/mobile_base/cmd_vel`, or anything else.
 - The message type is not always `Twist`. Many robots use `TwistStamped`, and the payload structure differs.
 - The odometry topic is not always `/odom`. It may be `/wheel_odom`, `/robot/odom`, `/base/odometry`, etc.
+- Camera topics are not always `/camera/image_raw`. There may be multiple cameras with namespaced topics.
+- TF frame names are not always `map`, `base_link`, `odom`. They vary by robot configuration.
+- Controller names are not always `joint_trajectory_controller` or similar. They are defined in the robot's config.
 - Convention-based guessing causes silent failures, wrong topics, and physical accidents.
 
 **Pre-flight introspection protocol — run ALL applicable steps before acting:**
@@ -26,8 +29,12 @@ This rule exists because:
 | Call a service | 1. `services list` or `services find <srv_type>` to discover the real name<br>2. `services details <discovered_service>` to get request/response fields |
 | Send an action goal | 1. `actions list` or `actions find <action_type>` to discover the real name<br>2. `actions details <discovered_action>` to get goal/result/feedback fields |
 | Move a robot | Full Movement Workflow — see Rule 3 and the canonical section below |
-| Read a sensor | `topics find <msg_type>` to discover the topic; never subscribe to a hardcoded name |
+| Read a sensor / subscribe | `topics find <msg_type>` to discover the topic; `topics type <topic>` to confirm type; never subscribe to a hardcoded name |
+| Capture a camera image | `topics find sensor_msgs/msg/CompressedImage` and `topics find sensor_msgs/msg/Image` to discover available camera topics; use the result in `topics capture-image --topic <CAMERA_TOPIC>` |
+| Query a TF transform | `tf list` to discover available frames; never hardcode frame names like `map`, `base_link`, `odom` |
+| Switch or control a controller | `control list-controllers` to discover controller names and states; never hardcode controller names |
 | Any operation involving a node | `nodes list` first; never assume a node name |
+| Set / get / dump parameters | `nodes list` to discover the node name; `params list <node>` to discover parameter names |
 
 **Parameter introspection is mandatory before any movement command.** Velocity limits can live on any node — not just nodes with "controller" in the name. Before publishing velocity:
 1. Run `nodes list` to get every node currently running
@@ -41,8 +48,12 @@ This rule exists because:
 - ❌ Never use `/cmd_vel` without first discovering the velocity topic with `topics find`
 - ❌ Never use `Twist` payload without first confirming the type is not `TwistStamped` via `topics type`
 - ❌ Never use `/odom` without first discovering the odometry topic with `topics find`
+- ❌ Never use `/camera/image_raw` or any camera topic without first discovering it with `topics find`
+- ❌ Never use `map`, `base_link`, `odom`, or any TF frame name without first listing frames with `tf list`
+- ❌ Never use a controller name without first listing controllers with `control list-controllers`
+- ❌ Never use a node name without first listing nodes with `nodes list`
+- ❌ Never use a service name without first discovering it with `services list` or `services find`
 - ❌ Never use `--yaw`, `--yaw-delta`, or `--field` for rotation — the only correct flag is `--rotate N --degrees` (or `--rotate N` for radians). Use negative N for CW; `--rotate` sign and `angular.z` sign must always match.
-- ❌ Never assume any topic, service, action, or node name from ROS 2 convention
 - ❌ Never assume a message type from a topic name
 
 **Introspection commands return discovered names. Use those names — not the ones you expect.**
@@ -111,6 +122,9 @@ The failure mode to avoid: inventing a flag like `--yaw-delta` or `--rotate-degr
 |---|---|
 | Topic name | `topics list` or `topics find <msg_type>` |
 | Topic message type | `topics type <topic>` |
+| Camera topic | `topics find sensor_msgs/msg/CompressedImage` and `topics find sensor_msgs/msg/Image` |
+| Odometry topic | `topics find nav_msgs/msg/Odometry` |
+| Velocity command topic | `topics find geometry_msgs/msg/Twist` and `topics find geometry_msgs/msg/TwistStamped` |
 | Service name | `services list` or `services find <srv_type>` |
 | Service request/response fields | `services details <service>` |
 | Action server name | `actions list` or `actions find <action_type>` |
@@ -120,6 +134,7 @@ The failure mode to avoid: inventing a flag like `--yaw-delta` or `--rotate-degr
 | Parameter names on a node | `params list <node>` |
 | Parameter value | `params get <node:param>` |
 | Parameter type and constraints | `params describe <node:param>` |
+| TF frame names | `tf list` |
 | Controller names and states | `control list-controllers` |
 | Hardware components | `control list-hardware-components` |
 | Message / service / action type fields | `interface show <type>` or `interface proto <type>` |
@@ -345,11 +360,13 @@ Agent does (for movement):
 **ALWAYS start by exploring what's available:**
 
 ```bash
-# These 4 commands tell you EVERYTHING about the system
-python3 {baseDir}/scripts/ros2_cli.py topics list      # All topics
-python3 {baseDir}/scripts/ros2_cli.py services list    # All services
-python3 {baseDir}/scripts/ros2_cli.py actions list    # All actions
-python3 {baseDir}/scripts/ros2_cli.py nodes list      # All nodes
+# These commands tell you everything about the system
+python3 {baseDir}/scripts/ros2_cli.py topics list             # All topics
+python3 {baseDir}/scripts/ros2_cli.py services list           # All services
+python3 {baseDir}/scripts/ros2_cli.py actions list            # All actions
+python3 {baseDir}/scripts/ros2_cli.py nodes list              # All nodes
+python3 {baseDir}/scripts/ros2_cli.py tf list                 # All TF frames
+python3 {baseDir}/scripts/ros2_cli.py control list-controllers # All controllers
 ```
 
 ### Step 3: Search by Message Type
@@ -358,18 +375,20 @@ python3 {baseDir}/scripts/ros2_cli.py nodes list      # All nodes
 
 | Need to find... | Search command... |
 |-----------------|------------------|
-| Velocity command topic (mobile) | `topics find geometry_msgs/Twist` AND `topics find geometry_msgs/TwistStamped` |
-| Position/odom topic | `topics find nav_msgs/Odometry` |
-| Joint positions | `topics find sensor_msgs/JointState` |
-| Joint trajectory (arm control) | `topics find trajectory_msgs/JointTrajectory` |
-| LiDAR data | `topics find sensor_msgs/LaserScan` |
-| Camera feed | `topics find sensor_msgs/Image` OR `topics find sensor_msgs/CompressedImage` |
-| IMU data | `topics find sensor_msgs/Imu` |
-| Joystick | `topics find sensor_msgs/Joy` |
-| Battery/power | `topics find sensor_msgs/BatteryState` |
-| TF transforms | Subscribe to `/tf` or `/tf_static` |
-| Diagnostics | Subscribe to `/diagnostics` |
-| Clock (simulated time) | Subscribe to `/clock` |
+| Velocity command topic (mobile) | `topics find geometry_msgs/msg/Twist` AND `topics find geometry_msgs/msg/TwistStamped` |
+| Position/odom topic | `topics find nav_msgs/msg/Odometry` |
+| Joint positions | `topics find sensor_msgs/msg/JointState` |
+| Joint trajectory (arm control) | `topics find trajectory_msgs/msg/JointTrajectory` |
+| LiDAR data | `topics find sensor_msgs/msg/LaserScan` |
+| Camera feed | `topics find sensor_msgs/msg/Image` AND `topics find sensor_msgs/msg/CompressedImage` |
+| IMU data | `topics find sensor_msgs/msg/Imu` |
+| Joystick | `topics find sensor_msgs/msg/Joy` |
+| Battery/power | `topics find sensor_msgs/msg/BatteryState` |
+| TF frame names | `tf list` |
+| TF transforms (subscribe) | Subscribe to `/tf` or `/tf_static` |
+| Diagnostics | `topics diag-list` (discovers by type) |
+| Clock (simulated time) | `topics find rosgraph_msgs/msg/Clock` |
+| Controller names | `control list-controllers` |
 | Service by type | `services find <service_type>` |
 | Action by type | `actions find <action_type>` |
 
