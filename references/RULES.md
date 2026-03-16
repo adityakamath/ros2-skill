@@ -374,6 +374,12 @@ When `topics find <type>` returns an empty list:
 5. **If nodes are running but topic is absent:** the publisher may not have started yet, or the topic may be differently typed than expected. Check `nodes details <candidate_node>` for its published topics.
 6. **Report exactly:** what was searched, what `topics list` and `nodes list` returned, and one specific next step. Never present a menu. Never speculate.
 
+**Terminal case — complete stack failure:** If `topics list` returns empty **and** `nodes list` returns empty:
+- The entire robot stack is not running. Do not attempt any robot operations.
+- Run `doctor` to confirm and capture the failure report.
+- Report: *"No nodes or topics found. The robot stack appears to be offline. Bring up the robot bringup before retrying."*
+- This is the only situation where further introspection is pointless — escalate immediately with the doctor output.
+
 **This rule applies equally to `services find`, `actions find`, and any other type-based search.** Empty results are information, not permission to guess.
 
 ### Rule 11 — Use discovered names verbatim; never mutate them
@@ -386,12 +392,23 @@ Topic names, service names, action names, node names, and TF frame names returne
 - Normalise, shorten, or "clean up" a discovered name
 - Assume that a short name and a namespaced name refer to the same entity
 
-**When multiple topics of the same type exist in different namespaces**, select based on user context:
-- User mentioned "front camera" → prefer topics containing `front` in the name
-- User mentioned "robot 1", "arm", or a specific subsystem → prefer topics under that namespace prefix
-- No context clue → use the **first result** and state which one was selected (Rule 6)
+**When multiple topics of the same type exist**, apply this selection algorithm:
 
-Namespace selection is never a reason to ask the user (Rule 5). Use context, pick one, report it.
+1. **Match against user context keywords first:**
+
+   | User mentioned... | Prefer topics containing... |
+   |---|---|
+   | "front camera", "forward camera" | `front`, `forward`, `rgb`, `color` |
+   | "rear camera", "back camera" | `rear`, `back` |
+   | "arm", "manipulator" | `arm`, `manip`, `wrist`, `elbow` |
+   | "robot 1", "robot_1", specific robot name | that robot's namespace prefix |
+   | "primary", "main", "base" LiDAR/sensor | `front`, `base`, `main`, `primary` |
+   | No context clue | use the **first result** |
+
+2. **If context resolves to exactly one candidate:** use it, state which was selected (Rule 6).
+3. **If context is still ambiguous (e.g., two `front` cameras):** use the first matching result, state which was selected. Do not ask the user (Rule 5).
+
+**Namespace selection is never a reason to ask the user.** Pick one based on context, report it, proceed.
 
 ### Rule 12 — Run independent discovery commands in parallel
 
@@ -426,6 +443,14 @@ Topic names, controller states, node lists, lifecycle states, and parameter valu
 - The user issues a new request (any request that is not an explicit continuation of the current command)
 - An error suggests the graph changed (a topic previously seen is now absent)
 - A node that was present is no longer in `nodes list`
+
+**If the graph changes unexpectedly mid-task** (a node disappears, a controller deactivates without being told to, a topic that was publishing goes silent):
+1. Stop the current task.
+2. Re-run the full Rule 0.1 session-start checks (`doctor`, clock check, lifecycle state).
+3. Re-discover all names before continuing — the system state is unknown.
+4. Report to the user: what changed, what the checks found, what the impact is.
+
+A mid-task graph change means something crashed or was preempted. Continuing with cached state means continuing blind.
 
 **Never say "I already discovered this earlier" as a reason to skip introspection.** Discovery takes under a second. Stale assumptions cause hard-to-debug failures.
 
@@ -729,27 +754,6 @@ Rules, in order:
 | Workspace found + NOT built | Warn user, run without sourcing |
 | Workspace NOT found | Continue without sourcing (system ROS only) |
 
-
----
-
-## Handle Multiple Same-Type Topics
-
-**When multiple topics of the same type exist (e.g., 2 cameras, 3 LiDARs):**
-
-1. **List all candidates:**
-   ```bash
-   python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/Image
-   # Returns: ["/camera_front/image_raw", "/camera_rear/image_raw", ...]
-   ```
-
-2. **Select based on context or naming convention:**
-   - Front camera: prefer topics with `front`, `rgb`, `color` in name
-   - Rear camera: prefer topics with `rear`, `back` in name
-   - Primary LiDAR: prefer topics with `front`, `base`, `main` in name
-   - Default: use first topic in the list
-
-3. **Let user know which one you're using:**
-   - "Found 3 camera topics. Using /camera_front/image_raw."
 
 ---
 
