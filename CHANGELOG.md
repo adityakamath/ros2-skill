@@ -8,9 +8,9 @@ All notable changes to ros2-skill will be documented in this file.
 
 - `bag info <bag_path>` — show metadata for a ROS 2 bag: duration, starting time, storage format, message count, and per-topic message counts. Parses `metadata.yaml` directly — no rclpy or live ROS 2 graph required. Accepts a bag directory, a `metadata.yaml` path, or any storage file inside the bag directory.
 - `component types` — list all registered `rclcpp` composable node types installed on this system. Reads from the `rclcpp_components` ament resource index — no rclpy or live ROS 2 graph required.
-- `daemon status` — check whether the ROS 2 daemon is running; reads domain ID from `ROS_DOMAIN_ID` (default 0); uses `ros2cli` Python API with PID-file fallback; no live ROS 2 graph required.
-- `daemon start` — start the ROS 2 daemon via `ros2cli.daemon.spawn_daemon()`; idempotent (returns `already_running` if daemon is already up); verifies PID after start.
-- `daemon stop` — stop the daemon via `ros2cli.daemon.shutdown_daemon()` or `SIGTERM` fallback; idempotent (returns `not_running` if daemon is already stopped); verifies stop.
+- `daemon status` — check whether the ROS 2 daemon is running; delegates to `ros2 daemon status` via subprocess; reads domain ID from `ROS_DOMAIN_ID` (default 0); no live ROS 2 graph required.
+- `daemon start` — start the ROS 2 daemon; delegates to `ros2 daemon start` via subprocess; works regardless of whether the `ros2cli` Python package is importable from the current Python environment.
+- `daemon stop` — stop the ROS 2 daemon; delegates to `ros2 daemon stop` via subprocess.
 
 ### RULES.md Hardening (8 items from ros2-engineering-skills gap analysis)
 
