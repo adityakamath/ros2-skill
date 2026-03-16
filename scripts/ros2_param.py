@@ -637,12 +637,14 @@ def cmd_params_preset_delete(args):
 
 if __name__ == "__main__":
     import sys
-    _mod = __file__.rsplit("/", 1)[-1]
+    import os
+    _mod = os.path.basename(__file__)
+    _cli = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ros2_cli.py")
     print(
         f"[ros2-skill] '{_mod}' is an internal module — do not run it directly.\n"
         "Use the main entry point:\n"
-        "  python3 ros2_cli.py <command> [subcommand] [args]\n"
-        "See all commands:  python3 ros2_cli.py --help",
+        f"  python3 {_cli} <command> [subcommand] [args]\n"
+        f"See all commands:  python3 {_cli} --help",
         file=sys.stderr,
     )
     sys.exit(1)

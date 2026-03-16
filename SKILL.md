@@ -36,10 +36,10 @@ Controls and monitors ROS 2 robots directly via rclpy. This skill provides a uni
 - **Format:** All commands output JSON. Errors contain `{"error": "..."}`.
 
 > ⚠️ **Internal modules — do not run directly.**
-> `scripts/ros2_daemon.py`, `ros2_topic.py`, `ros2_param.py`, and all other
-> `ros2_*.py` files are **internal implementation modules**, not standalone
-> scripts. Running them directly produces no output and does nothing.
-> Always invoke commands through `ros2_cli.py`:
+> All `scripts/ros2_*.py` files other than `ros2_cli.py` are **internal
+> implementation modules**, not standalone scripts. Running one directly
+> prints an error to stderr and exits with code 1 — it performs no ROS
+> operation. Always invoke commands through `ros2_cli.py`:
 > ```bash
 > python3 scripts/ros2_cli.py <command> [subcommand] [args]
 > python3 scripts/ros2_cli.py --help   # list all commands
