@@ -4,49 +4,30 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.5] - 2026-03-16
 
+Added bag, component, and daemon commands. Hardened RULES.md with 8 new agent behaviour rules. Added AGENTS.md agent guide.
+
 ### New Commands
 
-- `bag info <bag_path>` — show metadata for a ROS 2 bag: duration, starting time, storage format, message count, and per-topic message counts. Parses `metadata.yaml` directly — no rclpy or live ROS 2 graph required. Accepts a bag directory, a `metadata.yaml` path, or any storage file inside the bag directory.
-- `component types` — list all registered `rclcpp` composable node types installed on this system. Reads from the `rclcpp_components` ament resource index — no rclpy or live ROS 2 graph required.
-- `daemon status` — check whether the ROS 2 daemon is running; delegates to `ros2 daemon status` via subprocess; reads domain ID from `ROS_DOMAIN_ID` (default 0); no live ROS 2 graph required.
-- `daemon start` — start the ROS 2 daemon; delegates to `ros2 daemon start` via subprocess; works regardless of whether the `ros2cli` Python package is importable from the current Python environment.
-- `daemon stop` — stop the ROS 2 daemon; delegates to `ros2 daemon stop` via subprocess.
+- `bag info <bag_path>` — show metadata for a ROS 2 bag (duration, message counts, per-topic stats); no live graph required
+- `component types` — list all registered rclcpp composable node types; no live graph required
+- `daemon status` — check if the ROS 2 daemon is running; no live graph required
+- `daemon start` — start the ROS 2 daemon
+- `daemon stop` — stop the ROS 2 daemon
 
-### RULES.md Hardening (8 items from ros2-engineering-skills gap analysis)
+### RULES.md Hardening
 
-- **ros2_control hardware interface lifecycle** — Rule 0 pre-flight for controller operations now requires `control list-hardware-components` + `control list-hardware-interfaces` before any load/switch/configure; Rule 8 verification row updated to check hardware component remains `active` after controller operations
-- **TF2 sensor frame validation** — Rule 0 pre-flight: before consuming any spatially-interpreted sensor data (camera, LiDAR, IMU, depth, GPS, sonar), subscribe for 1 message to read `header.frame_id`, verify it exists in `tf list`, and confirm the transform is actively updating via `tf echo`; Rule 17 Never list extended with sensor frame staleness prohibition
-- **Camera pipeline perception check** — Rule 0 pre-flight: before using camera or depth image data, find the paired `camera_info` topic, subscribe to verify `K` matrix is non-zero, and confirm `header.frame_id` is present in TF; added as dedicated row in the action type table
-- **Pre-escalation log level control** — Rule 7 diagnostic toolbox extended: before asking the user, escalate the relevant node's log level to DEBUG via `services call <node>/set_logger_level`; reset to INFO when done
-- **Recursive nested type expansion** — Rule 0 "Publish to a topic" gains step 4: for any field whose type is not a primitive or well-known standard type, run `interface show <nested_type>` recursively until all leaf fields are primitives; Rule 1 discovery table row added
-- **Parameter file pre-flight** — Rule 0 new row for `params load` / `--params-file`: compare YAML keys against `params list`, describe each key's type before loading, verify with `params get` after; vocabulary table updated with `--params-file` trigger words
-- **Deployment / daemon context checks** — Rule 0.1 Step 0 added: verify `ROS_DOMAIN_ID` is not colliding, daemon is running (restart with shell if needed), and `ROS_LOCALHOST_ONLY` is not hiding cross-container topics; three vocabulary rows added for daemon, domain, and localhost-only queries
-- **Testing vocabulary** — Two vocabulary rows added for `colcon test` / `colcon test-result` with Rule 2 shell-exception note
-
----
-
-Internal refactor: centralized rclpy lifecycle management via `ros2_context()`, removed `MSG_ALIASES`, and eliminated dead code and duplicate helpers. No functional changes to any command.
-
-### Internal — rclpy lifecycle
-
-- Added `ros2_context()` context manager to `ros2_utils.py` — wraps `rclpy.init()` / `rclpy.shutdown()` in a `@contextmanager`; all rclpy-using command functions now use `with ros2_context():` instead of direct init/shutdown calls
-- `rclpy.init()` and `rclpy.shutdown()` now appear **only** inside `ros2_context()` in `ros2_utils.py` — zero occurrences elsewhere in the codebase
-- `ros2_cli.py` — removed safety `rclpy.shutdown()` from `main()` finally block; removed `import rclpy` (no longer needed at the dispatcher level)
-- `ros2_param.py` — refactored `_dump_params()` to accept a `node` argument instead of managing its own rclpy context; callers (`cmd_params_dump`, `cmd_params_preset_save`) now create the context externally and pass the node in
-
-### Internal — dead code and duplicates
-
-- `ros2_launch.py` — removed 5 private session-management helpers (`_get_sessions_file`, `_load_sessions`, `_save_session`, `_get_session_metadata`, `_delete_session_metadata`) that were exact duplicates of already-imported `ros2_utils` functions; removed unused `import json`
-- `ros2_run.py` — fixed `_find_executables()`: lib-dir traversal code was unreachable dead code (it appeared after a `return` statement in a different function); restored into `_find_executables()` where it belongs
-
-### Removed
-
-- `MSG_ALIASES` dict removed from `ros2_utils.py`; message type aliases (e.g. `twist` → `geometry_msgs/Twist`, `odom` → `nav_msgs/Odometry`) are no longer supported — use full type names
+- ros2_control hardware interface lifecycle pre-flight before any controller load/switch/configure
+- TF2 sensor frame validation before consuming spatially-interpreted sensor data
+- Camera pipeline calibration check (camera_info K matrix + TF frame presence)
+- Pre-escalation log level control via `set_logger_level` before asking the user
+- Recursive nested type expansion via `interface show` before publishing
+- Parameter file pre-flight for `params load` / `--params-file`
+- ROS domain ID, daemon, and `ROS_LOCALHOST_ONLY` context checks (Rule 0.1)
+- Testing vocabulary for `colcon test` / `colcon test-result`
 
 ### Documentation
 
-- `README.md` — removed "Message Type Aliases" section; updated TF2 helper command list to use full names instead of removed short aliases
-- `references/COMMANDS.md` — removed stale alias references from the `topics message` command table and a broken link to the removed aliases section
+- `AGENTS.md` — new agent guide: entry-point rules, session-start protocol, output folders (`.artifacts/`, `.presets/`, `.profiles/`), core operational rules, safety, and troubleshooting
 
 ---
 
