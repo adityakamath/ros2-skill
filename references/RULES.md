@@ -55,7 +55,8 @@ This rule exists because:
 | Query a TF transform | `tf list` to discover available frames; never hardcode frame names like `map`, `base_link`, `odom` |
 | Switch or control a controller | `control list-controllers` to discover controller names and states; never hardcode controller names; always use `--strictness STRICT` for `switch-controllers` unless explicitly instructed otherwise |
 | Any operation involving a node | `nodes list` first; never assume a node name |
-| Set / get / dump parameters | `nodes list` to discover the node name; `params list <node>` to discover parameter names |
+| Set a parameter | 1. `nodes list` to discover the node name<br>2. `params list <node>` to discover the parameter name (never assume it)<br>3. `params describe <node:param>` to confirm type (int/float/bool/string), valid range, and read-only status — **never set a parameter without this; wrong type silently truncates or is rejected**<br>4. `params set <node:param> <value>` with value matching the confirmed type; verify with `params get` after (Rule 8) |
+| Get / list / dump parameters | `nodes list` to discover the node name; `params list <node>` to discover parameter names |
 
 **Parameter introspection is mandatory before any movement command.** Velocity limits can live on any node — not just nodes with "controller" in the name. Before publishing velocity:
 1. Run `nodes list` to get every node currently running
@@ -235,7 +236,20 @@ If both find commands return results, run `topics type` on each and use the type
 ```bash
 topics find nav_msgs/msg/Odometry
 ```
-Record the discovered topic name — call it `ODOM_TOPIC`.
+
+**If a topic is found:** record it as `ODOM_TOPIC`. Then immediately verify it is live and publishing at a usable rate:
+```bash
+topics hz <ODOM_TOPIC> --duration 2
+```
+- **Rate ≥ 5 Hz:** odom is healthy — proceed with closed-loop.
+- **Rate 1–4 Hz:** odom is too slow for reliable closed-loop. Warn the user: *"Odometry is publishing at <N> Hz — too slow for accurate closed-loop control. Proceeding open-loop."* Use `publish-sequence`.
+- **Rate 0 Hz / timeout:** odom topic exists but nothing is publishing on it. Treat as absent (see below).
+
+**If no odom topic found (or rate = 0 Hz):** attempt a TF-based position fallback before declaring "no position available":
+```bash
+tf list    # discover actual frame names (never hardcode)
+```
+If `<ODOM_FRAME>` and `<BASE_LINK_FRAME>` exist in the TF tree, they can be used for position queries via `tf lookup <ODOM_FRAME> <BASE_LINK_FRAME>` — but **not** for `publish-until` closed-loop monitoring (TF lookup is one-shot, not streamed). Fall back to `publish-sequence` and note in the report: *"No odometry topic found. TF is available for position queries but cannot be used for closed-loop motion control."*
 
 **Step 3 — Choose the execution method**
 
@@ -253,16 +267,26 @@ Use `VEL_TOPIC` and `ODOM_TOPIC` from Steps 1–2. Never substitute `/cmd_vel`, 
 
 Distance commands:
 ```bash
-topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta <N> --timeout 30
+topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta <N> --timeout <TIMEOUT>
 ```
 Angle/rotation commands — **always use `--rotate`, never `--field` or `--yaw`**:
 ```bash
 # CCW (left): positive --rotate + positive angular.z
-topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --rotate <+N> --degrees --timeout 30
+topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --rotate <+N> --degrees --timeout <TIMEOUT>
 # CW (right):  negative --rotate + negative angular.z
-topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --rotate <-N> --degrees --timeout 30
+topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> --rotate <-N> --degrees --timeout <TIMEOUT>
 ```
 `--rotate` sign = direction. Positive = CCW. Negative = CW. `angular.z` sign must always match `--rotate` sign — mismatched signs cause timeout. There is no `--yaw` flag. Do not attempt to monitor orientation fields manually.
+
+**`<TIMEOUT>` is never hardcoded — always calculate it:**
+
+| Command type | Formula | Minimum |
+|---|---|---|
+| Linear distance `N` metres at `v` m/s | `ceil((N / v) * 2.0)` seconds | 15 s |
+| Rotation `θ` degrees at `ω` rad/s | `ceil(((θ * π / 180) / ω) * 2.0)` seconds | 15 s |
+| Open-ended `publish-sequence` | Use explicit durations per message — no global timeout needed | — |
+
+Example: moving 3 m at 0.2 m/s → `ceil((3 / 0.2) * 2.0) = ceil(30) = 30 s`. Moving 0.5 m at 0.2 m/s → `ceil(5) = 15 s` (minimum applies). **Never use 30 s as a default — always calculate for the actual task.**
 Open-ended or fallback (stop is always the last message):
 ```bash
 topics publish-sequence <VEL_TOPIC> '[<move_payload>, <zero_payload>]' '[<duration>, 0.5]'
@@ -388,15 +412,16 @@ After any `publish-until` or `publish-sequence` timeout, error, or unexpected st
 
 | Operation | Verification |
 |---|---|
-| `params set <node:param> <val>` | Run `params get <node:param>` — confirm returned value matches what was set |
+| `params set <node:param> <val>` | **Pre-set:** run `params describe <node:param>` to confirm type, range, and that the param is not read-only. Then `params set`. Then run `params get <node:param>` — confirm returned value matches what was set. |
 | `control switch-controllers` | Run `control list-controllers` — confirm new controller is `active`, old is `inactive` |
 | `lifecycle set <node> <transition>` | Run `lifecycle get <node>` — confirm the node reached the expected state |
-| `actions send <action> <json>` | Check the `status` field in the result: `SUCCEEDED` = completed; `FAILED` or `CANCELED` = treat as failure, diagnose per Rule 7; any other value = not complete yet. A goal sent is not a goal accepted or completed. |
+| `actions send <action> <json>` | **Pass a timeout flag** (check COMMANDS.md or `actions send --help` for the flag name). On return: check `status` — `SUCCEEDED` = completed; `FAILED` or `CANCELED` = treat as failure, diagnose per Rule 7. **If the command hangs past the timeout:** immediately send `actions cancel <goal_id>` (use the goal ID returned at submission), then diagnose why the action server did not respond. Never leave an action goal orphaned. Monitor feedback messages during execution: if a navigation action sends feedback with no progress for > 10 s, treat as stuck, cancel, and diagnose. |
 | `control configure-controller` | Run `control list-controllers` — confirm controller reached `inactive` state |
 | `topics publish` (single shot, state-change intent) | Run `topics subscribe <topic> --max-messages 1 --timeout 3` or `topics hz <topic>` to confirm messages are being received |
-| Movement completion (position / orientation reporting) | **Two-phase protocol — both steps required:** (1) Confirm the robot is stationary: subscribe `<ODOM_TOPIC> --max-messages 1`; check `twist.twist.linear.x`, `twist.twist.linear.y`, and `twist.twist.angular.z` are all ≈ 0. If any are non-zero, wait 0.5 s and repeat. (2) Once confirmed stationary, subscribe `<ODOM_TOPIC> --max-messages 1` again and compute position, orientation, or yaw from **this** reading only. Report actual sensor values — never report estimated or calculated pose. |
-| Motion timeout (`publish-until` or `publish-sequence` did not complete) | 1. **Immediately send `estop`** — do not retry, do not ask. 2. Subscribe `<ODOM_TOPIC> --max-messages 1` — record actual final pose at the moment of timeout (this is sensor truth, not estimated). 3. Diagnose: run `topics hz <ODOM_TOPIC>` (is odom publishing?) and `control list-controllers` (is the velocity controller active?). 4. Report: actual final position/orientation from the sensor read, actual distance covered vs. target, and diagnosed cause. 5. **Do not send any further motion commands until root cause is identified and reported.** |
-| Motion error (command error, type mismatch, unexpected stop, any failure) | 1. Send `estop`. 2. Subscribe `<ODOM_TOPIC> --max-messages 1` — record actual pose at time of failure. 3. Diagnose per Rule 7. 4. Report: actual pose from sensor, error description, root cause. **Do not proceed with any motion until root cause is resolved.** |
+| `estop` (emergency stop) | After sending `estop`, verify it took effect: subscribe `<ODOM_TOPIC> --max-messages 1 --timeout 3` and check `twist.twist.linear.x`, `.y`, and `twist.twist.angular.z` are all < 0.01. If velocity is still non-zero after 3 s: the estop was not received (controller may be down or topic is wrong). **Critical failure — do not proceed with any command.** Report immediately: *"Estop sent but velocity still non-zero — robot may not have stopped. Controller or velocity topic may be offline."* |
+| Movement completion (position / orientation reporting) | **Three-phase protocol — all steps required:** (1) Confirm odom is still live: run `topics hz <ODOM_TOPIC> --duration 1` — if rate < 5 Hz, flag as degraded before reporting. (2) Confirm the robot is stationary: subscribe `<ODOM_TOPIC> --max-messages 1`; check `twist.twist.linear.x`, `twist.twist.linear.y`, and `twist.twist.angular.z` are all < 0.01 m/s or rad/s. If any exceed 0.01, wait 0.5 s and repeat. (3) Once confirmed stationary, subscribe `<ODOM_TOPIC> --max-messages 1` and report position, orientation, or yaw from **this** reading only. **Covariance check:** if `pose.covariance[0]` (x-variance) > 0.1 m² or `pose.covariance[35]` (yaw-variance) > 0.1 rad², qualify the report: *"Pose reported but covariance is high — estimate may be unreliable."* |
+| Motion timeout (`publish-until` or `publish-sequence` did not complete) | 1. **Immediately send `estop`** — verify it took effect (see estop row above). 2. Subscribe `<ODOM_TOPIC> --max-messages 1` — record actual final pose (sensor truth, not estimated). 3. Diagnose: run `topics hz <ODOM_TOPIC>` and `control list-controllers`. 4. Report: actual final position/orientation, distance covered vs. target, diagnosed cause. 5. **Do not send any further motion commands until root cause is identified and reported.** |
+| Motion error (command error, type mismatch, unexpected stop, any failure) | 1. Send `estop` and verify it took effect. 2. Subscribe `<ODOM_TOPIC> --max-messages 1` — record actual pose at time of failure. 3. Diagnose per Rule 7. 4. Report: actual pose from sensor, error description, root cause. **Do not proceed with any motion until root cause is resolved.** |
 
 **Reading odometry while the robot is moving produces wrong results.** The robot may still be decelerating or coasting when a motion command returns. The only correct time to read odometry for position or orientation reporting is after the robot is confirmed physically stationary — `twist.twist.linear.x`, `.y`, and `twist.twist.angular.z` are all ≈ 0. Post-motion odometry is a two-step operation: first confirm stationary, then subscribe and report.
 
@@ -410,17 +435,34 @@ If verification reveals the effect did not occur (param unchanged, controller no
 
 ### Rule 9 — Pre-motion check: confirm the robot is stationary before commanding movement
 
-**Before issuing any motion command**, perform the pre-motion pose capture and stationary check:
+**Before issuing any motion command**, perform all three pre-motion checks. Run steps A and B in parallel, then evaluate:
 
-1. Subscribe to `<ODOM_TOPIC>` for one message (2-second timeout):
-   ```bash
-   topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2
-   ```
-   From this single message, do **both** of the following before proceeding:
-   - **Record starting pose (baseline):** save `pose.pose.position.x`, `pose.pose.position.y`, and the orientation quaternion. This is the pre-motion reference used for post-motion comparison, distance calculations, and failure reports. Never use a cached or previously-read pose value as the baseline — it must be fresh from this call.
-   - **Check velocity:** inspect `twist.twist.linear.x`, `twist.twist.linear.y`, and `twist.twist.angular.z`.
-2. **If any velocity value is non-zero:** send `estop` immediately, wait 0.5 s, then proceed with the requested command. Report: *"Robot was already moving. Stopped before issuing new command."*
-3. **If the subscribe times out (odom not publishing):** do NOT proceed with closed-loop motion. Fall back to open-loop (`publish-sequence`) and notify the user: *"Odometry is not publishing. Running open-loop — distance accuracy not guaranteed."* No starting pose can be recorded; note this in the report.
+**A — Odom health and pose capture** (subscribe once):
+```bash
+topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2
+```
+From this single message:
+- **Record starting pose (baseline):** save `pose.pose.position.x`, `pose.pose.position.y`, and the orientation quaternion. This is the pre-motion reference for post-motion comparison and failure reports. Never use a cached pose — it must be fresh.
+- **Check velocity:** all three of `twist.twist.linear.x`, `twist.twist.linear.y`, and `twist.twist.angular.z` must be **< 0.01** (m/s or rad/s). Values below this threshold are considered stationary. Values ≥ 0.01 mean the robot is moving or drifting.
+
+**B — Node presence check** (run in parallel with A):
+```bash
+nodes list
+```
+Confirm the velocity controller node is still present (the same node discovered during Rule 0 pre-flight). If it has disappeared since pre-flight, the robot stack has changed — halt, run Rule 0.1 health check again, and do not proceed until the stack is verified.
+
+**C — Odom frequency check** (run after A returns):
+```bash
+topics hz <ODOM_TOPIC> --duration 2
+```
+- Rate ≥ 5 Hz → proceed with closed-loop.
+- Rate 1–4 Hz → warn user, fall back to open-loop.
+- Rate 0 Hz → odom is stale despite the topic existing. Treat as absent. Fall back to open-loop.
+
+**Evaluate results:**
+- **Velocity ≥ 0.01 on any axis:** send `estop` immediately, verify it took effect (Rule 8 estop row), wait 0.5 s, re-read odom, then proceed. Report: *"Robot was already moving. Stopped before issuing new command."*
+- **Subscribe timeout or rate = 0 Hz:** do NOT proceed with closed-loop. Fall back to `publish-sequence`. Notify user: *"Odometry not available. Running open-loop — distance accuracy not guaranteed."* No starting pose can be recorded; note in report.
+- **Controller node absent:** halt. Re-run Rule 0.1 health check. Do not proceed until the velocity controller is confirmed running.
 
 **Never issue a new motion command on top of an existing one without stopping first.** Overlapping velocity commands cause unpredictable trajectories and runaway motion.
 
@@ -473,7 +515,13 @@ Topic names, service names, action names, node names, and TF frame names returne
 2. **If context resolves to exactly one candidate:** use it, state which was selected (Rule 6).
 3. **If context is still ambiguous (e.g., two `front` cameras):** use the first matching result, state which was selected. Do not ask the user (Rule 5).
 
-**Namespace selection is never a reason to ask the user.** Pick one based on context, report it, proceed.
+**Multi-robot network exception — when namespaces suggest different robots:**
+If discovery returns results from multiple distinct robot namespaces (e.g., `/robot_1/odom`, `/robot_2/odom`, `/robot_3/odom`) and no context clue in the conversation identifies which robot the user is addressing:
+- This is the **one case where namespace selection requires a user question** (Rule 5, condition 1 — genuine ambiguity that introspection cannot resolve).
+- Ask once, clearly: *"I found topics from multiple robots: robot_1, robot_2, robot_3. Which robot should I operate?"*
+- Once confirmed, use only that robot's namespace for the entire task. Do not re-ask.
+
+**Single namespace or same-robot duplicates:** never ask. Pick per context or first result and report.
 
 ### Rule 12 — Run independent discovery commands in parallel
 
@@ -543,10 +591,13 @@ If `lifecycle nodes` shows a node is lifecycle-managed, its state determines whe
 
 ### Rule 15 — Check publisher and subscriber counts before waiting on a topic
 
-Before subscribing to a topic and waiting for a message, verify a publisher exists:
-1. Run `topics details <topic>` — check `publisher_count`.
+Before subscribing to a topic and waiting for a message, verify a publisher exists **and** that QoS is compatible:
+1. Run `topics details <topic>` — check **both** `publisher_count` **and** the publisher's QoS profile.
 2. **If `publisher_count == 0`:** do not subscribe (you will timeout). Report: *"No publisher on `<topic>`. Check `nodes list` to verify the publishing node is running."* Then diagnose per Rule 7.
-3. **If `publisher_count > 0` but subscribe still times out:** run `topics hz <topic>` to confirm messages are actively flowing (a publisher node may be up but not sending). Check QoS profile mismatch in `topics details <topic>` output.
+3. **QoS compatibility check:** inspect the publisher's durability, reliability, and history settings in `topics details` output. Common mismatch: publisher uses `BEST_EFFORT` reliability but the subscriber requires `RELIABLE` — messages will never arrive despite a non-zero publisher count. If a mismatch is detected, add `--qos-reliability best_effort` (or the appropriate flag per COMMANDS.md) to match the publisher's profile.
+4. **If `publisher_count > 0` and QoS is compatible but subscribe still times out:** run `topics hz <topic>` to confirm messages are actively flowing (a publisher node may be up but not sending).
+
+**For `<ODOM_TOPIC>` specifically (used in every motion workflow):** always run step 1–3 before the first odom subscribe in Rule 9. A QoS mismatch on odom causes every motion command to hang silently at the stationary check — the most expensive possible failure point.
 
 Before publishing to a topic intended for a subscriber:
 1. Run `topics details <topic>` — check `subscriber_count`.
@@ -577,6 +628,8 @@ When a user's request involves a sequence of sub-commands (e.g., "move forward 1
 
 **If any step in the sequence changes the robot's physical state** (position, controller state, parameter value), verify that change before building on it.
 
+**Motion sequence pose carry-forward:** when step N is a motion command, the post-motion verified end-pose (from Rule 8 movement completion protocol) is automatically the pre-motion baseline for step N+1 — **do not issue a redundant Rule 9 odom subscribe** between consecutive motion steps in the same sequence. The verified end-pose already represents a fresh, stationary, sensor-confirmed reading. Re-run the Rule 9 node-presence check (parallel `nodes list`) before step N+1, but skip the odom subscribe — use the carry-forward pose as the new baseline instead.
+
 ### Rule 17 — Follow REP-103 and REP-105 at all times
 
 ROS 2 has standardised units, coordinate conventions, and frame conventions. Violating them produces silent wrong results — wrong yaw, wrong direction, wrong distance — with no error from the CLI.
@@ -605,9 +658,14 @@ ROS 2 has standardised units, coordinate conventions, and frame conventions. Vio
 | z | Up |
 
 - Positive `linear.x` → robot moves **forward**
+- Negative `linear.x` → robot moves **backward**
+- Positive `linear.y` → robot strafes **left** *(holonomic platforms only — has no effect on differential-drive robots)*
+- Negative `linear.y` → robot strafes **right** *(holonomic only)*
 - Positive `angular.z` → robot rotates **CCW (left)** when viewed from above
 - Negative `angular.z` → robot rotates **CW (right)**
 - This matches the `--rotate` sign convention: positive = CCW, negative = CW
+
+**Holonomic vs. differential-drive:** before commanding `linear.y`, confirm the robot is holonomic (e.g., mecanum or omni wheels). On a differential-drive robot, `linear.y` is silently ignored — use `angular.z` followed by `linear.x` to achieve lateral repositioning instead.
 
 **Quaternion field order in all ROS 2 messages is `(x, y, z, w)` — never `(w, x, y, z)`.**
 
