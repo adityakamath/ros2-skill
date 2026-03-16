@@ -95,7 +95,7 @@ Capabilities that go beyond standard `ros2` CLI parity — designed specifically
 | **Launch files** | `launch new/list/kill/restart/foxglove` | Run launch files in tmux sessions, list/kill/restart running sessions, launch foxglove_bridge |
 | **Run executables** | `run new/list/kill/restart` | Run executables in tmux sessions, list/kill/restart running sessions |
 | **TF2 transforms** | `tf list/lookup/echo/monitor/static` | Query transforms, list frames, echo transforms, monitor frames, publish static transforms |
-| **TF2 helpers** | `tf e2q/q2e/tp/tv` | Quaternion/Euler conversion, point/vector transformation |
+| **TF2 helpers** | `tf euler-from-quaternion/quaternion-from-euler/transform-point/transform-vector` | Quaternion/Euler conversion, point/vector transformation |
 | **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token |
 
 ### Global Options
@@ -110,26 +110,6 @@ Place these **before** the command name to apply a setting to every service/acti
 ```bash
 python3 scripts/ros2_cli.py --timeout 30 --retries 3 lifecycle get /camera_driver
 ```
-
-### Message Type Aliases
-
-The skill supports 50 message type aliases for commonly used ROS 2 message types. Use short names instead of full type names:
-
-- `twist` → `geometry_msgs/Twist`
-- `odom` → `nav_msgs/Odometry`
-- `laserscan` → `sensor_msgs/LaserScan`
-- `image` → `sensor_msgs/Image`
-
-**Example:**
-```bash
-# Using alias
-python3 scripts/ros2_cli.py topics message twist
-
-# Equivalent to
-python3 scripts/ros2_cli.py topics message geometry_msgs/Twist
-```
-
-See [Message Type Aliases](references/COMMANDS.md#message-type-aliases) for the full list.
 
 See [`EXAMPLES.md`](EXAMPLES.md) for usage examples including image capture and Discord integration.
 

@@ -9,27 +9,34 @@ import time
 import rclpy
 
 from ros2_utils import (
-    ROS2CLI, get_action_type, msg_to_dict, dict_to_msg, output,
+    ROS2CLI, get_action_type, msg_to_dict, dict_to_msg, output, ros2_context,
 )
+from ros2_topic import TopicSubscriber
+
+
+def _get_action_type_str(node, action):
+    """Return the action type string for *action* by inspecting its feedback topic."""
+    for name, types in node.get_topic_names_and_types():
+        if name == action + "/_action/feedback":
+            for t in types:
+                if '/action/' in t:
+                    return re.sub(r'_FeedbackMessage$', '', t)
+    return None
 
 
 def cmd_actions_list(args):
     try:
-        rclpy.init()
-        node = ROS2CLI()
-
-        topics = node.get_topic_names_and_types()
+        with ros2_context():
+            node = ROS2CLI()
+            topics = node.get_topic_names_and_types()
         actions = []
         seen = set()
-
-        for name, types in topics:
+        for name, _ in topics:
             if '/_action/' in name:
                 action_name = name.split('/_action/')[0]
                 if action_name not in seen:
                     seen.add(action_name)
                     actions.append(action_name)
-
-        rclpy.shutdown()
         output({"actions": actions, "count": len(actions)})
     except Exception as e:
         output({"error": str(e)})
@@ -37,42 +44,20 @@ def cmd_actions_list(args):
 
 def cmd_actions_details(args):
     try:
-        rclpy.init()
-        node = ROS2CLI()
+        with ros2_context():
+            node = ROS2CLI()
+            action_type_str = _get_action_type_str(node, args.action)
 
-        topics = node.get_topic_names_and_types()
-
-        result = {"action": args.action, "action_type": "", "goal": {}, "result": {}, "feedback": {}}
-
-        action_type = ""
-        for name, types in topics:
-            if name == args.action + "/_action/feedback":
-                for t in types:
-                    if '/action/' in t:
-                        action_type = re.sub(r'_FeedbackMessage$', '', t)
-                        break
-                if action_type:
-                    break
-
-        result["action_type"] = action_type
-
-        if action_type:
-            action_class = get_action_type(action_type)
+        result = {"action": args.action, "action_type": action_type_str or "",
+                  "goal": {}, "result": {}, "feedback": {}}
+        if action_type_str:
+            action_class = get_action_type(action_type_str)
             if action_class:
-                try:
-                    result["goal"] = msg_to_dict(action_class.Goal())
-                except Exception:
-                    pass
-                try:
-                    result["result"] = msg_to_dict(action_class.Result())
-                except Exception:
-                    pass
-                try:
-                    result["feedback"] = msg_to_dict(action_class.Feedback())
-                except Exception:
-                    pass
-
-        rclpy.shutdown()
+                for attr in ("Goal", "Result", "Feedback"):
+                    try:
+                        result[attr.lower()] = msg_to_dict(getattr(action_class, attr)())
+                    except Exception:
+                        pass
         output(result)
     except Exception as e:
         output({"error": str(e)})
@@ -86,105 +71,84 @@ def cmd_actions_send(args):
 
     try:
         from rclpy.action import ActionClient
-        rclpy.init()
-        node = ROS2CLI()
+        with ros2_context():
+            node = ROS2CLI()
 
-        topics = node.get_topic_names_and_types()
+            action_type_str = _get_action_type_str(node, args.action)
+            if not action_type_str:
+                return output({"error": f"Action server not found: {args.action}"})
 
-        action_type = None
-        for name, types in topics:
-            if name == args.action + "/_action/feedback":
-                for t in types:
-                    if '/action/' in t:
-                        action_type = re.sub(r'_FeedbackMessage$', '', t)
-                        break
-                if action_type:
-                    break
+            action_class = get_action_type(action_type_str)
+            if not action_class:
+                return output({"error": f"Cannot load action type: {action_type_str}"})
 
-        if not action_type:
-            rclpy.shutdown()
-            return output({"error": f"Action server not found: {args.action}"})
+            client = ActionClient(node, action_class, args.action)
+            timeout = args.timeout
+            retries = getattr(args, 'retries', 1)
+            collect_feedback = getattr(args, 'feedback', False)
+            goal_id = f"goal_{int(time.time() * 1000)}"
 
-        action_class = get_action_type(action_type)
-        if not action_class:
-            rclpy.shutdown()
-            return output({"error": f"Cannot load action type: {action_type}"})
+            for attempt in range(retries):
+                last_attempt = (attempt == retries - 1)
 
-        client = ActionClient(node, action_class, args.action)
-        timeout = args.timeout
-        retries = getattr(args, 'retries', 1)
+                if not client.wait_for_server(timeout_sec=timeout):
+                    if not last_attempt:
+                        continue
+                    return output({"error": f"Action server not available: {args.action}"})
 
-        goal_id = f"goal_{int(time.time() * 1000)}"
-        collect_feedback = getattr(args, 'feedback', False)
+                feedback_msgs = []
+                feedback_lock = threading.Lock()
 
-        for attempt in range(retries):
-            last_attempt = (attempt == retries - 1)
+                def _feedback_cb(fb_msg):
+                    if collect_feedback:
+                        with feedback_lock:
+                            feedback_msgs.append(msg_to_dict(fb_msg.feedback))
 
-            if not client.wait_for_server(timeout_sec=timeout):
+                goal_msg = dict_to_msg(action_class.Goal, goal_data)
+                future = client.send_goal_async(
+                    goal_msg,
+                    feedback_callback=_feedback_cb if collect_feedback else None,
+                )
+
+                end_time = time.time() + timeout
+                while time.time() < end_time and not future.done():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+
+                if not future.done():
+                    future.cancel()
+                    if not last_attempt:
+                        continue
+                    output({"action": args.action, "success": False,
+                            "error": "Timeout waiting for goal acceptance"})
+                    return
+
+                goal_handle = future.result()
+                if not goal_handle.accepted:
+                    if not last_attempt:
+                        continue
+                    output({"action": args.action, "success": False, "error": "Goal rejected"})
+                    return
+
+                result_future = goal_handle.get_result_async()
+
+                end_time = time.time() + timeout
+                while time.time() < end_time and not result_future.done():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+
+                if result_future.done():
+                    result_dict = msg_to_dict(result_future.result().result)
+                    out = {"action": args.action, "success": True,
+                           "goal_id": goal_id, "result": result_dict}
+                    if collect_feedback:
+                        with feedback_lock:
+                            out["feedback_msgs"] = list(feedback_msgs)
+                    output(out)
+                    return
+
+                result_future.cancel()
                 if not last_attempt:
                     continue
-                rclpy.shutdown()
-                return output({"error": f"Action server not available: {args.action}"})
 
-            feedback_msgs = []
-            feedback_lock = threading.Lock()
-
-            def _feedback_cb(fb_msg):
-                if collect_feedback:
-                    with feedback_lock:
-                        feedback_msgs.append(msg_to_dict(fb_msg.feedback))
-
-            goal_msg = dict_to_msg(action_class.Goal, goal_data)
-            future = client.send_goal_async(
-                goal_msg,
-                feedback_callback=_feedback_cb if collect_feedback else None,
-            )
-
-            end_time = time.time() + timeout
-            while time.time() < end_time and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-
-            if not future.done():
-                future.cancel()
-                if not last_attempt:
-                    continue
-                rclpy.shutdown()
-                output({"action": args.action, "success": False,
-                        "error": "Timeout waiting for goal acceptance"})
-                return
-
-            goal_handle = future.result()
-
-            if not goal_handle.accepted:
-                if not last_attempt:
-                    continue
-                rclpy.shutdown()
-                output({"action": args.action, "success": False, "error": "Goal rejected"})
-                return
-
-            result_future = goal_handle.get_result_async()
-
-            end_time = time.time() + timeout
-            while time.time() < end_time and not result_future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-
-            if result_future.done():
-                result_msg = result_future.result().result
-                result_dict = msg_to_dict(result_msg)
-                rclpy.shutdown()
-                out = {"action": args.action, "success": True,
-                       "goal_id": goal_id, "result": result_dict}
-                if collect_feedback:
-                    with feedback_lock:
-                        out["feedback_msgs"] = list(feedback_msgs)
-                output(out)
-                return
-
-            result_future.cancel()
-            if not last_attempt:
-                continue
-
-        rclpy.shutdown()
         output({"action": args.action, "success": False,
                 "error": f"Timeout after {timeout}s"})
     except Exception as e:
@@ -197,25 +161,14 @@ def cmd_actions_type(args):
         return output({"error": "action argument is required"})
 
     action = args.action.rstrip('/')
-
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        all_topics = node.get_topic_names_and_types()
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            action_type_str = _get_action_type_str(node, action)
 
-        feedback_topic = action + '/_action/feedback'
-        action_type = None
-        for name, types in all_topics:
-            if name == feedback_topic and types:
-                raw = types[0]
-                action_type = re.sub(r'_FeedbackMessage$', '', raw)
-                break
-
-        if action_type is None:
+        if action_type_str is None:
             return output({"error": f"Action '{action}' not found in the ROS graph"})
-
-        output({"action": action, "type": action_type})
+        output({"action": action, "type": action_type_str})
     except Exception as e:
         output({"error": str(e)})
 
@@ -232,47 +185,112 @@ def cmd_actions_cancel(args):
     try:
         from action_msgs.srv import CancelGoal
         from builtin_interfaces.msg import Time as BuiltinTime
-        rclpy.init()
-        node = ROS2CLI()
+        with ros2_context():
+            node = ROS2CLI()
+            client = node.create_client(CancelGoal, action + '/_action/cancel_goal')
 
-        service_name = action + '/_action/cancel_goal'
-        client = node.create_client(CancelGoal, service_name)
+            for attempt in range(retries):
+                last_attempt = (attempt == retries - 1)
 
-        for attempt in range(retries):
-            last_attempt = (attempt == retries - 1)
+                if not client.wait_for_service(timeout_sec=timeout):
+                    if not last_attempt:
+                        continue
+                    return output({"error": f"Action server '{action}' not available"})
 
-            if not client.wait_for_service(timeout_sec=timeout):
+                request = CancelGoal.Request()
+                request.goal_info.goal_id.uuid = [0] * 16
+                request.goal_info.stamp = BuiltinTime(sec=0, nanosec=0)
+
+                future = client.call_async(request)
+                end_time = time.time() + timeout
+                while time.time() < end_time and not future.done():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+
+                if future.done():
+                    result = future.result()
+                    cancelled = [str(bytes(g.goal_id.uuid)) for g in (result.goals_canceling or [])]
+                    output({
+                        "action": action,
+                        "return_code": result.return_code,
+                        "cancelled_goals": len(cancelled),
+                    })
+                    return
+
+                future.cancel()
                 if not last_attempt:
                     continue
-                rclpy.shutdown()
-                return output({"error": f"Action server '{action}' not available"})
 
-            request = CancelGoal.Request()
-            request.goal_info.goal_id.uuid = [0] * 16
-            request.goal_info.stamp = BuiltinTime(sec=0, nanosec=0)
+        output({"error": f"Timeout cancelling goals on '{action}'"})
+    except Exception as e:
+        output({"error": str(e)})
 
-            future = client.call_async(request)
-            end_time = time.time() + timeout
-            while time.time() < end_time and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
 
-            if future.done():
-                rclpy.shutdown()
-                result = future.result()
-                cancelled = [str(bytes(g.goal_id.uuid)) for g in (result.goals_canceling or [])]
+def cmd_actions_echo(args):
+    """Echo action feedback and status messages from a live action server."""
+    if not args.action:
+        return output({"error": "action argument is required"})
+
+    action = args.action.rstrip('/')
+    feedback_topic = action + '/_action/feedback'
+    status_topic = action + '/_action/status'
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            all_topics = dict(node.get_topic_names_and_types())
+            node.destroy_node()
+
+            if feedback_topic not in all_topics:
+                return output({"error": f"Action server not found: {action}"})
+
+            feedback_type = all_topics[feedback_topic][0]
+            status_type = (all_topics[status_topic][0]
+                           if status_topic in all_topics else None)
+
+            action_base_type = re.sub(r'_FeedbackMessage$', '', feedback_type)
+            action_class = get_action_type(action_base_type)
+            if action_class is None:
+                return output({"error": f"Could not load action type: {action_base_type}"})
+            fb_msg_class = action_class.Impl.FeedbackMessage
+
+            fb_sub = TopicSubscriber(feedback_topic, feedback_type, msg_class=fb_msg_class)
+            if fb_sub.sub is None:
+                return output({"error": f"Could not load feedback message type: {feedback_type}"})
+
+            executor = rclpy.executors.SingleThreadedExecutor()
+            executor.add_node(fb_sub)
+
+            status_sub = None
+            if status_type:
+                status_sub = TopicSubscriber(status_topic, status_type)
+                executor.add_node(status_sub)
+
+            if args.duration:
+                end_time = time.time() + args.duration
+                while time.time() < end_time and len(fb_sub.messages) < (args.max_messages or 100):
+                    executor.spin_once(timeout_sec=0.1)
+                with fb_sub.lock:
+                    feedback_msgs = (fb_sub.messages[:args.max_messages]
+                                     if args.max_messages else fb_sub.messages[:])
+                status_msgs = []
+                if status_sub:
+                    with status_sub.lock:
+                        status_msgs = status_sub.messages[:]
                 output({
                     "action": action,
-                    "return_code": result.return_code,
-                    "cancelled_goals": len(cancelled),
+                    "collected_count": len(feedback_msgs),
+                    "feedback": feedback_msgs,
+                    "status": status_msgs,
                 })
-                return
-
-            future.cancel()
-            if not last_attempt:
-                continue
-
-        rclpy.shutdown()
-        output({"error": f"Timeout cancelling goals on '{action}'"})
+            else:
+                end_time = time.time() + args.timeout
+                while time.time() < end_time:
+                    executor.spin_once(timeout_sec=0.1)
+                    with fb_sub.lock:
+                        if fb_sub.messages:
+                            output({"action": action, "feedback": fb_sub.messages[0]})
+                            return
+                output({"error": "Timeout waiting for action feedback"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -290,10 +308,9 @@ def cmd_actions_find(args):
     target_norm = _norm_action(target_raw)
 
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        all_topics = node.get_topic_names_and_types()
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            all_topics = node.get_topic_names_and_types()
 
         matched = []
         seen = set()

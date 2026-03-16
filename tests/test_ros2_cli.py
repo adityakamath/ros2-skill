@@ -110,7 +110,6 @@ class TestDispatchTable(unittest.TestCase):
         self.assertIs(D[("interface", "ls")], D[("interface", "list")])
         self.assertIs(D[("tf", "ls")], D[("tf", "list")])
         self.assertIs(D[("tf", "get")], D[("tf", "lookup")])
-        self.assertIs(D[("control", "lc")], D[("control", "list-controllers")])
         self.assertIs(D[("launch", "ls")], D[("launch", "list")])
         self.assertIs(D[("run", "ls")], D[("run", "list")])
 
@@ -151,7 +150,7 @@ class TestOutput(unittest.TestCase):
 
 
 
-class TestMessageTypeAliases(unittest.TestCase):
+class TestGetMsgType(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not check_rclpy_available():
@@ -159,22 +158,14 @@ class TestMessageTypeAliases(unittest.TestCase):
         import ros2_cli
         cls.ros2_cli = ros2_cli
 
-    def test_aliases_and_get_type(self):
-        # Dict verification
-        self.assertEqual(self.ros2_cli.MSG_ALIASES['twist'], 'geometry_msgs/Twist')
-        self.assertEqual(len(self.ros2_cli.MSG_ALIASES), 50)
-        
-        # Format verification
-        for a, f in self.ros2_cli.MSG_ALIASES.items():
-            self.assertEqual(a, a.lower())
-            self.assertIn('/', f)
-            self.assertNotIn('/msg/', f)
-        
-        # get_msg_type logic
+    def test_get_msg_type(self):
+        # None/empty inputs return None
         self.assertIsNone(self.ros2_cli.get_msg_type(None))
         self.assertIsNone(self.ros2_cli.get_msg_type(''))
-        # Case insensitivity check (should return same type)
-        self.assertEqual(type(self.ros2_cli.get_msg_type('twist')), type(self.ros2_cli.get_msg_type('TWIST')))
+        # Known resolvable type returns the class
+        msg_type = self.ros2_cli.get_msg_type('std_msgs/msg/String')
+        self.assertIsNotNone(msg_type)
+        self.assertEqual(msg_type.__name__, 'String')
 
 
 
@@ -479,14 +470,10 @@ class TestTFParsing(unittest.TestCase):
         # parsing subset
         self.assertEqual(self.parser.parse_args(["tf", "ls"]).subcommand, "ls")
         self.assertEqual(self.parser.parse_args(["tf", "get", "s", "t"]).subcommand, "get")
-        # verify DISPATCH
+        # verify DISPATCH — only kept aliases: ls, get
         D = self.ros2_cli.DISPATCH
         self.assertIs(D[("tf", "ls")], D[("tf", "list")])
         self.assertIs(D[("tf", "get")], D[("tf", "lookup")])
-        self.assertIs(D[("tf", "e2q")], D[("tf", "euler-from-quaternion")])
-        self.assertIs(D[("tf", "q2e")], D[("tf", "quaternion-from-euler")])
-        self.assertIs(D[("tf", "tp")], D[("tf", "transform-point")])
-        self.assertIs(D[("tf", "tv")], D[("tf", "transform-vector")])
         for key in [k for k in D if k[0] == "tf"]:
             self.assertTrue(callable(D[key]))
 
@@ -661,25 +648,13 @@ class TestControlParsing(unittest.TestCase):
         self.assertEqual(args.channel_id, "1")
 
     def test_control_aliases(self):
-        # Test a subset of aliases for parsing
-        self.assertEqual(self.parser.parse_args(["control", "lct"]).subcommand, "lct")
+        # Test kept aliases for parsing (load, unload)
         self.assertEqual(self.parser.parse_args(["control", "load", "c"]).name, "c")
-        self.assertEqual(self.parser.parse_args(["control", "swc"]).subcommand, "swc")
-        # Verify DISPATCH identity for all aliases
+        self.assertEqual(self.parser.parse_args(["control", "unload", "c"]).name, "c")
+        # Verify DISPATCH identity for kept aliases only
         D = self.ros2_cli.DISPATCH
-        self.assertIs(D[("control", "lct")], D[("control", "list-controller-types")])
-        self.assertIs(D[("control", "lc")], D[("control", "list-controllers")])
-        self.assertIs(D[("control", "lhc")], D[("control", "list-hardware-components")])
-        self.assertIs(D[("control", "lhi")], D[("control", "list-hardware-interfaces")])
         self.assertIs(D[("control", "load")], D[("control", "load-controller")])
         self.assertIs(D[("control", "unload")], D[("control", "unload-controller")])
-        self.assertIs(D[("control", "cc")], D[("control", "configure-controller")])
-        self.assertIs(D[("control", "rcl")], D[("control", "reload-controller-libraries")])
-        self.assertIs(D[("control", "scs")], D[("control", "set-controller-state")])
-        self.assertIs(D[("control", "shcs")], D[("control", "set-hardware-component-state")])
-        self.assertIs(D[("control", "sc")], D[("control", "switch-controllers")])
-        self.assertIs(D[("control", "swc")], D[("control", "switch-controllers")])
-        self.assertIs(D[("control", "vcc")], D[("control", "view-controller-chains")])
 
     def test_control_dispatch_wiring(self):
         for key in [k for k in self.ros2_cli.DISPATCH if k[0] == "control"]:

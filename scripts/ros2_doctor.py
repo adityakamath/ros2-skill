@@ -8,7 +8,7 @@ import time
 
 import rclpy
 
-from ros2_utils import ROS2CLI, output
+from ros2_utils import ROS2CLI, output, ros2_context
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +173,6 @@ def cmd_doctor_hello(args):
     try:
         from std_msgs.msg import String
 
-        rclpy.init()
-        node = ROS2CLI()
-
         hostname = socket.gethostname()
         topic    = args.topic
         timeout  = args.timeout
@@ -183,27 +180,17 @@ def cmd_doctor_hello(args):
         MCAST_GRP  = "225.0.0.1"
         MCAST_PORT = 49150
 
-        ros_heard    = set()
-        mcast_heard  = set()
-        lock         = threading.Lock()
+        ros_heard   = set()
+        mcast_heard = set()
+        lock        = threading.Lock()
 
-        # ----------------------------------------------------------------
-        # ROS subscriber callback
-        # ----------------------------------------------------------------
         def _on_ros_msg(msg):
             data = msg.data.strip()
-            # Filter out own messages
             if hostname in data:
                 return
             with lock:
                 ros_heard.add(data)
 
-        publisher  = node.create_publisher(String, topic, 10)
-        _subscriber = node.create_subscription(String, topic, _on_ros_msg, 10)
-
-        # ----------------------------------------------------------------
-        # UDP multicast receiver (background thread)
-        # ----------------------------------------------------------------
         def _udp_receiver():
             try:
                 sock = socket.socket(
@@ -230,9 +217,6 @@ def cmd_doctor_hello(args):
             except Exception:
                 pass
 
-        # ----------------------------------------------------------------
-        # UDP multicast sender (background thread)
-        # ----------------------------------------------------------------
         def _udp_sender():
             try:
                 sock = socket.socket(
@@ -253,17 +237,18 @@ def cmd_doctor_hello(args):
         recv_thread.start()
         send_thread.start()
 
-        # ----------------------------------------------------------------
-        # ROS publish loop
-        # ----------------------------------------------------------------
         msg      = String()
         msg.data = f"hello, it's me {hostname}"
-        end_time = time.time() + timeout
-        while time.time() < end_time:
-            publisher.publish(msg)
-            rclpy.spin_once(node, timeout_sec=0.1)
 
-        rclpy.shutdown()
+        with ros2_context():
+            node       = ROS2CLI()
+            publisher  = node.create_publisher(String, topic, 10)
+            node.create_subscription(String, topic, _on_ros_msg, 10)
+            end_time = time.time() + timeout
+            while time.time() < end_time:
+                publisher.publish(msg)
+                rclpy.spin_once(node, timeout_sec=0.1)
+
         recv_thread.join(timeout=1.0)
 
         output({
@@ -272,10 +257,10 @@ def cmd_doctor_hello(args):
                 "multicast": f"{MCAST_GRP}:{MCAST_PORT}",
                 "message":   msg.data,
             },
-            "ros_topic_heard_from":    sorted(ros_heard),
-            "multicast_heard_from":    sorted(mcast_heard),
-            "total_ros_hosts":         len(ros_heard),
-            "total_multicast_hosts":   len(mcast_heard),
+            "ros_topic_heard_from":  sorted(ros_heard),
+            "multicast_heard_from":  sorted(mcast_heard),
+            "total_ros_hosts":       len(ros_heard),
+            "total_multicast_hosts": len(mcast_heard),
         })
     except Exception as exc:
         output({"error": str(exc)})

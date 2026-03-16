@@ -26,8 +26,20 @@ from ros2_utils import (
 
 def _find_executables(package):
     """Find executables in a package."""
-    from ros2_utils import get_package_prefix
     prefix = get_package_prefix(package)
+    if not prefix:
+        return []
+
+    lib_dir = os.path.join(prefix, "lib", package)
+
+    executables = []
+    if os.path.isdir(lib_dir):
+        for f in os.listdir(lib_dir):
+            full_path = os.path.join(lib_dir, f)
+            if os.path.isfile(full_path) and os.access(full_path, os.X_OK):
+                executables.append(f)
+
+    return executables
 
 
 def _fuzzy_match(query, candidates, threshold=0.5):
@@ -80,19 +92,6 @@ def _auto_match_executable(user_executable, available_executables):
         return matches[0][0], f"Auto-matched '{user_executable}' to '{matches[0][0]}'"
     
     return user_executable, None
-    if not prefix:
-        return []
-    
-    lib_dir = os.path.join(prefix, "lib", package)
-    
-    executables = []
-    if os.path.isdir(lib_dir):
-        for f in os.listdir(lib_dir):
-            full_path = os.path.join(lib_dir, f)
-            if os.path.isfile(full_path) and os.access(full_path, os.X_OK):
-                executables.append(f)
-    
-    return executables
 
 
 def _apply_params(params_str):

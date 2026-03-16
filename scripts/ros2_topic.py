@@ -14,7 +14,7 @@ from rclpy.qos import qos_profile_system_default
 from ros2_utils import (
     ROS2CLI, get_msg_type, get_msg_error, get_msg_fields,
     msg_to_dict, dict_to_msg, output, resolve_field, _get_service_event_qos,
-    resolve_output_path,
+    resolve_output_path, ros2_context, resolve_topic_type,
 )
 
 # ---------------------------------------------------------------------------
@@ -41,31 +41,14 @@ BATTERY_TYPES = {
 
 # Numeric code → human-readable name (mirrors BatteryState constants).
 _BATTERY_POWER_SUPPLY_STATUS = {
-    0: "UNKNOWN",
-    1: "CHARGING",
-    2: "DISCHARGING",
-    3: "NOT_CHARGING",
-    4: "FULL",
+    0: "UNKNOWN", 1: "CHARGING", 2: "DISCHARGING", 3: "NOT_CHARGING", 4: "FULL",
 }
 _BATTERY_POWER_SUPPLY_HEALTH = {
-    0: "UNKNOWN",
-    1: "GOOD",
-    2: "OVERHEAT",
-    3: "DEAD",
-    4: "OVERVOLTAGE",
-    5: "UNSPEC_FAILURE",
-    6: "COLD",
-    7: "WATCHDOG_TIMER_EXPIRE",
-    8: "SAFETY_TIMER_EXPIRE",
+    0: "UNKNOWN", 1: "GOOD", 2: "OVERHEAT", 3: "DEAD", 4: "OVERVOLTAGE",
+    5: "UNSPEC_FAILURE", 6: "COLD", 7: "WATCHDOG_TIMER_EXPIRE", 8: "SAFETY_TIMER_EXPIRE",
 }
 _BATTERY_POWER_SUPPLY_TECHNOLOGY = {
-    0: "UNKNOWN",
-    1: "NIMH",
-    2: "LION",
-    3: "LIPO",
-    4: "LIFE",
-    5: "NICD",
-    6: "LIMN",
+    0: "UNKNOWN", 1: "NIMH", 2: "LION", 3: "LIPO", 4: "LIFE", 5: "NICD", 6: "LIMN",
 }
 
 
@@ -77,11 +60,6 @@ def cmd_estop(args):
     """Emergency stop for mobile robots - auto-detect and publish zero velocity."""
 
     def find_velocity_topic(node):
-        """Find the velocity command topic by scanning topic types.
-
-        Returns the first topic whose type is Twist or TwistStamped.
-        Prefers topics with 'cmd_vel' in the name when multiple candidates exist.
-        """
         topics = node.get_topic_names()
         candidates = [
             (name, next(t for t in types if t in VELOCITY_TYPES))
@@ -90,78 +68,73 @@ def cmd_estop(args):
         ]
         if not candidates:
             return None, None
-        # Prefer cmd_vel-named topics as the most common convention
         preferred = [(name, t) for name, t in candidates if "cmd_vel" in name.lower()]
         return preferred[0] if preferred else candidates[0]
 
     try:
-        rclpy.init()
-        node = ROS2CLI("estop")
+        with ros2_context():
+            node = ROS2CLI("estop")
 
-        if args.topic:
-            topic = args.topic
-            msg_type = None
-            for name, types in node.get_topic_names():
-                if name == topic and types:
-                    msg_type = types[0]
-                    break
-            if not msg_type:
-                rclpy.shutdown()
-                return output({
-                    "error": f"Could not detect message type for topic '{topic}'",
-                    "hint": "Ensure the topic is active and visible in the ROS graph. Use 'topics type <topic>' to inspect it."
-                })
-        else:
-            topic, msg_type = find_velocity_topic(node)
-
-        if not topic:
-            rclpy.shutdown()
-            return output({
-                "error": "Could not find velocity command topic",
-                "hint": "This command is for mobile robots only (not arms). Ensure the robot has a /cmd_vel topic."
-            })
-
-        msg_class = get_msg_type(msg_type)
-        if not msg_class:
             if args.topic:
-                rclpy.shutdown()
-                return output({
-                    "error": f"Could not load message type '{msg_type}' for topic '{topic}'",
-                    "hint": "Ensure the ROS workspace is built and sourced: cd ~/ros2_ws && colcon build && source install/setup.bash"
-                })
-            else:
-                for t in VELOCITY_TYPES:
-                    msg_class = get_msg_type(t)
-                    if msg_class:
-                        msg_type = t
+                topic = args.topic
+                msg_type = None
+                for name, types in node.get_topic_names():
+                    if name == topic and types:
+                        msg_type = types[0]
                         break
+                if not msg_type:
+                    return output({
+                        "error": f"Could not detect message type for topic '{topic}'",
+                        "hint": "Ensure the topic is active and visible in the ROS graph. Use 'topics type <topic>' to inspect it."
+                    })
+            else:
+                topic, msg_type = find_velocity_topic(node)
 
-        if not msg_class:
-            rclpy.shutdown()
-            return output({"error": f"Could not load message type: {msg_type}"})
+            if not topic:
+                return output({
+                    "error": "Could not find velocity command topic",
+                    "hint": "This command is for mobile robots only (not arms). Ensure the robot has a /cmd_vel topic."
+                })
 
-        pub = node.create_publisher(msg_class, topic, 10)
-        msg = msg_class()
+            msg_class = get_msg_type(msg_type)
+            if not msg_class:
+                if args.topic:
+                    return output({
+                        "error": f"Could not load message type '{msg_type}' for topic '{topic}'",
+                        "hint": "Ensure the ROS workspace is built and sourced: cd ~/ros2_ws && colcon build && source install/setup.bash"
+                    })
+                else:
+                    for t in VELOCITY_TYPES:
+                        msg_class = get_msg_type(t)
+                        if msg_class:
+                            msg_type = t
+                            break
 
-        if hasattr(msg, "twist"):
-            msg.header.stamp = node.get_clock().now().to_msg()
-            msg.twist.linear.x = 0.0
-            msg.twist.linear.y = 0.0
-            msg.twist.linear.z = 0.0
-            msg.twist.angular.x = 0.0
-            msg.twist.angular.y = 0.0
-            msg.twist.angular.z = 0.0
-        else:
-            msg.linear.x = 0.0
-            msg.linear.y = 0.0
-            msg.linear.z = 0.0
-            msg.angular.x = 0.0
-            msg.angular.y = 0.0
-            msg.angular.z = 0.0
+            if not msg_class:
+                return output({"error": f"Could not load message type: {msg_type}"})
 
-        pub.publish(msg)
-        time.sleep(0.1)
-        rclpy.shutdown()
+            pub = node.create_publisher(msg_class, topic, 10)
+            msg = msg_class()
+
+            if hasattr(msg, "twist"):
+                msg.header.stamp = node.get_clock().now().to_msg()
+                msg.twist.linear.x = 0.0
+                msg.twist.linear.y = 0.0
+                msg.twist.linear.z = 0.0
+                msg.twist.angular.x = 0.0
+                msg.twist.angular.y = 0.0
+                msg.twist.angular.z = 0.0
+            else:
+                msg.linear.x = 0.0
+                msg.linear.y = 0.0
+                msg.linear.z = 0.0
+                msg.angular.x = 0.0
+                msg.angular.y = 0.0
+                msg.angular.z = 0.0
+
+            pub.publish(msg)
+            time.sleep(0.1)
+
         output({
             "success": True,
             "topic": topic,
@@ -178,16 +151,15 @@ def cmd_estop(args):
 
 def cmd_topics_list(args):
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        topics = node.get_topic_names()
-        topic_list = []
-        type_list = []
-        for name, types in topics:
-            topic_list.append(name)
-            type_list.append(types[0] if types else "")
-        result = {"topics": topic_list, "types": type_list, "count": len(topic_list)}
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            topics = node.get_topic_names()
+            topic_list = []
+            type_list = []
+            for name, types in topics:
+                topic_list.append(name)
+                type_list.append(types[0] if types else "")
+            result = {"topics": topic_list, "types": type_list, "count": len(topic_list)}
         output(result)
     except Exception as e:
         output({"error": str(e)})
@@ -195,15 +167,14 @@ def cmd_topics_list(args):
 
 def cmd_topics_type(args):
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        topics = node.get_topic_names()
-        result = {"topic": args.topic, "type": ""}
-        for name, types in topics:
-            if name == args.topic:
-                result["type"] = types[0] if types else ""
-                break
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            topics = node.get_topic_names()
+            result = {"topic": args.topic, "type": ""}
+            for name, types in topics:
+                if name == args.topic:
+                    result["type"] = types[0] if types else ""
+                    break
         output(result)
     except Exception as e:
         output({"error": str(e)})
@@ -211,34 +182,32 @@ def cmd_topics_type(args):
 
 def cmd_topics_details(args):
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        topic_types = node.get_topic_names_and_types()
+        with ros2_context():
+            node = ROS2CLI()
+            topic_types = node.get_topic_names_and_types()
+            result = {"topic": args.topic, "type": "", "publishers": [], "subscribers": []}
 
-        result = {"topic": args.topic, "type": "", "publishers": [], "subscribers": []}
+            for name, types in topic_types:
+                if name == args.topic:
+                    result["type"] = types[0] if types else ""
+                    break
 
-        for name, types in topic_types:
-            if name == args.topic:
-                result["type"] = types[0] if types else ""
-                break
+            try:
+                pub_info = node.get_publishers_info_by_topic(args.topic)
+                result["publishers"] = [
+                    f"{i.node_namespace.rstrip('/')}/{i.node_name}" for i in pub_info
+                ]
+            except Exception:
+                pass
 
-        try:
-            pub_info = node.get_publishers_info_by_topic(args.topic)
-            result["publishers"] = [
-                f"{i.node_namespace.rstrip('/')}/{i.node_name}" for i in pub_info
-            ]
-        except Exception:
-            pass
+            try:
+                sub_info = node.get_subscriptions_info_by_topic(args.topic)
+                result["subscribers"] = [
+                    f"{i.node_namespace.rstrip('/')}/{i.node_name}" for i in sub_info
+                ]
+            except Exception:
+                pass
 
-        try:
-            sub_info = node.get_subscriptions_info_by_topic(args.topic)
-            result["subscribers"] = [
-                f"{i.node_namespace.rstrip('/')}/{i.node_name}" for i in sub_info
-            ]
-        except Exception:
-            pass
-
-        rclpy.shutdown()
         output(result)
     except Exception as e:
         output({"error": str(e)})
@@ -281,59 +250,47 @@ def cmd_topics_subscribe(args):
         return output({"error": "topic argument is required"})
 
     try:
-        rclpy.init()
-        node = ROS2CLI("temp")
+        with ros2_context():
+            temp = ROS2CLI("temp")
+            msg_type = resolve_topic_type(temp, args.topic, args.msg_type)
+            temp.destroy_node()
 
-        msg_type = args.msg_type
-        if not msg_type:
-            topics = node.get_topic_names()
-            for name, types in topics:
-                if name == args.topic:
-                    msg_type = types[0] if types else None
-                    break
             if not msg_type:
-                rclpy.shutdown()
                 return output({"error": f"Could not detect message type for topic: {args.topic}"})
 
-        subscriber = TopicSubscriber(args.topic, msg_type)
+            subscriber = TopicSubscriber(args.topic, msg_type)
 
-        if subscriber.sub is None:
-            rclpy.shutdown()
-            return output({"error": f"Could not load message type: {msg_type}"})
+            if subscriber.sub is None:
+                return output({"error": f"Could not load message type: {msg_type}"})
 
-        if args.duration:
             executor = rclpy.executors.SingleThreadedExecutor()
             executor.add_node(subscriber)
-            end_time = time.time() + args.duration
-            while time.time() < end_time and len(subscriber.messages) < (args.max_messages or 100):
-                executor.spin_once(timeout_sec=0.1)
 
-            with subscriber.lock:
-                messages = subscriber.messages[:args.max_messages] if args.max_messages else subscriber.messages
+            if args.duration:
+                end_time = time.time() + args.duration
+                while time.time() < end_time and len(subscriber.messages) < (args.max_messages or 100):
+                    executor.spin_once(timeout_sec=0.1)
 
-            rclpy.shutdown()
-            output({
-                "topic": args.topic,
-                "collected_count": len(messages),
-                "messages": messages
-            })
-        else:
-            executor = rclpy.executors.SingleThreadedExecutor()
-            executor.add_node(subscriber)
-            timeout_sec = args.timeout
-            end_time = time.time() + timeout_sec
-
-            while time.time() < end_time:
-                executor.spin_once(timeout_sec=0.1)
                 with subscriber.lock:
-                    if subscriber.messages:
-                        msg = subscriber.messages[0]
-                        rclpy.shutdown()
-                        output({"msg": msg})
-                        return
+                    messages = subscriber.messages[:args.max_messages] if args.max_messages else subscriber.messages
 
-            rclpy.shutdown()
-            output({"error": "Timeout waiting for message"})
+                output({
+                    "topic": args.topic,
+                    "collected_count": len(messages),
+                    "messages": messages
+                })
+            else:
+                timeout_sec = args.timeout
+                end_time = time.time() + timeout_sec
+
+                while time.time() < end_time:
+                    executor.spin_once(timeout_sec=0.1)
+                    with subscriber.lock:
+                        if subscriber.messages:
+                            output({"msg": subscriber.messages[0]})
+                            return
+
+                output({"error": "Timeout waiting for message"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -361,7 +318,6 @@ class TopicPublisher(Node):
 def quaternion_to_yaw(q):
     """Extract yaw (rotation around z-axis) from quaternion (x, y, z, w)."""
     x, y, z, w = q
-    # Yaw (rotation around z-axis)
     siny_cosp = 2.0 * (w * z + x * y)
     cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
     yaw = math.atan2(siny_cosp, cosy_cosp)
@@ -376,6 +332,7 @@ def normalize_angle(angle):
         angle += 2 * math.pi
     return angle
 
+
 class ConditionMonitor(Node):
     """Subscriber that evaluates a stop condition on every incoming message."""
 
@@ -383,7 +340,7 @@ class ConditionMonitor(Node):
                  euclidean=False, rotate=None):
         super().__init__('condition_monitor')
         self.euclidean = euclidean
-        self.rotate = rotate  # Target rotation in radians
+        self.rotate = rotate
         if isinstance(field, list):
             self.fields = field
             self.field = field[0]
@@ -402,9 +359,9 @@ class ConditionMonitor(Node):
 
         # Rotation-specific
         self.start_yaw = None
-        self.last_yaw = None          # yaw from previous message (for incremental integration)
-        self.accumulated_rotation = 0.0  # signed total rotation so far
-        self.rotation_delta = None    # final value reported in output
+        self.last_yaw = None
+        self.accumulated_rotation = 0.0
+        self.rotation_delta = None
 
         self.start_msg = None
         self.end_msg = None
@@ -473,8 +430,6 @@ class ConditionMonitor(Node):
                     self.stop_event.set()
 
             elif self.rotate is not None:
-                # Rotation monitoring: accumulate signed yaw change across wraparound.
-                # Works for any angle: positive (CCW), negative (CW), >360°, wrapped.
                 try:
                     quat = None
                     for path in ['pose.pose.orientation', 'orientation']:
@@ -503,23 +458,16 @@ class ConditionMonitor(Node):
                     current_yaw = quaternion_to_yaw((qx, qy, qz, qw))
 
                     if self.start_yaw is None:
-                        # First message: record start, no delta yet
                         self.start_yaw = current_yaw
                         self.last_yaw = current_yaw
                         self.start_msg = msg_dict
                         return
 
-                    # Integrate signed incremental delta to accumulate total rotation.
-                    # normalize_angle keeps each step in [-pi, pi], handling wraparound
-                    # correctly regardless of direction or total angle size.
                     step = normalize_angle(current_yaw - self.last_yaw)
                     self.accumulated_rotation += step
                     self.last_yaw = current_yaw
                     self.rotation_delta = self.accumulated_rotation
 
-                    # Stop when accumulated rotation reaches the signed target:
-                    # - positive target (CCW): stop when accumulated >= target
-                    # - negative target (CW):  stop when accumulated <= target
                     target = self.rotate
                     if target > 0 and self.accumulated_rotation >= target:
                         self.end_msg = msg_dict
@@ -627,62 +575,52 @@ def cmd_topics_publish(args):
         return output({"error": f"Invalid JSON message: {e}"})
 
     try:
-        rclpy.init()
+        with ros2_context():
+            topic = args.topic
+            temp_node = ROS2CLI("temp")
+            msg_type = resolve_topic_type(temp_node, topic, args.msg_type)
+            temp_node.destroy_node()
 
-        msg_type = args.msg_type
-        topic = args.topic
+            if not msg_type:
+                return output({"error": f"Could not detect message type for topic: {topic}. Use --msg-type to specify."})
 
-        temp_node = ROS2CLI("temp")
-        for name, types in temp_node.get_topic_names():
-            if name == topic and types:
-                msg_type = types[0]
-                break
+            msg_class = get_msg_type(msg_type)
+            if not msg_class:
+                return output(get_msg_error(msg_type))
 
-        if not msg_type:
-            rclpy.shutdown()
-            return output({"error": f"Could not detect message type for topic: {topic}. Use --msg-type to specify."})
+            publisher = TopicPublisher(topic, msg_type)
 
-        msg_class = get_msg_type(msg_type)
-        if not msg_class:
-            rclpy.shutdown()
-            return output(get_msg_error(msg_type))
+            if publisher.pub is None:
+                return output({"error": f"Failed to create publisher for {msg_type}"})
 
-        publisher = TopicPublisher(topic, msg_type)
+            msg = dict_to_msg(msg_class, msg_data)
 
-        if publisher.pub is None:
-            rclpy.shutdown()
-            return output({"error": f"Failed to create publisher for {msg_type}"})
+            rate = getattr(args, "rate", None) or 10.0
+            duration = getattr(args, "duration", None) or getattr(args, "timeout", None)
+            interval = 1.0 / rate
 
-        msg = dict_to_msg(msg_class, msg_data)
-
-        rate = getattr(args, "rate", None) or 10.0
-        duration = getattr(args, "duration", None) or getattr(args, "timeout", None)
-        interval = 1.0 / rate
-
-        if duration and duration > 0:
-            published = 0
-            start_time = time.time()
-            end_time = start_time + duration
-            stopped_by = "timeout"
-            try:
-                while time.time() < end_time:
-                    publisher.pub.publish(msg)
-                    published += 1
-                    remaining = end_time - time.time()
-                    if remaining > 0:
-                        time.sleep(min(interval, remaining))
-            except KeyboardInterrupt:
-                stopped_by = "keyboard_interrupt"
-            elapsed = round(time.time() - start_time, 3)
-            rclpy.shutdown()
-            output({"success": True, "topic": topic, "msg_type": msg_type,
-                    "duration": elapsed, "rate": rate, "published_count": published,
-                    "stopped_by": stopped_by})
-        else:
-            publisher.pub.publish(msg)
-            time.sleep(0.1)
-            rclpy.shutdown()
-            output({"success": True, "topic": topic, "msg_type": msg_type})
+            if duration and duration > 0:
+                published = 0
+                start_time = time.time()
+                end_time = start_time + duration
+                stopped_by = "timeout"
+                try:
+                    while time.time() < end_time:
+                        publisher.pub.publish(msg)
+                        published += 1
+                        remaining = end_time - time.time()
+                        if remaining > 0:
+                            time.sleep(min(interval, remaining))
+                except KeyboardInterrupt:
+                    stopped_by = "keyboard_interrupt"
+                elapsed = round(time.time() - start_time, 3)
+                output({"success": True, "topic": topic, "msg_type": msg_type,
+                        "duration": elapsed, "rate": rate, "published_count": published,
+                        "stopped_by": stopped_by})
+            else:
+                publisher.pub.publish(msg)
+                time.sleep(0.1)
+                output({"success": True, "topic": topic, "msg_type": msg_type})
     except Exception as e:
         output({"error": str(e)})
 
@@ -704,53 +642,44 @@ def cmd_topics_publish_sequence(args):
         return output({"error": "messages and durations must have same length"})
 
     try:
-        rclpy.init()
+        with ros2_context():
+            topic = args.topic
+            temp_node = ROS2CLI("temp")
+            msg_type = resolve_topic_type(temp_node, topic, args.msg_type)
+            temp_node.destroy_node()
 
-        msg_type = args.msg_type
-        topic = args.topic
+            if not msg_type:
+                return output({"error": f"Could not detect message type for topic: {topic}. Use --msg-type to specify."})
 
-        temp_node = ROS2CLI("temp")
-        for name, types in temp_node.get_topic_names():
-            if name == topic and types:
-                msg_type = types[0]
-                break
+            msg_class = get_msg_type(msg_type)
+            if not msg_class:
+                return output(get_msg_error(msg_type))
 
-        if not msg_type:
-            rclpy.shutdown()
-            return output({"error": f"Could not detect message type for topic: {topic}. Use --msg-type to specify."})
+            publisher = TopicPublisher(topic, msg_type)
 
-        msg_class = get_msg_type(msg_type)
-        if not msg_class:
-            rclpy.shutdown()
-            return output(get_msg_error(msg_type))
+            if publisher.pub is None:
+                return output({"error": f"Failed to create publisher for {msg_type}"})
 
-        publisher = TopicPublisher(topic, msg_type)
+            rate = getattr(args, "rate", None) or 10.0
+            interval = 1.0 / rate
 
-        if publisher.pub is None:
-            rclpy.shutdown()
-            return output({"error": f"Failed to create publisher for {msg_type}"})
-
-        rate = getattr(args, "rate", None) or 10.0
-        interval = 1.0 / rate
-
-        total_published = 0
-        for msg_data, dur in zip(messages, durations):
-            msg = dict_to_msg(msg_class, msg_data)
-            if dur > 0:
-                end_time = time.time() + dur
-                while time.time() < end_time:
+            total_published = 0
+            for msg_data, dur in zip(messages, durations):
+                msg = dict_to_msg(msg_class, msg_data)
+                if dur > 0:
+                    end_time = time.time() + dur
+                    while time.time() < end_time:
+                        publisher.pub.publish(msg)
+                        total_published += 1
+                        remaining = end_time - time.time()
+                        if remaining > 0:
+                            time.sleep(min(interval, remaining))
+                else:
                     publisher.pub.publish(msg)
                     total_published += 1
-                    remaining = end_time - time.time()
-                    if remaining > 0:
-                        time.sleep(min(interval, remaining))
-            else:
-                publisher.pub.publish(msg)
-                total_published += 1
 
-        rclpy.shutdown()
-        output({"success": True, "published_count": total_published, "topic": topic,
-                "rate": rate})
+            output({"success": True, "published_count": total_published, "topic": topic,
+                    "rate": rate})
     except Exception as e:
         output({"error": str(e)})
 
@@ -769,14 +698,12 @@ def cmd_topics_publish_until(args):
     use_degrees = getattr(args, 'degrees', False)
 
     if rotate_angle is not None:
-        # --rotate specified: no --field needed, auto-detects orientation from odometry
         if args.field:
             return output({"error": "--rotate cannot be used with --field"})
         if args.euclidean:
             return output({"error": "--rotate cannot be used with --euclidean"})
         if args.delta or args.above or args.below or args.equals:
             return output({"error": "--rotate cannot be used with --delta, --above, --below, or --equals"})
-        # Explicitly convert to float (argparse type=float may not always work)
         try:
             rotate_angle = float(rotate_angle)
         except (TypeError, ValueError):
@@ -785,12 +712,11 @@ def cmd_topics_publish_until(args):
             rotate_angle = math.radians(rotate_angle)
         if rotate_angle == 0:
             return output({"error": "--rotate angle must be non-zero"})
+        field_paths = ['pose.pose.orientation']
     else:
-        # Normal operation: --field is required
         if not args.field:
             return output({"error": "--field argument is required (or use --rotate for rotation)"})
-
-    field_paths = args.field if args.field else []
+        field_paths = args.field
     euclidean = getattr(args, 'euclidean', False)
 
     if rotate_angle is None and len(field_paths) > 1 and not euclidean:
@@ -818,141 +744,115 @@ def cmd_topics_publish_until(args):
         return output({"error": f"Invalid JSON message: {e}"})
 
     try:
-        rclpy.init()
+        with ros2_context():
+            temp_node = ROS2CLI("temp")
+            pub_msg_type = resolve_topic_type(temp_node, args.topic, args.msg_type)
+            mon_msg_type = resolve_topic_type(temp_node, args.monitor, args.monitor_msg_type)
+            temp_node.destroy_node()
 
-        pub_msg_type = args.msg_type
-        mon_msg_type = args.monitor_msg_type
+            if not pub_msg_type:
+                return output({"error": f"Could not detect message type for topic: {args.topic}. Use --msg-type."})
+            if not mon_msg_type:
+                return output({"error": f"Could not detect message type for monitor topic: {args.monitor}. Use --monitor-msg-type."})
 
-        temp_node = ROS2CLI("temp")
-        for name, types in temp_node.get_topic_names():
-            if name == args.topic and types and not pub_msg_type:
-                pub_msg_type = types[0]
-            if name == args.monitor and types and not mon_msg_type:
-                mon_msg_type = types[0]
+            pub_msg_class = get_msg_type(pub_msg_type)
+            if not pub_msg_class:
+                return output(get_msg_error(pub_msg_type))
 
-        if not pub_msg_type:
-            rclpy.shutdown()
-            return output({"error": f"Could not detect message type for topic: {args.topic}. Use --msg-type."})
-        if not mon_msg_type:
-            rclpy.shutdown()
-            return output({"error": f"Could not detect message type for monitor topic: {args.monitor}. Use --monitor-msg-type."})
+            stop_event = threading.Event()
+            publisher = TopicPublisher(args.topic, pub_msg_type)
+            monitor = ConditionMonitor(
+                args.monitor, mon_msg_type,
+                field_paths if euclidean else field_paths[0],
+                operator, threshold, stop_event,
+                euclidean=euclidean,
+                rotate=rotate_angle,
+            )
 
-        pub_msg_class = get_msg_type(pub_msg_type)
-        if not pub_msg_class:
-            rclpy.shutdown()
-            return output(get_msg_error(pub_msg_type))
+            if publisher.pub is None:
+                return output({"error": f"Failed to create publisher for {pub_msg_type}"})
+            if monitor.sub is None:
+                return output({"error": f"Could not load monitor message type: {mon_msg_type}"})
 
-        # Handle --rotate flag
-        rotate_angle = getattr(args, 'rotate', None)
-        use_degrees = getattr(args, 'degrees', False)
-        if rotate_angle is not None:
-            # Explicitly convert to float (argparse type=float may not always work)
+            msg = dict_to_msg(pub_msg_class, msg_data)
+
+            executor = rclpy.executors.SingleThreadedExecutor()
+            executor.add_node(publisher)
+            executor.add_node(monitor)
+
+            rate = args.rate or 10.0
+            timeout = args.timeout
+            interval = 1.0 / rate
+            start_time = time.time()
+            published_count = 0
+
             try:
-                rotate_angle = float(rotate_angle)
-            except (TypeError, ValueError):
-                return output({"error": "--rotate must be a numeric value"})
-            if use_degrees:
-                rotate_angle = math.radians(rotate_angle)  # Convert to radians
-            # For rotation, we don't need field paths - it's handled internally
-            field_paths = ['pose.pose.orientation']  # Required for quaternion extraction
+                while not stop_event.is_set():
+                    if timeout and (time.time() - start_time) >= timeout:
+                        break
+                    publisher.pub.publish(msg)
+                    published_count += 1
+                    executor.spin_once(timeout_sec=interval)
+            finally:
+                stop_event.set()
 
-        stop_event = threading.Event()
-        publisher = TopicPublisher(args.topic, pub_msg_type)
-        monitor = ConditionMonitor(
-            args.monitor, mon_msg_type,
-            field_paths if euclidean else field_paths[0],
-            operator, threshold, stop_event,
-            euclidean=euclidean,
-            rotate=rotate_angle,
-        )
+            elapsed = round(time.time() - start_time, 3)
 
-        if publisher.pub is None:
-            rclpy.shutdown()
-            return output({"error": f"Failed to create publisher for {pub_msg_type}"})
-        if monitor.sub is None:
-            rclpy.shutdown()
-            return output({"error": f"Could not load monitor message type: {mon_msg_type}"})
+            with monitor.lock:
+                if monitor.field_error:
+                    return output({"error": monitor.field_error})
 
-        msg = dict_to_msg(pub_msg_class, msg_data)
+                condition_met = monitor.end_msg is not None
 
-        executor = rclpy.executors.SingleThreadedExecutor()
-        executor.add_node(publisher)
-        executor.add_node(monitor)
+                if euclidean:
+                    base = {
+                        "topic": args.topic,
+                        "monitor_topic": args.monitor,
+                        "fields": field_paths,
+                        "operator": "euclidean_delta",
+                        "threshold": threshold,
+                        "start_values": monitor.start_values,
+                        "end_values": monitor.current_values,
+                        "euclidean_distance": monitor.euclidean_distance,
+                        "duration": elapsed,
+                        "published_count": published_count,
+                    }
+                elif getattr(args, 'rotate', None) is not None:
+                    base = {
+                        "topic": args.topic,
+                        "monitor_topic": args.monitor,
+                        "operator": "rotate",
+                        "target_rotation": rotate_angle,
+                        "target_rotation_degrees": math.degrees(rotate_angle),
+                        "actual_rotation": monitor.rotation_delta,
+                        "actual_rotation_degrees": math.degrees(monitor.rotation_delta) if monitor.rotation_delta is not None else None,
+                        "duration": elapsed,
+                        "published_count": published_count,
+                    }
+                else:
+                    base = {
+                        "topic": args.topic,
+                        "monitor_topic": args.monitor,
+                        "field": field_paths[0],
+                        "operator": operator,
+                        "threshold": threshold,
+                        "start_value": monitor.start_value,
+                        "end_value": monitor.current_value,
+                        "duration": elapsed,
+                        "published_count": published_count,
+                    }
 
-        rate = args.rate or 10.0
-        timeout = args.timeout
-        interval = 1.0 / rate
-        start_time = time.time()
-        published_count = 0
-
-        try:
-            while not stop_event.is_set():
-                if timeout and (time.time() - start_time) >= timeout:
-                    break
-                publisher.pub.publish(msg)
-                published_count += 1
-                executor.spin_once(timeout_sec=interval)
-        finally:
-            stop_event.set()
-            rclpy.shutdown()
-
-        elapsed = round(time.time() - start_time, 3)
-
-        with monitor.lock:
-            if monitor.field_error:
-                return output({"error": monitor.field_error})
-
-            condition_met = monitor.end_msg is not None
-
-            if euclidean:
-                base = {
-                    "topic": args.topic,
-                    "monitor_topic": args.monitor,
-                    "fields": field_paths,
-                    "operator": "euclidean_delta",
-                    "threshold": threshold,
-                    "start_values": monitor.start_values,
-                    "end_values": monitor.current_values,
-                    "euclidean_distance": monitor.euclidean_distance,
-                    "duration": elapsed,
-                    "published_count": published_count,
-                }
-            elif getattr(args, 'rotate', None) is not None:
-                base = {
-                    "topic": args.topic,
-                    "monitor_topic": args.monitor,
-                    "operator": "rotate",
-                    "target_rotation": rotate_angle,
-                    "target_rotation_degrees": math.degrees(rotate_angle),
-                    "actual_rotation": monitor.rotation_delta,
-                    "actual_rotation_degrees": math.degrees(monitor.rotation_delta) if monitor.rotation_delta is not None else None,
-                    "duration": elapsed,
-                    "published_count": published_count,
-                }
-            else:
-                base = {
-                    "topic": args.topic,
-                    "monitor_topic": args.monitor,
-                    "field": field_paths[0],
-                    "operator": operator,
-                    "threshold": threshold,
-                    "start_value": monitor.start_value,
-                    "end_value": monitor.current_value,
-                    "duration": elapsed,
-                    "published_count": published_count,
-                }
-
-            if condition_met:
-                output({**base,
-                        "success": True,
-                        "condition_met": True,
-                        "start_msg": monitor.start_msg,
-                        "end_msg": monitor.end_msg})
-            else:
-                output({**base,
-                        "success": False,
-                        "condition_met": False,
-                        "error": f"Timeout after {timeout}s: condition not met"})
+                if condition_met:
+                    output({**base,
+                            "success": True,
+                            "condition_met": True,
+                            "start_msg": monitor.start_msg,
+                            "end_msg": monitor.end_msg})
+                else:
+                    output({**base,
+                            "success": False,
+                            "condition_met": False,
+                            "error": f"Timeout after {timeout}s: condition not met"})
 
     except Exception as e:
         output({"error": str(e)})
@@ -972,39 +872,35 @@ def cmd_topics_hz(args):
     timeout = args.timeout
 
     try:
-        rclpy.init()
-        probe = ROS2CLI()
-        topic_types = dict(probe.get_topic_names_and_types())
-        rclpy.shutdown()
+        with ros2_context():
+            probe = ROS2CLI()
+            topic_types = dict(probe.get_topic_names_and_types())
+            probe.destroy_node()
 
-        if topic not in topic_types:
-            return output({"error": f"Topic '{topic}' not found in the ROS graph"})
-        msg_type = topic_types[topic][0]
+            if topic not in topic_types:
+                return output({"error": f"Topic '{topic}' not found in the ROS graph"})
+            msg_type = topic_types[topic][0]
 
-        rclpy.init()
-        done_event = threading.Event()
-        monitor = HzMonitor(topic, msg_type, window, done_event)
+            done_event = threading.Event()
+            monitor = HzMonitor(topic, msg_type, window, done_event)
 
-        if monitor.sub is None:
-            rclpy.shutdown()
-            return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
+            if monitor.sub is None:
+                return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
 
-        executor = rclpy.executors.SingleThreadedExecutor()
-        executor.add_node(monitor)
+            executor = rclpy.executors.SingleThreadedExecutor()
+            executor.add_node(monitor)
 
-        def _spin():
-            while not done_event.is_set():
-                executor.spin_once(timeout_sec=0.1)
+            def _spin():
+                while not done_event.is_set():
+                    executor.spin_once(timeout_sec=0.1)
 
-        spin_thread = threading.Thread(target=_spin, daemon=True)
-        spin_thread.start()
-        done_event.wait(timeout=timeout)
-        spin_thread.join(timeout=1.0)
+            spin_thread = threading.Thread(target=_spin, daemon=True)
+            spin_thread.start()
+            done_event.wait(timeout=timeout)
+            spin_thread.join(timeout=1.0)
 
-        with monitor.lock:
-            timestamps = list(monitor.timestamps)
-
-        rclpy.shutdown()
+            with monitor.lock:
+                timestamps = list(monitor.timestamps)
 
         if len(timestamps) < 2:
             return output({"error": f"Fewer than 2 messages received within {timeout}s on '{topic}'"})
@@ -1043,10 +939,9 @@ def cmd_topics_find(args):
     target_norm = _norm_msg(target_raw)
 
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        all_topics = node.get_topic_names_and_types()
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            all_topics = node.get_topic_names_and_types()
 
         matched = [
             name for name, types in all_topics
@@ -1106,38 +1001,35 @@ def cmd_topics_bw(args):
     timeout = args.timeout
 
     try:
-        rclpy.init()
-        probe = ROS2CLI()
-        topic_types = dict(probe.get_topic_names_and_types())
-        rclpy.shutdown()
+        with ros2_context():
+            probe = ROS2CLI()
+            topic_types = dict(probe.get_topic_names_and_types())
+            probe.destroy_node()
 
-        if topic not in topic_types:
-            return output({"error": f"Topic '{topic}' not found in the ROS graph"})
-        msg_type = topic_types[topic][0]
+            if topic not in topic_types:
+                return output({"error": f"Topic '{topic}' not found in the ROS graph"})
+            msg_type = topic_types[topic][0]
 
-        rclpy.init()
-        done_event = threading.Event()
-        monitor = BwMonitor(topic, msg_type, window, done_event)
+            done_event = threading.Event()
+            monitor = BwMonitor(topic, msg_type, window, done_event)
 
-        if monitor.sub is None:
-            rclpy.shutdown()
-            return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
+            if monitor.sub is None:
+                return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
 
-        executor = rclpy.executors.SingleThreadedExecutor()
-        executor.add_node(monitor)
+            executor = rclpy.executors.SingleThreadedExecutor()
+            executor.add_node(monitor)
 
-        def _spin():
-            while not done_event.is_set():
-                executor.spin_once(timeout_sec=0.1)
+            def _spin():
+                while not done_event.is_set():
+                    executor.spin_once(timeout_sec=0.1)
 
-        spin_thread = threading.Thread(target=_spin, daemon=True)
-        spin_thread.start()
-        done_event.wait(timeout=timeout)
-        spin_thread.join(timeout=1.0)
+            spin_thread = threading.Thread(target=_spin, daemon=True)
+            spin_thread.start()
+            done_event.wait(timeout=timeout)
+            spin_thread.join(timeout=1.0)
 
-        with monitor.lock:
-            samples = list(monitor.samples)
-        rclpy.shutdown()
+            with monitor.lock:
+                samples = list(monitor.samples)
 
         if len(samples) < 2:
             return output({"error": f"Fewer than 2 messages received within {timeout}s on '{topic}'"})
@@ -1202,39 +1094,36 @@ def cmd_topics_delay(args):
     timeout = args.timeout
 
     try:
-        rclpy.init()
-        probe = ROS2CLI()
-        topic_types = dict(probe.get_topic_names_and_types())
-        rclpy.shutdown()
+        with ros2_context():
+            probe = ROS2CLI()
+            topic_types = dict(probe.get_topic_names_and_types())
+            probe.destroy_node()
 
-        if topic not in topic_types:
-            return output({"error": f"Topic '{topic}' not found in the ROS graph"})
-        msg_type = topic_types[topic][0]
+            if topic not in topic_types:
+                return output({"error": f"Topic '{topic}' not found in the ROS graph"})
+            msg_type = topic_types[topic][0]
 
-        rclpy.init()
-        done_event = threading.Event()
-        monitor = DelayMonitor(topic, msg_type, window, done_event)
+            done_event = threading.Event()
+            monitor = DelayMonitor(topic, msg_type, window, done_event)
 
-        if monitor.sub is None:
-            rclpy.shutdown()
-            return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
+            if monitor.sub is None:
+                return output({"error": f"Could not subscribe to '{topic}' with type '{msg_type}'"})
 
-        executor = rclpy.executors.SingleThreadedExecutor()
-        executor.add_node(monitor)
+            executor = rclpy.executors.SingleThreadedExecutor()
+            executor.add_node(monitor)
 
-        def _spin():
-            while not done_event.is_set():
-                executor.spin_once(timeout_sec=0.1)
+            def _spin():
+                while not done_event.is_set():
+                    executor.spin_once(timeout_sec=0.1)
 
-        spin_thread = threading.Thread(target=_spin, daemon=True)
-        spin_thread.start()
-        done_event.wait(timeout=timeout)
-        spin_thread.join(timeout=1.0)
+            spin_thread = threading.Thread(target=_spin, daemon=True)
+            spin_thread.start()
+            done_event.wait(timeout=timeout)
+            spin_thread.join(timeout=1.0)
 
-        with monitor.lock:
-            delays = list(monitor.delays)
-            header_missing = monitor.header_missing
-        rclpy.shutdown()
+            with monitor.lock:
+                delays = list(monitor.delays)
+                header_missing = monitor.header_missing
 
         if header_missing:
             return output({"error": f"Topic '{topic}' messages have no header.stamp field"})
@@ -1276,28 +1165,26 @@ def cmd_topics_capture_image(args):
     out_path = resolve_output_path(output_filename)
 
     try:
-        rclpy.init()
-        node = rclpy.create_node('image_capture')
         received = {}
 
         def cb(msg):
             received['msg'] = msg
 
-        if img_type == 'compressed' or (img_type == 'auto' and topic.endswith('/compressed')):
-            node.create_subscription(CompressedImage, topic, cb, 10)
-        else:
-            node.create_subscription(Image, topic, cb, 10)
+        with ros2_context():
+            node = rclpy.create_node('image_capture')
 
-        executor = rclpy.executors.SingleThreadedExecutor()
-        executor.add_node(node)
-        start = time.time()
-        while time.time() - start < timeout:
-            rclpy.spin_once(node, timeout_sec=0.1)
-            if 'msg' in received:
-                break
+            if img_type == 'compressed' or (img_type == 'auto' and topic.endswith('/compressed')):
+                node.create_subscription(CompressedImage, topic, cb, 10)
+            else:
+                node.create_subscription(Image, topic, cb, 10)
 
-        node.destroy_node()
-        rclpy.shutdown()
+            start = time.time()
+            while time.time() - start < timeout:
+                rclpy.spin_once(node, timeout_sec=0.1)
+                if 'msg' in received:
+                    break
+
+            node.destroy_node()
 
         if 'msg' not in received:
             return output({"error": f"No image received from {topic} within {timeout} seconds"})
@@ -1316,156 +1203,6 @@ def cmd_topics_capture_image(args):
             return output({"error": "Unknown image message type"})
 
         output({"success": True, "path": out_path})
-    except Exception as e:
-        output({"error": str(e)})
-
-
-# ---------------------------------------------------------------------------
-# services echo (topic-level: subscribes to _service_event topic)
-# ---------------------------------------------------------------------------
-
-def cmd_services_echo(args):
-    """Echo service request/response events via service introspection."""
-    if not args.service:
-        return output({"error": "service argument is required"})
-
-    service = args.service.rstrip('/')
-    event_topic = service + '/_service_event'
-
-    try:
-        rclpy.init()
-        node = ROS2CLI()
-        all_topics = dict(node.get_topic_names_and_types())
-        rclpy.shutdown()
-
-        if event_topic not in all_topics:
-            return output({
-                "error": f"No service event topic found: {event_topic}",
-                "hint": (
-                    "Service introspection must be enabled on the server/client "
-                    "via configure_introspection(clock, qos, "
-                    "ServiceIntrospectionState.METADATA or CONTENTS)."
-                ),
-            })
-
-        msg_type = all_topics[event_topic][0]
-
-        rclpy.init()
-        subscriber = TopicSubscriber(event_topic, msg_type,
-                                     qos=_get_service_event_qos())
-
-        if subscriber.sub is None:
-            rclpy.shutdown()
-            return output({"error": f"Could not load event message type: {msg_type}"})
-
-        executor = rclpy.executors.SingleThreadedExecutor()
-        executor.add_node(subscriber)
-
-        window = args.duration if args.duration is not None else args.timeout
-        max_events = args.max_messages
-        end_time = time.time() + window
-
-        try:
-            while time.time() < end_time:
-                if max_events is not None and len(subscriber.messages) >= max_events:
-                    break
-                executor.spin_once(timeout_sec=0.1)
-        except KeyboardInterrupt:
-            pass
-
-        with subscriber.lock:
-            events = (subscriber.messages[:max_events]
-                      if max_events is not None else subscriber.messages[:])
-        rclpy.shutdown()
-        output({
-            "service": service,
-            "event_topic": event_topic,
-            "collected_count": len(events),
-            "events": events,
-        })
-    except Exception as e:
-        output({"error": str(e)})
-
-
-# ---------------------------------------------------------------------------
-# actions echo (topic-level: subscribes to _action/feedback topic)
-# ---------------------------------------------------------------------------
-
-def cmd_actions_echo(args):
-    """Echo action feedback and status messages from a live action server."""
-    import re
-    if not args.action:
-        return output({"error": "action argument is required"})
-
-    action = args.action.rstrip('/')
-    feedback_topic = action + '/_action/feedback'
-    status_topic = action + '/_action/status'
-
-    try:
-        rclpy.init()
-        node = ROS2CLI()
-        all_topics = dict(node.get_topic_names_and_types())
-        rclpy.shutdown()
-
-        if feedback_topic not in all_topics:
-            return output({"error": f"Action server not found: {action}"})
-
-        feedback_type = all_topics[feedback_topic][0]
-        status_type = (all_topics[status_topic][0]
-                       if status_topic in all_topics else None)
-
-        from ros2_utils import get_action_type
-        action_base_type = re.sub(r'_FeedbackMessage$', '', feedback_type)
-        action_class = get_action_type(action_base_type)
-        if action_class is None:
-            return output({"error": f"Could not load action type: {action_base_type}"})
-        fb_msg_class = action_class.Impl.FeedbackMessage
-
-        rclpy.init()
-        fb_sub = TopicSubscriber(feedback_topic, feedback_type, msg_class=fb_msg_class)
-
-        if fb_sub.sub is None:
-            rclpy.shutdown()
-            return output({"error": f"Could not load feedback message type: {feedback_type}"})
-
-        executor = rclpy.executors.SingleThreadedExecutor()
-        executor.add_node(fb_sub)
-
-        status_sub = None
-        if status_type:
-            status_sub = TopicSubscriber(status_topic, status_type)
-            executor.add_node(status_sub)
-
-        if args.duration:
-            end_time = time.time() + args.duration
-            while time.time() < end_time and len(fb_sub.messages) < (args.max_messages or 100):
-                executor.spin_once(timeout_sec=0.1)
-            with fb_sub.lock:
-                feedback_msgs = (fb_sub.messages[:args.max_messages]
-                                 if args.max_messages else fb_sub.messages[:])
-            status_msgs = []
-            if status_sub:
-                with status_sub.lock:
-                    status_msgs = status_sub.messages[:]
-            rclpy.shutdown()
-            output({
-                "action": action,
-                "collected_count": len(feedback_msgs),
-                "feedback": feedback_msgs,
-                "status": status_msgs,
-            })
-        else:
-            end_time = time.time() + args.timeout
-            while time.time() < end_time:
-                executor.spin_once(timeout_sec=0.1)
-                with fb_sub.lock:
-                    if fb_sub.messages:
-                        msg = fb_sub.messages[0]
-                        rclpy.shutdown()
-                        output({"action": action, "feedback": msg})
-                        return
-            rclpy.shutdown()
-            output({"error": "Timeout waiting for action feedback"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -1507,10 +1244,9 @@ def _parse_diag_array(msg_dict):
 def cmd_topics_diag_list(args):
     """List all topics that publish DiagnosticArray messages (discovered by type)."""
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        topics = _discover_diag_topics(node)
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            topics = _discover_diag_topics(node)
         output({"topics": topics, "count": len(topics)})
     except Exception as e:
         output({"error": str(e)})
@@ -1526,113 +1262,102 @@ def cmd_topics_diag(args):
     key-value pairs.
     """
     try:
-        rclpy.init()
-        node = ROS2CLI("diag_temp")
+        with ros2_context():
+            node = ROS2CLI("diag_temp")
 
-        if args.topic:
-            # Verify topic exists and resolve its type.
-            resolved_type = None
-            for name, types in node.get_topic_names_and_types():
-                if name == args.topic:
-                    resolved_type = types[0] if types else None
+            if args.topic:
+                resolved_type = None
+                for name, types in node.get_topic_names_and_types():
+                    if name == args.topic:
+                        resolved_type = types[0] if types else None
+                        break
+                if resolved_type is None:
+                    return output({
+                        "error": f"Could not detect type for topic '{args.topic}'",
+                        "hint": "Ensure the topic is active. Use 'topics type <topic>' to inspect it.",
+                    })
+                diag_topics = [{"topic": args.topic, "type": resolved_type}]
+            else:
+                diag_topics = _discover_diag_topics(node)
+                if not diag_topics:
+                    return output({
+                        "error": "No diagnostic topics found",
+                        "hint": (
+                            "Ensure diagnostics-publishing nodes are running. "
+                            "Diagnostic topics may be named /diagnostics, "
+                            "<node>/diagnostics, or any other name — they are "
+                            "identified by their DiagnosticArray message type."
+                        ),
+                    })
+
+            diag_class = None
+            for t in ("diagnostic_msgs/msg/DiagnosticArray", "diagnostic_msgs/DiagnosticArray"):
+                diag_class = get_msg_type(t)
+                if diag_class:
                     break
-            if resolved_type is None:
-                rclpy.shutdown()
+            if diag_class is None:
                 return output({
-                    "error": f"Could not detect type for topic '{args.topic}'",
-                    "hint": "Ensure the topic is active. Use 'topics type <topic>' to inspect it.",
-                })
-            diag_topics = [{"topic": args.topic, "type": resolved_type}]
-        else:
-            diag_topics = _discover_diag_topics(node)
-            if not diag_topics:
-                rclpy.shutdown()
-                return output({
-                    "error": "No diagnostic topics found",
+                    "error": "Could not load diagnostic_msgs/DiagnosticArray",
                     "hint": (
-                        "Ensure diagnostics-publishing nodes are running. "
-                        "Diagnostic topics may be named /diagnostics, "
-                        "<node>/diagnostics, or any other name — they are "
-                        "identified by their DiagnosticArray message type."
+                        "Install the diagnostics package: "
+                        "sudo apt install ros-$ROS_DISTRO-diagnostics"
                     ),
                 })
 
-        # Load the DiagnosticArray message class once.
-        diag_class = None
-        for t in ("diagnostic_msgs/msg/DiagnosticArray", "diagnostic_msgs/DiagnosticArray"):
-            diag_class = get_msg_type(t)
-            if diag_class:
-                break
-        if diag_class is None:
-            rclpy.shutdown()
-            return output({
-                "error": "Could not load diagnostic_msgs/DiagnosticArray",
-                "hint": (
-                    "Install the diagnostics package: "
-                    "sudo apt install ros-$ROS_DISTRO-diagnostics"
-                ),
-            })
-
-        # Subscribe to all discovered topics simultaneously.
-        executor = rclpy.executors.SingleThreadedExecutor()
-        subscribers = {}
-        for t in diag_topics:
-            sub = TopicSubscriber(t["topic"], t["type"], msg_class=diag_class)
-            subscribers[t["topic"]] = sub
-            executor.add_node(sub)
-
-        max_msgs = args.max_messages or 1
-        timeout_sec = args.timeout
-
-        if args.duration:
-            # Timed collection mode: spin for the given duration.
-            end_time = time.time() + args.duration
-            while time.time() < end_time:
-                executor.spin_once(timeout_sec=0.1)
-            rclpy.shutdown()
-            results = []
-            for topic_name, sub in subscribers.items():
-                with sub.lock:
-                    msgs = sub.messages[:max_msgs]
-                for msg_dict in msgs:
-                    results.append({
-                        "topic": topic_name,
-                        "stamp": msg_dict.get("header", {}).get("stamp", {}),
-                        "status": _parse_diag_array(msg_dict),
-                    })
-            output({"results": results, "topic_count": len(diag_topics)})
-        else:
-            # One-shot mode: wait until every topic has delivered ≥1 message,
-            # or until the timeout expires.
-            end_time = time.time() + timeout_sec
-            while time.time() < end_time:
-                executor.spin_once(timeout_sec=0.1)
-                all_received = all(
-                    len(subscribers[t["topic"]].messages) > 0
-                    for t in diag_topics
-                )
-                if all_received:
-                    break
-            rclpy.shutdown()
-            results = []
+            executor = rclpy.executors.SingleThreadedExecutor()
+            subscribers = {}
             for t in diag_topics:
-                topic_name = t["topic"]
-                sub = subscribers[topic_name]
-                with sub.lock:
-                    msgs = sub.messages[:]
-                if msgs:
-                    msg_dict = msgs[0]
-                    results.append({
-                        "topic": topic_name,
-                        "stamp": msg_dict.get("header", {}).get("stamp", {}),
-                        "status": _parse_diag_array(msg_dict),
-                    })
-                else:
-                    results.append({
-                        "topic": topic_name,
-                        "error": "Timeout — no message received",
-                    })
-            output({"results": results, "topic_count": len(diag_topics)})
+                sub = TopicSubscriber(t["topic"], t["type"], msg_class=diag_class)
+                subscribers[t["topic"]] = sub
+                executor.add_node(sub)
+
+            max_msgs = args.max_messages or 1
+            timeout_sec = args.timeout
+
+            if args.duration:
+                end_time = time.time() + args.duration
+                while time.time() < end_time:
+                    executor.spin_once(timeout_sec=0.1)
+                results = []
+                for topic_name, sub in subscribers.items():
+                    with sub.lock:
+                        msgs = sub.messages[:max_msgs]
+                    for msg_dict in msgs:
+                        results.append({
+                            "topic": topic_name,
+                            "stamp": msg_dict.get("header", {}).get("stamp", {}),
+                            "status": _parse_diag_array(msg_dict),
+                        })
+                output({"results": results, "topic_count": len(diag_topics)})
+            else:
+                end_time = time.time() + timeout_sec
+                while time.time() < end_time:
+                    executor.spin_once(timeout_sec=0.1)
+                    all_received = all(
+                        len(subscribers[t["topic"]].messages) > 0
+                        for t in diag_topics
+                    )
+                    if all_received:
+                        break
+                results = []
+                for t in diag_topics:
+                    topic_name = t["topic"]
+                    sub = subscribers[topic_name]
+                    with sub.lock:
+                        msgs = sub.messages[:]
+                    if msgs:
+                        msg_dict = msgs[0]
+                        results.append({
+                            "topic": topic_name,
+                            "stamp": msg_dict.get("header", {}).get("stamp", {}),
+                            "status": _parse_diag_array(msg_dict),
+                        })
+                    else:
+                        results.append({
+                            "topic": topic_name,
+                            "error": "Timeout — no message received",
+                        })
+                output({"results": results, "topic_count": len(diag_topics)})
     except Exception as e:
         output({"error": str(e)})
 
@@ -1671,12 +1396,11 @@ def _parse_battery_state(msg_dict):
     health_code = msg_dict.get("power_supply_health", 0)
     tech_code = msg_dict.get("power_supply_technology", 0)
 
-    # cell arrays: filter per-element NaN → None
     raw_cell_v = msg_dict.get("cell_voltage", []) or []
     raw_cell_t = msg_dict.get("cell_temperature", []) or []
 
     return {
-        "percentage": (pct * 100) if pct == pct else None,  # NaN guard + scale
+        "percentage": (pct * 100) if pct == pct else None,
         "voltage": _nan_to_none(msg_dict.get("voltage")),
         "current": _nan_to_none(msg_dict.get("current")),
         "charge": _nan_to_none(msg_dict.get("charge")),
@@ -1700,10 +1424,9 @@ def _parse_battery_state(msg_dict):
 def cmd_topics_battery_list(args):
     """List all topics that publish BatteryState messages (discovered by type)."""
     try:
-        rclpy.init()
-        node = ROS2CLI()
-        topics = _discover_battery_topics(node)
-        rclpy.shutdown()
+        with ros2_context():
+            node = ROS2CLI()
+            topics = _discover_battery_topics(node)
         output({"topics": topics, "count": len(topics)})
     except Exception as e:
         output({"error": str(e)})
@@ -1719,112 +1442,101 @@ def cmd_topics_battery(args):
     status_name, health_name, technology_name, location, and serial_number.
     """
     try:
-        rclpy.init()
-        node = ROS2CLI("battery_temp")
+        with ros2_context():
+            node = ROS2CLI("battery_temp")
 
-        if args.topic:
-            # Verify topic exists and resolve its type.
-            resolved_type = None
-            for name, types in node.get_topic_names_and_types():
-                if name == args.topic:
-                    resolved_type = types[0] if types else None
+            if args.topic:
+                resolved_type = None
+                for name, types in node.get_topic_names_and_types():
+                    if name == args.topic:
+                        resolved_type = types[0] if types else None
+                        break
+                if resolved_type is None:
+                    return output({
+                        "error": f"Could not detect type for topic '{args.topic}'",
+                        "hint": "Ensure the topic is active. Use 'topics type <topic>' to inspect it.",
+                    })
+                battery_topics = [{"topic": args.topic, "type": resolved_type}]
+            else:
+                battery_topics = _discover_battery_topics(node)
+                if not battery_topics:
+                    return output({
+                        "error": "No battery topics found",
+                        "hint": (
+                            "Ensure battery-publishing nodes are running. "
+                            "Battery topics may be named /battery_state, "
+                            "<robot>/battery_state, or any other name — they are "
+                            "identified by their BatteryState message type."
+                        ),
+                    })
+
+            battery_class = None
+            for t in ("sensor_msgs/msg/BatteryState", "sensor_msgs/BatteryState"):
+                battery_class = get_msg_type(t)
+                if battery_class:
                     break
-            if resolved_type is None:
-                rclpy.shutdown()
+            if battery_class is None:
                 return output({
-                    "error": f"Could not detect type for topic '{args.topic}'",
-                    "hint": "Ensure the topic is active. Use 'topics type <topic>' to inspect it.",
-                })
-            battery_topics = [{"topic": args.topic, "type": resolved_type}]
-        else:
-            battery_topics = _discover_battery_topics(node)
-            if not battery_topics:
-                rclpy.shutdown()
-                return output({
-                    "error": "No battery topics found",
+                    "error": "Could not load sensor_msgs/BatteryState",
                     "hint": (
-                        "Ensure battery-publishing nodes are running. "
-                        "Battery topics may be named /battery_state, "
-                        "<robot>/battery_state, or any other name — they are "
-                        "identified by their BatteryState message type."
+                        "Install the sensor_msgs package: "
+                        "sudo apt install ros-$ROS_DISTRO-sensor-msgs"
                     ),
                 })
 
-        # Load the BatteryState message class once.
-        battery_class = None
-        for t in ("sensor_msgs/msg/BatteryState", "sensor_msgs/BatteryState"):
-            battery_class = get_msg_type(t)
-            if battery_class:
-                break
-        if battery_class is None:
-            rclpy.shutdown()
-            return output({
-                "error": "Could not load sensor_msgs/BatteryState",
-                "hint": (
-                    "Install the sensor_msgs package: "
-                    "sudo apt install ros-$ROS_DISTRO-sensor-msgs"
-                ),
-            })
-
-        # Subscribe to all discovered topics simultaneously.
-        executor = rclpy.executors.SingleThreadedExecutor()
-        subscribers = {}
-        for t in battery_topics:
-            sub = TopicSubscriber(t["topic"], t["type"], msg_class=battery_class)
-            subscribers[t["topic"]] = sub
-            executor.add_node(sub)
-
-        max_msgs = args.max_messages or 1
-        timeout_sec = args.timeout
-
-        if args.duration:
-            # Timed collection mode: spin for the given duration.
-            end_time = time.time() + args.duration
-            while time.time() < end_time:
-                executor.spin_once(timeout_sec=0.1)
-            rclpy.shutdown()
-            results = []
-            for topic_name, sub in subscribers.items():
-                with sub.lock:
-                    msgs = sub.messages[:max_msgs]
-                for msg_dict in msgs:
-                    results.append({
-                        "topic": topic_name,
-                        "stamp": msg_dict.get("header", {}).get("stamp", {}),
-                        "battery": _parse_battery_state(msg_dict),
-                    })
-            output({"results": results, "topic_count": len(battery_topics)})
-        else:
-            # One-shot mode: wait until every topic has delivered ≥1 message,
-            # or until the timeout expires.
-            end_time = time.time() + timeout_sec
-            while time.time() < end_time:
-                executor.spin_once(timeout_sec=0.1)
-                all_received = all(
-                    len(subscribers[t["topic"]].messages) > 0
-                    for t in battery_topics
-                )
-                if all_received:
-                    break
-            rclpy.shutdown()
-            results = []
+            executor = rclpy.executors.SingleThreadedExecutor()
+            subscribers = {}
             for t in battery_topics:
-                topic_name = t["topic"]
-                sub = subscribers[topic_name]
-                with sub.lock:
-                    msgs = sub.messages[:]
-                if msgs:
-                    msg_dict = msgs[0]
-                    results.append({
-                        "topic": topic_name,
-                        "stamp": msg_dict.get("header", {}).get("stamp", {}),
-                        "battery": _parse_battery_state(msg_dict),
-                    })
-                else:
-                    results.append({
-                        "topic": topic_name,
-                        "error": "Timeout — no message received",
-                    })
-            output({"results": results, "topic_count": len(battery_topics)})
+                sub = TopicSubscriber(t["topic"], t["type"], msg_class=battery_class)
+                subscribers[t["topic"]] = sub
+                executor.add_node(sub)
+
+            max_msgs = args.max_messages or 1
+            timeout_sec = args.timeout
+
+            if args.duration:
+                end_time = time.time() + args.duration
+                while time.time() < end_time:
+                    executor.spin_once(timeout_sec=0.1)
+                results = []
+                for topic_name, sub in subscribers.items():
+                    with sub.lock:
+                        msgs = sub.messages[:max_msgs]
+                    for msg_dict in msgs:
+                        results.append({
+                            "topic": topic_name,
+                            "stamp": msg_dict.get("header", {}).get("stamp", {}),
+                            "battery": _parse_battery_state(msg_dict),
+                        })
+                output({"results": results, "topic_count": len(battery_topics)})
+            else:
+                end_time = time.time() + timeout_sec
+                while time.time() < end_time:
+                    executor.spin_once(timeout_sec=0.1)
+                    all_received = all(
+                        len(subscribers[t["topic"]].messages) > 0
+                        for t in battery_topics
+                    )
+                    if all_received:
+                        break
+                results = []
+                for t in battery_topics:
+                    topic_name = t["topic"]
+                    sub = subscribers[topic_name]
+                    with sub.lock:
+                        msgs = sub.messages[:]
+                    if msgs:
+                        msg_dict = msgs[0]
+                        results.append({
+                            "topic": topic_name,
+                            "stamp": msg_dict.get("header", {}).get("stamp", {}),
+                            "battery": _parse_battery_state(msg_dict),
+                        })
+                    else:
+                        results.append({
+                            "topic": topic_name,
+                            "error": "Timeout — no message received",
+                        })
+                output({"results": results, "topic_count": len(battery_topics)})
     except Exception as e:
         output({"error": str(e)})

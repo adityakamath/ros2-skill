@@ -34,16 +34,14 @@ Commands:
 
   topics subscribe <topic> [--duration SEC] [--max-messages N]
   topics echo      <topic> [--duration SEC] [--max-messages N]
-  topics sub       <topic> [--duration SEC] [--max-messages N]
-    Subscribe to a topic (echo and sub are aliases for subscribe).
+    Subscribe to a topic (echo is an alias for subscribe).
     Without --duration, returns the first message and exits.
     With --duration, collects messages for the specified time.
     --duration SECONDS        Collect messages for this duration (default: single message)
     --max-messages N          Max messages to collect during duration (default: 100)
     --max-msgs N              Alias for --max-messages
     $ python3 ros2_cli.py topics subscribe /turtle1/pose
-    $ python3 ros2_cli.py topics echo /odom
-    $ python3 ros2_cli.py topics sub /odom --duration 10 --max-msgs 50
+    $ python3 ros2_cli.py topics echo /odom --duration 10 --max-msgs 50
 
   topics publish           <topic> <json_message> [--duration SEC | --timeout SEC] [--rate HZ]
   topics pub               <topic> <json_message> [--duration SEC | --timeout SEC] [--rate HZ]
@@ -63,8 +61,7 @@ Commands:
         '{"linear":{"x":0.3},"angular":{"z":0}}' --timeout 5
 
   topics publish-sequence <topic> <json_messages> <json_durations> [--rate HZ]
-  topics pub-seq          <topic> <json_messages> <json_durations> [--rate HZ]
-    Publish a sequence of messages (pub-seq is an alias for publish-sequence).
+    Publish a sequence of messages.
     Each message is repeatedly published at --rate Hz for its corresponding duration.
     This keeps velocity commands active for the full duration.
     <json_messages>   JSON array of messages to publish in order
@@ -190,13 +187,10 @@ Commands:
     Get the type of an action server.
     $ python3 ros2_cli.py actions type /turtle1/rotate_absolute
 
-  actions send      <action> <json_goal> [--feedback]
-  actions send-goal <action> <json_goal> [--feedback]
+  actions send <action> <json_goal> [--feedback]
     Send an action goal and wait for the result.
     --feedback    Collect feedback messages; included in output as feedback_msgs
-    (send-goal is an alias for send, ros2 action send_goal)
     $ python3 ros2_cli.py actions send /turtle1/rotate_absolute '{"theta":3.14}'
-    $ python3 ros2_cli.py actions send-goal /turtle1/rotate_absolute '{"theta":3.14}'
     $ python3 ros2_cli.py actions send /turtle1/rotate_absolute '{"theta":3.14}' --feedback
 
   actions cancel <action> [--timeout SEC]
@@ -444,7 +438,6 @@ import sys
 # and callers that do: import ros2_cli; ros2_cli.output(...)
 # ---------------------------------------------------------------------------
 from ros2_utils import (  # noqa: F401 – intentional re-exports
-    MSG_ALIASES,
     get_msg_type,
     get_action_type,
     get_srv_type,
@@ -478,8 +471,6 @@ from ros2_topic import (
     cmd_topics_diag,
     cmd_topics_battery_list,
     cmd_topics_battery,
-    cmd_services_echo,
-    cmd_actions_echo,
 )
 
 from ros2_node import (
@@ -506,6 +497,7 @@ from ros2_service import (
     cmd_services_type,
     cmd_services_details,
     cmd_services_call,
+    cmd_services_echo,
     cmd_services_find,
 )
 
@@ -513,6 +505,7 @@ from ros2_action import (
     cmd_actions_list,
     cmd_actions_details,
     cmd_actions_send,
+    cmd_actions_echo,
     cmd_actions_type,
     cmd_actions_cancel,
     cmd_actions_find,
@@ -579,10 +572,6 @@ from ros2_control import (
     cmd_control_switch_controllers,
     cmd_control_view_controller_chains,
 )
-
-# Keep rclpy available for the main() finally block
-import rclpy  # noqa: E402 (imported after sys.exit guard in ros2_utils)
-
 
 # ---------------------------------------------------------------------------
 # Built-in commands that don't need rclpy
@@ -654,7 +643,6 @@ def build_parser():
     p.add_argument("message_type", help="Message type (e.g. geometry_msgs/msg/Twist)")
     _add_subscribe_args(tsub.add_parser("subscribe", help="Subscribe to a topic"))
     _add_subscribe_args(tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)"))
-    _add_subscribe_args(tsub.add_parser("sub", help="Alias for subscribe"))
     p = tsub.add_parser("capture-image", help="Capture image from ROS 2 topic")
     p.add_argument("--topic", required=True,
                    help="ROS 2 image topic (e.g., /camera/image_raw/compressed)")
@@ -724,19 +712,15 @@ def build_parser():
                        help="Publish rate in Hz (default: 10)")
         p.add_argument("--retries", type=int, default=None,
                        help="Number of attempts before giving up (overrides global --retries)")
-    for _seq_name in ("publish-sequence", "pub-seq"):
-        p = tsub.add_parser(_seq_name,
-                            help="Publish message sequence with delays"
-                            if _seq_name == "publish-sequence"
-                            else "Alias for publish-sequence")
-        p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
-        p.add_argument("messages", nargs="?", help="JSON array of messages")
-        p.add_argument("durations", nargs="?",
-                       help="JSON array of durations in seconds (message is repeated during each)")
-        p.add_argument("--msg-type", dest="msg_type", default=None,
-                       help="Message type (auto-detected if not provided)")
-        p.add_argument("--rate", type=float, default=10.0,
-                       help="Publish rate in Hz (default: 10)")
+    p = tsub.add_parser("publish-sequence", help="Publish message sequence with delays")
+    p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
+    p.add_argument("messages", nargs="?", help="JSON array of messages")
+    p.add_argument("durations", nargs="?",
+                   help="JSON array of durations in seconds (message is repeated during each)")
+    p.add_argument("--msg-type", dest="msg_type", default=None,
+                   help="Message type (auto-detected if not provided)")
+    p.add_argument("--rate", type=float, default=10.0,
+                   help="Publish rate in Hz (default: 10)")
     p = tsub.add_parser("publish-until",
                         help="Publish until a monitor-topic condition is met")
     p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
@@ -883,29 +867,21 @@ def build_parser():
         p.add_argument("--timeout", type=float, default=5.0,
                        help="Service call timeout in seconds (default: 5)")
 
-    for _name in ("list-controller-types", "lct"):
-        p = csub.add_parser(_name,
-            help="List available controller types and their base classes"
-            if _name == "list-controller-types" else "Alias for list-controller-types")
-        _add_cm_args(p)
+    p = csub.add_parser("list-controller-types",
+                        help="List available controller types and their base classes")
+    _add_cm_args(p)
 
-    for _name in ("list-controllers", "lc"):
-        p = csub.add_parser(_name,
-            help="List loaded controllers, their type and status"
-            if _name == "list-controllers" else "Alias for list-controllers")
-        _add_cm_args(p)
+    p = csub.add_parser("list-controllers",
+                        help="List loaded controllers, their type and status")
+    _add_cm_args(p)
 
-    for _name in ("list-hardware-components", "lhc"):
-        p = csub.add_parser(_name,
-            help="List available hardware components"
-            if _name == "list-hardware-components" else "Alias for list-hardware-components")
-        _add_cm_args(p)
+    p = csub.add_parser("list-hardware-components",
+                        help="List available hardware components")
+    _add_cm_args(p)
 
-    for _name in ("list-hardware-interfaces", "lhi"):
-        p = csub.add_parser(_name,
-            help="List available command and state interfaces"
-            if _name == "list-hardware-interfaces" else "Alias for list-hardware-interfaces")
-        _add_cm_args(p)
+    p = csub.add_parser("list-hardware-interfaces",
+                        help="List available command and state interfaces")
+    _add_cm_args(p)
 
     for _name in ("load-controller", "load"):
         p = csub.add_parser(_name,
@@ -921,66 +897,54 @@ def build_parser():
         p.add_argument("name", help="Controller name")
         _add_cm_args(p)
 
-    for _name in ("configure-controller", "cc"):
-        p = csub.add_parser(_name,
-            help="Configure a loaded controller (unconfigured → inactive)"
-            if _name == "configure-controller" else "Alias for configure-controller")
-        p.add_argument("name", help="Controller name")
-        _add_cm_args(p)
+    p = csub.add_parser("configure-controller",
+                        help="Configure a loaded controller (unconfigured → inactive)")
+    p.add_argument("name", help="Controller name")
+    _add_cm_args(p)
 
-    for _name in ("reload-controller-libraries", "rcl"):
-        p = csub.add_parser(_name,
-            help="Reload controller libraries"
-            if _name == "reload-controller-libraries" else "Alias for reload-controller-libraries")
-        p.add_argument("--force-kill", dest="force_kill", action="store_true", default=False,
-                       help="Force kill controllers before reloading")
-        _add_cm_args(p)
+    p = csub.add_parser("reload-controller-libraries",
+                        help="Reload controller libraries")
+    p.add_argument("--force-kill", dest="force_kill", action="store_true", default=False,
+                   help="Force kill controllers before reloading")
+    _add_cm_args(p)
 
-    for _name in ("set-controller-state", "scs"):
-        p = csub.add_parser(_name,
-            help="Adjust the state of the controller"
-            if _name == "set-controller-state" else "Alias for set-controller-state")
-        p.add_argument("name", help="Controller name")
-        p.add_argument("state", choices=["active", "inactive"],
-                       help="Target state: active or inactive")
-        _add_cm_args(p)
+    p = csub.add_parser("set-controller-state",
+                        help="Adjust the state of the controller")
+    p.add_argument("name", help="Controller name")
+    p.add_argument("state", choices=["active", "inactive"],
+                   help="Target state: active or inactive")
+    _add_cm_args(p)
 
-    for _name in ("set-hardware-component-state", "shcs"):
-        p = csub.add_parser(_name,
-            help="Adjust the state of the hardware component"
-            if _name == "set-hardware-component-state" else "Alias for set-hardware-component-state")
-        p.add_argument("name", help="Hardware component name")
-        p.add_argument("state", choices=["unconfigured", "inactive", "active", "finalized"],
-                       help="Target lifecycle state")
-        _add_cm_args(p)
+    p = csub.add_parser("set-hardware-component-state",
+                        help="Adjust the state of the hardware component")
+    p.add_argument("name", help="Hardware component name")
+    p.add_argument("state", choices=["unconfigured", "inactive", "active", "finalized"],
+                   help="Target lifecycle state")
+    _add_cm_args(p)
 
-    for _name in ("switch-controllers", "sc", "swc"):
-        p = csub.add_parser(_name,
-            help="Switch controllers in the controller manager"
-            if _name == "switch-controllers" else "Alias for switch-controllers")
-        p.add_argument("--activate", nargs="*", default=[],
-                       help="Controllers to activate")
-        p.add_argument("--deactivate", nargs="*", default=[],
-                       help="Controllers to deactivate")
-        p.add_argument("--strictness", choices=["BEST_EFFORT", "STRICT"],
-                       default="BEST_EFFORT",
-                       help="Switching strictness (default: BEST_EFFORT)")
-        p.add_argument("--activate-asap", dest="activate_asap", action="store_true",
-                       default=False,
-                       help="Activate controllers as soon as possible")
-        _add_cm_args(p)
+    p = csub.add_parser("switch-controllers",
+                        help="Switch controllers in the controller manager")
+    p.add_argument("--activate", nargs="*", default=[],
+                   help="Controllers to activate")
+    p.add_argument("--deactivate", nargs="*", default=[],
+                   help="Controllers to deactivate")
+    p.add_argument("--strictness", choices=["BEST_EFFORT", "STRICT"],
+                   default="BEST_EFFORT",
+                   help="Switching strictness (default: BEST_EFFORT)")
+    p.add_argument("--activate-asap", dest="activate_asap", action="store_true",
+                   default=False,
+                   help="Activate controllers as soon as possible")
+    _add_cm_args(p)
 
-    for _name in ("view-controller-chains", "vcc"):
-        p = csub.add_parser(_name,
-            help="Generate a diagram of loaded chained controllers"
-            if _name == "view-controller-chains" else "Alias for view-controller-chains")
-        p.add_argument("--output", default="controller_diagram.pdf",
-                       help="Output filename saved in .artifacts/ (default: controller_diagram.pdf)")
-        p.add_argument("--channel-id", dest="channel_id", default=None,
-                       help="Discord channel ID; if provided, sends the PDF via discord_tools")
-        p.add_argument("--config", default="~/.nanobot/config.json",
-                       help="Path to nanobot config for Discord (default: ~/.nanobot/config.json)")
-        _add_cm_args(p)
+    p = csub.add_parser("view-controller-chains",
+                        help="Generate a diagram of loaded chained controllers")
+    p.add_argument("--output", default="controller_diagram.pdf",
+                   help="Output filename saved in .artifacts/ (default: controller_diagram.pdf)")
+    p.add_argument("--channel-id", dest="channel_id", default=None,
+                   help="Discord channel ID; if provided, sends the PDF via discord_tools")
+    p.add_argument("--config", default="~/.nanobot/config.json",
+                   help="Path to nanobot config for Discord (default: ~/.nanobot/config.json)")
+    _add_cm_args(p)
 
     # ------------------------------------------------------------------
     # params
@@ -1061,18 +1025,15 @@ def build_parser():
     p.add_argument("action", nargs="?", help="Action server name (e.g. /turtle1/rotate_absolute)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
-    for _send_name in ("send", "send-goal"):
-        p = asub.add_parser(_send_name,
-                            help="Send action goal" if _send_name == "send"
-                            else "Alias for send (ros2 action send_goal)")
-        p.add_argument("action", help="Action server name (e.g. /turtle1/rotate_absolute)")
-        p.add_argument("goal", help="JSON goal")
-        p.add_argument("--timeout", type=float, default=30.0,
-                       help="Timeout in seconds (default: 30)")
-        p.add_argument("--retries", type=int, default=None,
-                       help="Number of attempts before giving up (overrides global --retries)")
-        p.add_argument("--feedback", action="store_true", default=False,
-                       help="Collect and return feedback messages alongside the result")
+    p = asub.add_parser("send", help="Send action goal")
+    p.add_argument("action", help="Action server name (e.g. /turtle1/rotate_absolute)")
+    p.add_argument("goal", help="JSON goal")
+    p.add_argument("--timeout", type=float, default=30.0,
+                   help="Timeout in seconds (default: 30)")
+    p.add_argument("--retries", type=int, default=None,
+                   help="Number of attempts before giving up (overrides global --retries)")
+    p.add_argument("--feedback", action="store_true", default=False,
+                   help="Collect and return feedback messages alongside the result")
     p = asub.add_parser("cancel",
                         help="Cancel all in-flight goals on an action server")
     p.add_argument("action", nargs="?", help="Action server name (e.g. /turtle1/rotate_absolute)")
@@ -1197,27 +1158,9 @@ def build_parser():
     p.add_argument("y", type=float, help="Quaternion y")
     p.add_argument("z", type=float, help="Quaternion z")
     p.add_argument("w", type=float, help="Quaternion w")
-    p = tfsub.add_parser("e2q", help="Alias for euler-from-quaternion")
-    p.add_argument("x", type=float, help="Quaternion x")
-    p.add_argument("y", type=float, help="Quaternion y")
-    p.add_argument("z", type=float, help="Quaternion z")
-    p.add_argument("w", type=float, help="Quaternion w")
-    p = tfsub.add_parser("quat2euler", help="Alias for euler-from-quaternion")
-    p.add_argument("x", type=float, help="Quaternion x")
-    p.add_argument("y", type=float, help="Quaternion y")
-    p.add_argument("z", type=float, help="Quaternion z")
-    p.add_argument("w", type=float, help="Quaternion w")
 
     # tf quaternion-from-euler <roll> <pitch> <yaw>
     p = tfsub.add_parser("quaternion-from-euler", help="Convert Euler to quaternion (radians)")
-    p.add_argument("roll", type=float, help="Euler roll (radians)")
-    p.add_argument("pitch", type=float, help="Euler pitch (radians)")
-    p.add_argument("yaw", type=float, help="Euler yaw (radians)")
-    p = tfsub.add_parser("q2e", help="Alias for quaternion-from-euler")
-    p.add_argument("roll", type=float, help="Euler roll (radians)")
-    p.add_argument("pitch", type=float, help="Euler pitch (radians)")
-    p.add_argument("yaw", type=float, help="Euler yaw (radians)")
-    p = tfsub.add_parser("euler2quat", help="Alias for quaternion-from-euler")
     p.add_argument("roll", type=float, help="Euler roll (radians)")
     p.add_argument("pitch", type=float, help="Euler pitch (radians)")
     p.add_argument("yaw", type=float, help="Euler yaw (radians)")
@@ -1228,18 +1171,9 @@ def build_parser():
     p.add_argument("y", type=float, help="Quaternion y")
     p.add_argument("z", type=float, help="Quaternion z")
     p.add_argument("w", type=float, help="Quaternion w")
-    p = tfsub.add_parser("e2qdeg", help="Alias for euler-from-quaternion-deg")
-    p.add_argument("x", type=float, help="Quaternion x")
-    p.add_argument("y", type=float, help="Quaternion y")
-    p.add_argument("z", type=float, help="Quaternion z")
-    p.add_argument("w", type=float, help="Quaternion w")
 
     # tf quaternion-from-euler-deg <roll> <pitch> <yaw>
     p = tfsub.add_parser("quaternion-from-euler-deg", help="Convert Euler to quaternion (degrees)")
-    p.add_argument("roll", type=float, help="Euler roll (degrees)")
-    p.add_argument("pitch", type=float, help="Euler pitch (degrees)")
-    p.add_argument("yaw", type=float, help="Euler yaw (degrees)")
-    p = tfsub.add_parser("q2edeg", help="Alias for quaternion-from-euler-deg")
     p.add_argument("roll", type=float, help="Euler roll (degrees)")
     p.add_argument("pitch", type=float, help="Euler pitch (degrees)")
     p.add_argument("yaw", type=float, help="Euler yaw (degrees)")
@@ -1252,37 +1186,9 @@ def build_parser():
     p.add_argument("y", type=float, help="Point y")
     p.add_argument("z", type=float, help="Point z")
     p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
-    p = tfsub.add_parser("tp", help="Alias for transform-point")
-    p.add_argument("target", help="Target frame")
-    p.add_argument("source", help="Source frame")
-    p.add_argument("x", type=float, help="Point x")
-    p.add_argument("y", type=float, help="Point y")
-    p.add_argument("z", type=float, help="Point z")
-    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
-    p = tfsub.add_parser("point", help="Alias for transform-point")
-    p.add_argument("target", help="Target frame")
-    p.add_argument("source", help="Source frame")
-    p.add_argument("x", type=float, help="Point x")
-    p.add_argument("y", type=float, help="Point y")
-    p.add_argument("z", type=float, help="Point z")
-    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
 
     # tf transform-vector <target> <source> <x> <y> <z>
     p = tfsub.add_parser("transform-vector", help="Transform a vector between frames")
-    p.add_argument("target", help="Target frame")
-    p.add_argument("source", help="Source frame")
-    p.add_argument("x", type=float, help="Vector x")
-    p.add_argument("y", type=float, help="Vector y")
-    p.add_argument("z", type=float, help="Vector z")
-    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
-    p = tfsub.add_parser("tv", help="Alias for transform-vector")
-    p.add_argument("target", help="Target frame")
-    p.add_argument("source", help="Source frame")
-    p.add_argument("x", type=float, help="Vector x")
-    p.add_argument("y", type=float, help="Vector y")
-    p.add_argument("z", type=float, help="Vector z")
-    p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout")
-    p = tfsub.add_parser("vector", help="Alias for transform-vector")
     p.add_argument("target", help="Target frame")
     p.add_argument("source", help="Source frame")
     p.add_argument("x", type=float, help="Vector x")
@@ -1396,9 +1302,7 @@ DISPATCH = {
     ("topics", "battery"): cmd_topics_battery,
     # topics — aliases
     ("topics", "echo"): cmd_topics_subscribe,
-    ("topics", "sub"): cmd_topics_subscribe,
     ("topics", "pub"): cmd_topics_publish,
-    ("topics", "pub-seq"): cmd_topics_publish_sequence,
     ("topics", "ls"): cmd_topics_list,
     ("topics", "info"): cmd_topics_details,
     # topics — Phase 2
@@ -1441,19 +1345,8 @@ DISPATCH = {
     ("control", "switch-controllers"):           cmd_control_switch_controllers,
     ("control", "view-controller-chains"):       cmd_control_view_controller_chains,
     # control — aliases
-    ("control", "lct"):   cmd_control_list_controller_types,
-    ("control", "lc"):    cmd_control_list_controllers,
-    ("control", "lhc"):   cmd_control_list_hardware_components,
-    ("control", "lhi"):   cmd_control_list_hardware_interfaces,
     ("control", "load"):  cmd_control_load_controller,
     ("control", "unload"): cmd_control_unload_controller,
-    ("control", "cc"):    cmd_control_configure_controller,
-    ("control", "rcl"):   cmd_control_reload_controller_libraries,
-    ("control", "scs"):   cmd_control_set_controller_state,
-    ("control", "shcs"):  cmd_control_set_hardware_component_state,
-    ("control", "sc"):    cmd_control_switch_controllers,
-    ("control", "swc"):   cmd_control_switch_controllers,
-    ("control", "vcc"):   cmd_control_view_controller_chains,
     # params — canonical
     ("params", "list"): cmd_params_list,
     ("params", "get"): cmd_params_get,
@@ -1478,7 +1371,6 @@ DISPATCH = {
     ("actions", "find"): cmd_actions_find,
     # actions — aliases
     ("actions", "info"): cmd_actions_details,
-    ("actions", "send-goal"): cmd_actions_send,
     ("actions", "ls"): cmd_actions_list,
     # doctor — canonical
     ("doctor", None):    cmd_doctor_check,
@@ -1498,21 +1390,11 @@ DISPATCH = {
     ("tf", "monitor"): cmd_tf_monitor,
     ("tf", "static"): cmd_tf_static,
     ("tf", "euler-from-quaternion"): cmd_tf_euler_from_quaternion,
-    ("tf", "e2q"): cmd_tf_euler_from_quaternion,
-    ("tf", "quat2euler"): cmd_tf_euler_from_quaternion,
     ("tf", "quaternion-from-euler"): cmd_tf_quaternion_from_euler,
-    ("tf", "q2e"): cmd_tf_quaternion_from_euler,
-    ("tf", "euler2quat"): cmd_tf_quaternion_from_euler,
     ("tf", "euler-from-quaternion-deg"): cmd_tf_euler_from_quaternion_degrees,
-    ("tf", "e2qdeg"): cmd_tf_euler_from_quaternion_degrees,
     ("tf", "quaternion-from-euler-deg"): cmd_tf_quaternion_from_euler_degrees,
-    ("tf", "q2edeg"): cmd_tf_quaternion_from_euler_degrees,
     ("tf", "transform-point"): cmd_tf_transform_point,
-    ("tf", "tp"): cmd_tf_transform_point,
-    ("tf", "point"): cmd_tf_transform_point,
     ("tf", "transform-vector"): cmd_tf_transform_vector,
-    ("tf", "tv"): cmd_tf_transform_vector,
-    ("tf", "vector"): cmd_tf_transform_vector,
     # launch
     ("launch", "new"):   cmd_launch_run,
     ("launch", "list"):   cmd_launch_list,
@@ -1581,15 +1463,7 @@ def main():
     key = (args.command, getattr(args, "subcommand", None))
     handler = DISPATCH.get(key)
     if handler:
-        try:
-            handler(args)
-        finally:
-            # Guarantee rclpy is shut down even if an exception escapes the
-            # handler's own try/except (e.g. a bug or KeyboardInterrupt).
-            try:
-                rclpy.shutdown()
-            except Exception:
-                pass
+        handler(args)
     else:
         parser.print_help()
         sys.exit(1)
