@@ -122,6 +122,7 @@ def cmd_daemon_status(args):
     Reads domain ID from ROS_DOMAIN_ID (default 0).  Tries the ros2cli
     Python API first; falls back to PID file discovery.
     """
+    domain_id = None
     try:
         domain_id = _get_domain_id()
         native = _daemon_status_native(domain_id)
@@ -144,7 +145,7 @@ def cmd_daemon_status(args):
         output(result)
 
     except Exception as exc:
-        output({"error": str(exc), "domain_id": _get_domain_id()})
+        output({"error": str(exc), "domain_id": domain_id if domain_id is not None else 0})
 
 
 def cmd_daemon_start(args):
@@ -153,6 +154,7 @@ def cmd_daemon_start(args):
     Uses the ros2cli Python API (spawn_daemon).  Idempotent: if the daemon
     is already running, returns immediately without spawning a second copy.
     """
+    domain_id = None
     try:
         domain_id = _get_domain_id()
 
@@ -204,7 +206,7 @@ def cmd_daemon_start(args):
         output(result)
 
     except Exception as exc:
-        output({"error": str(exc), "domain_id": _get_domain_id()})
+        output({"error": str(exc), "domain_id": domain_id if domain_id is not None else 0})
 
 
 def cmd_daemon_stop(args):
@@ -214,6 +216,7 @@ def cmd_daemon_stop(args):
     SIGTERM if ros2cli is unavailable.  Idempotent: no-op if the daemon is
     not running.
     """
+    domain_id = None
     try:
         domain_id = _get_domain_id()
 
@@ -263,4 +266,4 @@ def cmd_daemon_stop(args):
             })
 
     except Exception as exc:
-        output({"error": str(exc), "domain_id": _get_domain_id()})
+        output({"error": str(exc), "domain_id": domain_id if domain_id is not None else 0})
