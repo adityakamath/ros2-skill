@@ -52,8 +52,19 @@ python3 {baseDir}/scripts/ros2_cli.py tf list                                  #
 python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
 
 # --- Movement (publish-until closes the loop against odometry) ---
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until <topic> <msg_type> <payload> --distance 1.0
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until <topic> <msg_type> <payload> --rotate 90 --degrees
+# Always discover <vel_topic> and <odom_topic> first (see Movement section)
+# Drive 1 m forward — Euclidean closed-loop (frame-independent):
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
+  --monitor <odom_topic> --field pose.pose.position --euclidean --delta 1.0 --timeout 60
+# Rotate 90° CCW/left (positive) — sign of --rotate MUST match sign of angular.z:
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor <odom_topic> --rotate 90 --degrees --timeout 30
+# Rotate 90° CW/right (negative) — both --rotate AND angular.z must be negative:
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
+  '{"linear":{"x":0},"angular":{"z":-0.5}}' \
+  --monitor <odom_topic> --rotate -90 --degrees --timeout 30
 
 # --- Emergency stop (always available) ---
 python3 {baseDir}/scripts/ros2_cli.py estop
@@ -325,6 +336,77 @@ Safety checks are never optional. Do not bypass them even if the user requests i
 
 ---
 
+## Movement
+
+Every movement command follows this 3-phase sequence. All discovery is autonomous — never ask the user.
+
+### Phase 1 — Discover (always run before any movement)
+
+```bash
+# 1. Find the velocity command topic
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped  # if Twist empty
+
+# 2. Find the odometry topic
+python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
+
+# 3. Verify odometry publish rate (must be ≥ 5 Hz for closed-loop)
+python3 {baseDir}/scripts/ros2_cli.py topics hz <odom_topic> --window 10
+
+# 4. Scan velocity limits — all nodes (see Safety above)
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+python3 {baseDir}/scripts/ros2_cli.py params list <node>  # repeat for every node, filter max/limit/vel/speed/accel
+
+# 5. Get message payload template
+python3 {baseDir}/scripts/ros2_cli.py interface proto <vel_msg_type>
+```
+
+If odom rate < 5 Hz → fall back to open-loop (`topics publish-sequence`) and notify the user that accuracy is not guaranteed.
+
+### Phase 2 — Confirm
+
+State the movement (direction, distance/angle, velocity). Wait for user acknowledgement before executing.
+
+### Phase 3 — Execute
+
+**Velocity capping — sign preservation is mandatory:**
+Discovered limits are magnitudes. Apply as `|velocity| ≤ limit`. Never strip or invert the sign:
+- ✅ `angular.z: -0.3` capped to `max 0.75` → `angular.z: -0.3` (sign preserved)
+- ❌ `angular.z: -0.3` → `abs(-0.3) = 0.3` (sign stripped → robot turns the wrong way)
+
+**Drive N metres forward (Euclidean closed-loop — frame-independent):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
+  --monitor <odom_topic> --field pose.pose.position --euclidean --delta <distance> --timeout 60
+```
+
+**Rotate N degrees (closed-loop):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
+  '{"linear":{"x":0},"angular":{"z":<angular_vel>}}' \
+  --monitor <odom_topic> --rotate <angle> --degrees --timeout 30
+```
+
+**Sign convention — `--rotate` and `angular.z` MUST always have the same sign:**
+
+| Direction | `--rotate` | `angular.z` | Natural language |
+|-----------|-----------|-------------|-----------------|
+| Left / CCW / anticlockwise | positive | positive | "left", "CCW", "anticlockwise", bare positive number |
+| Right / CW / clockwise | negative | negative | "right", "CW", "clockwise", bare negative number |
+
+Mismatched signs (e.g. `--rotate 90` with `angular.z: -0.5`) = monitor waits for CCW while robot turns CW → times out without completing.
+
+**Natural language → command:**
+
+| User says | `--rotate` | `angular.z sign` |
+|---|---|---|
+| "rotate 90°" / "turn left 90°" / "rotate CCW 90°" | `90` | positive |
+| "rotate right 90°" / "turn CW 90°" / "rotate -90°" | `-90` | negative |
+| "go forward 1 m" | — | 0 (use Euclidean forward command) |
+
+---
+
 ## When Things Go Wrong
 
 | Symptom | Likely cause | Fix |
@@ -336,6 +418,7 @@ Safety checks are never optional. Do not bypass them even if the user requests i
 | Topic found but no messages arriving | Simulator paused, or publisher stopped | `topics hz <topic>` to check publish rate |
 | Topic found, `hz` shows publishing, but subscriber sees nothing | QoS mismatch (reliability or durability) | `topics details <topic>` to inspect publisher QoS; add `--qos-reliability best_effort` or `reliable` to match |
 | Command times out or returns empty on first attempt | Network latency, high load, or transient failure | Add `--timeout 15 --retries 3` to the command and retry |
+| Rotation command runs until timeout, robot spins but never stops | `--rotate` and `angular.z` sign mismatch | Signs must match: both positive for CCW/left, both negative for CW/right |
 | Movement command returns but robot does not move | Controller not active or wrong topic used | `control list-controllers`, re-run topic discovery |
 | `--help` returns JSON error instead of help text | ROS 2 not sourced | Source ROS 2 environment first |
 
