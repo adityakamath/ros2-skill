@@ -132,8 +132,12 @@ def cmd_estop(args):
                 msg.angular.y = 0.0
                 msg.angular.z = 0.0
 
-            pub.publish(msg)
-            time.sleep(0.1)
+            # Publish in a burst to ensure delivery regardless of QoS/late discovery
+            burst_count = 10
+            burst_interval = 0.05  # 20 Hz over 0.5 s
+            for _ in range(burst_count):
+                pub.publish(msg)
+                time.sleep(burst_interval)
 
         output({
             "success": True,
@@ -846,6 +850,12 @@ def cmd_topics_publish_until(args):
                     executor.spin_once(timeout_sec=interval)
             finally:
                 stop_event.set()
+                # Always send a zero-velocity burst after the loop to stop the robot,
+                # regardless of whether the condition was met or the command timed out.
+                zero_msg = dict_to_msg(pub_msg_class, scale_twist_velocity(msg_data, 0.0))
+                for _ in range(10):
+                    publisher.pub.publish(zero_msg)
+                    time.sleep(0.05)
 
             elapsed = round(time.time() - start_time, 3)
 

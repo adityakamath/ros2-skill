@@ -1174,6 +1174,8 @@ def build_parser():
     # tf monitor <frame>
     p = tfsub.add_parser("monitor", help="Monitor transform updates for a frame")
     p.add_argument("frame", help="Frame to monitor")
+    p.add_argument("--reference-frame", "-r", dest="reference_frame", default=None,
+                   help="Reference frame to look up against (default: auto-discovered root frame via tf list)")
     p.add_argument("--timeout", "-t", type=float, default=5.0, help="Timeout per lookup")
     p.add_argument("--count", "-n", type=int, default=5, help="Number of updates")
 

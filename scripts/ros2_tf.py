@@ -250,6 +250,7 @@ def cmd_tf_monitor(args):
     frame = args.frame
     timeout = getattr(args, 'timeout', 5.0)
     count = getattr(args, 'count', 5)
+    reference_frame = getattr(args, 'reference_frame', None)
 
     try:
         import rclpy
@@ -268,11 +269,42 @@ def cmd_tf_monitor(args):
         tf_buffer = Buffer()
         tf_listener = TransformListener(tf_buffer, node)
 
+        # Allow the listener to populate before querying
+        import time
+        time.sleep(0.5)
+        rclpy.spin_once(node, timeout_sec=0.5)
+
+        # Auto-discover reference frame if not specified
+        if reference_frame is None:
+            try:
+                frames_yaml = tf_buffer.all_frames_as_yaml()
+                # Parse frame names from YAML — each frame line starts with "  <name>:"
+                available = [
+                    line.strip().rstrip(':')
+                    for line in frames_yaml.splitlines()
+                    if line.strip() and not line.startswith(' ') is False and ':' in line
+                    and not line.strip().startswith('#')
+                ]
+                # Prefer common root frame names; fall back to first discovered
+                preferred = ['world', 'map', 'odom']
+                reference_frame = next(
+                    (f for f in preferred if f in available),
+                    available[0] if available else None
+                )
+            except Exception:
+                reference_frame = None
+
+            if reference_frame is None:
+                return output({
+                    "error": "Could not auto-discover a reference frame. "
+                             "Use --reference-frame <frame> and run 'tf list' to see available frames."
+                })
+
         for i in range(count):
             try:
                 now = node.get_clock().now()
                 transform = tf_buffer.lookup_transform(
-                    "world",
+                    reference_frame,
                     frame,
                     now,
                     timeout=rclpy.duration.Duration(seconds=timeout)
@@ -292,6 +324,7 @@ def cmd_tf_monitor(args):
             rclpy.spin_once(node, timeout_sec=0.5)
 
     output({
+        "reference_frame": reference_frame,
         "frame": frame,
         "count": len(results),
         "updates": results
