@@ -1141,6 +1141,29 @@ Skip the proximity scan entirely. The overhead of the `topics find` calls is not
 
 ---
 
+### Rule 26 — Always use `discord_tools.py` to send files and images to Discord
+
+**Never use native API calls, tool calls, or any other mechanism to send files or images to Discord.** The only permitted method is the `discord_tools.py send-image` script provided by ros2-skill.
+
+This applies to every case where an image, photo, or file must be delivered to the user via Discord — including:
+
+- Camera captures ("send me a photo", "take a picture and send it", "capture from the webcam")
+- Diagnostic outputs (graphs, PDFs, charts)
+- Any artifact saved to `.artifacts/` that the user asks to see
+
+**Mandatory workflow for image delivery:**
+
+1. Capture the image: `topics capture-image --topic <DISCOVERED_TOPIC> --output .artifacts/image.jpg`
+2. Send it: `python3 scripts/discord_tools.py send-image --path .artifacts/image.jpg --channel-id <CHANNEL_ID> --config ~/.nanobot/config.json --delete`
+
+The `--delete` flag removes the local file after a successful send. Always include it unless the user explicitly asks to keep the file.
+
+❌ Never make a direct Discord API call to upload a file.
+❌ Never use any built-in tool or native platform capability to send a file to Discord.
+❌ Never skip `discord_tools.py` even if another method appears available or convenient.
+
+---
+
 ## Quick Decision Card
 
 **Every user request follows this pattern:**
@@ -1248,7 +1271,7 @@ Motion command received
 | "read the LiDAR / scan data / laser scan / range scan / obstacle data / proximity scan / 2D scan" | Subscribe to LaserScan | Find `sensor_msgs/msg/LaserScan` → subscribe |
 | "read point cloud / 3D scan / LiDAR points / 3D LiDAR / velodyne / depth points / PCL data" | Subscribe to PointCloud2 | Find `sensor_msgs/msg/PointCloud2` → subscribe |
 | "read odometry / where is the robot / current position / current pose / where am I / robot location / robot coordinates / pose estimate" | Subscribe to Odometry | Find `nav_msgs/msg/Odometry` → subscribe (post-motion: use Rule 8 two-phase protocol) |
-| "read camera / take a picture / capture image / take a photo / snap / grab a frame / screenshot / what does the camera see / show me the view / photograph" | Capture image from camera | Find `sensor_msgs/msg/Image` + `CompressedImage` → `topics capture-image --topic <topic>` |
+| "read camera / take a picture / capture image / take a photo / snap / grab a frame / screenshot / what does the camera see / show me the view / photograph" | Capture image from camera | Find `sensor_msgs/msg/CompressedImage` (preferred) or `sensor_msgs/msg/Image` → `topics capture-image --topic <topic>` → send via `discord_tools.py send-image` (Rule 26) |
 | "read depth image / depth camera / RGBD / depth frame / depth data" | Subscribe to depth Image | Find `sensor_msgs/msg/Image` with `depth` in topic name → subscribe or capture-image |
 | "read joint states / joint positions / joint angles / encoder values / current joint config / what are the joint positions" | Subscribe to JointState | Find `sensor_msgs/msg/JointState` → subscribe |
 | "read wheel speeds / wheel velocities / wheel odometry" | Subscribe to JointState or Odometry | Find `sensor_msgs/msg/JointState` (check velocity fields) or Odometry twist fields |
