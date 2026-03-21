@@ -9,7 +9,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_system_default
+from rclpy.qos import qos_profile_system_default, qos_profile_sensor_data, ReliabilityPolicy
 
 from ros2_utils import (
     ROS2CLI, get_msg_type, get_msg_error, get_msg_fields,
@@ -394,9 +394,17 @@ class ConditionMonitor(Node):
 
         msg_class = get_msg_type(msg_type)
         if msg_class:
-            self.sub = self.create_subscription(
-                msg_class, topic, self.callback, qos_profile_system_default
-            )
+            # Auto-match publisher QoS: use BEST_EFFORT if any publisher does,
+            # so RELIABLE/BEST_EFFORT mismatches don't silently drop all messages.
+            qos = qos_profile_system_default
+            try:
+                pub_infos = self.get_publishers_info_by_topic(topic)
+                if any(p.qos_profile.reliability == ReliabilityPolicy.BEST_EFFORT
+                       for p in pub_infos):
+                    qos = qos_profile_sensor_data
+            except Exception:
+                pass
+            self.sub = self.create_subscription(msg_class, topic, self.callback, qos)
 
     def callback(self, msg):
         with self.lock:
