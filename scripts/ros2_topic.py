@@ -4,6 +4,7 @@
 import json
 import math
 import os
+import re
 import threading
 import time
 
@@ -226,12 +227,22 @@ def cmd_topics_message(args):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _node_name(prefix, topic):
+    """Build a unique-per-topic ROS 2 node name: skill_<prefix>_<topic_slug>."""
+    slug = re.sub(r'[^a-zA-Z0-9]', '_', topic.lstrip('/')).strip('_') or 'topic'
+    return f"skill_{prefix}_{slug}"
+
+
+# ---------------------------------------------------------------------------
 # Subscriber node
 # ---------------------------------------------------------------------------
 
 class TopicSubscriber(Node):
     def __init__(self, topic, msg_type, msg_class=None, qos=None):
-        super().__init__('subscriber')
+        super().__init__(_node_name('sub', topic))
         self.msg_type = msg_type
         self.messages = []
         self.lock = threading.Lock()
@@ -305,7 +316,7 @@ def cmd_topics_subscribe(args):
 
 class TopicPublisher(Node):
     def __init__(self, topic, msg_type):
-        super().__init__('publisher')
+        super().__init__(_node_name('pub', topic))
         self.topic = topic
         self.msg_type = msg_type
         self.pub = None
@@ -363,7 +374,7 @@ class ConditionMonitor(Node):
 
     def __init__(self, topic, msg_type, field, operator, threshold, stop_event,
                  euclidean=False, rotate=None):
-        super().__init__('condition_monitor')
+        super().__init__(_node_name('mon', topic))
         self.euclidean = euclidean
         self.rotate = rotate
         if isinstance(field, list):
