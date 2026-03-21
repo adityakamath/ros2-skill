@@ -771,3 +771,4 @@ The skill uses progressive disclosure — start here, go deeper only if needed:
 | `references/COMMANDS.md` | Complete command reference with all flags and JSON output examples |
 | `EXAMPLES.md` | Practical walkthroughs (move N metres, capture image, etc.) |
 | `SKILL.md` | Skill overview and capability summary |
+| `CHANGELOG.md` | Version history with new features and fixes |
