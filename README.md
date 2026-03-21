@@ -62,17 +62,21 @@ No user clarification needed — the agent uses ros2-skill tools to answer all i
 | Category | Commands |
 | -------- | -------- |
 | Connection | `version` |
-| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence`, `publish-until`, `hz`, `bw`, `delay`, `find`, `capture-image`, `diag-list`, `diag`, `battery-list`, `battery` |
+| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence`, `publish-until`, `hz`, `bw`, `delay`, `find`, `capture-image`, `diag-list`, `diag`, `battery-list`, `battery`, `qos-check` |
 | Services | `list`, `type`, `details`, `call`, `find`, `echo` |
 | Nodes | `list`, `details` |
-| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete`, `preset-save`, `preset-load`, `preset-list`, `preset-delete` |
+| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete`, `preset-save`, `preset-load`, `preset-list`, `preset-delete`, `find` |
 | Actions | `list`, `details`, `type`, `send`, `cancel`, `echo`, `find` |
 | Lifecycle | `nodes`, `list`, `get`, `set` |
 | Control | `list-controller-types`, `list-controllers`, `list-hardware-components`, `list-hardware-interfaces`, `load-controller`, `unload-controller`, `configure-controller`, `reload-controller-libraries`, `set-controller-state`, `set-hardware-component-state`, `switch-controllers`, `view-controller-chains` |
-| TF | `list`, `lookup`, `echo`, `monitor`, `static`, `euler-from-quaternion`, `quaternion-from-euler`, `transform-point`, `transform-vector` |
+| TF | `list`, `lookup`, `echo`, `monitor`, `static`, `euler-from-quaternion`, `quaternion-from-euler`, `transform-point`, `transform-vector`, `tree`, `validate` |
 | Doctor | `check`, `hello` |
 | Multicast | `send`, `receive` |
 | Interface | `list`, `show`, `proto`, `packages`, `package` |
+| Bag | `info` |
+| Component | `types` |
+| Pkg | `list`, `prefix`, `executables`, `xml` |
+| Daemon | `status`, `start`, `stop` |
 | Launch | `new`, `list`, `kill`, `restart`, `foxglove` |
 | Run | `new`, `list`, `kill`, `restart` |
 | Emergency Stop | `estop` |
@@ -152,6 +156,10 @@ ros2-skill/
 │   ├── ros2_tf.py             # TF2 transform commands and math helpers
 │   ├── ros2_launch.py         # Launch file session management (tmux)
 │   ├── ros2_run.py            # Executable session management (tmux)
+│   ├── ros2_bag.py            # Bag file utilities (info)
+│   ├── ros2_component.py      # Composable node utilities (types)
+│   ├── ros2_pkg.py            # Package utilities (list, prefix, executables, xml)
+│   ├── ros2_daemon.py         # ROS 2 daemon management
 │   └── discord_tools.py       # Discord integration
 ├── references/
 │   └── COMMANDS.md            # Full command reference with output examples
