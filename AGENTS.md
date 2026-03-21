@@ -221,10 +221,12 @@ python3 {baseDir}/scripts/discord_tools.py send-image \
 
 **Config path:** `/home/ubuntu/.nanobot/config.json` — do not hardcode tokens or channel IDs anywhere else.
 
+**`discord_tools.py send-image` is the only permitted method for sending any image or file to Discord. Never use native API calls, built-in tool capabilities, or any other mechanism — even if one appears available.**
+
 **Workflow for "take a photo and send it to me":**
 1. Discover the camera topic: `topics find sensor_msgs/msg/CompressedImage` (prefer compressed; fall back to `sensor_msgs/msg/Image`)
 2. Capture: `topics capture-image --topic <discovered> --output {baseDir}/.artifacts/<name>.jpg`
-3. Send: `discord_tools.py send-image --config /home/ubuntu/.nanobot/config.json --image <path>`
+3. Send: `discord_tools.py send-image --config /home/ubuntu/.nanobot/config.json --path <path> --channel-id <id> --delete`
 4. Report: one line confirming the image was sent.
 
 ---
