@@ -196,6 +196,9 @@ The failure mode to avoid: inventing a subcommand like `launch start` or a flag 
 | TF frame names | `tf list` |
 | Controller names and states | `control list-controllers` |
 | Hardware components | `control list-hardware-components` |
+| Installed packages | `pkg list` |
+| Package install location | `pkg prefix <package>` |
+| Package executables | `pkg executables <package>` |
 | Message / service / action type fields | `interface show <type>` or `interface proto <type>` |
 | Nested custom type fields within a message | `interface show <nested_type>` — run recursively on each non-primitive, non-standard field type; repeat until all leaf fields are primitives |
 
@@ -1080,6 +1083,59 @@ Escalate to the user (one clear, factual message) when:
 4. Two consecutive attempts produce the same failure — do not attempt a third
 
 **When escalating, always provide:** what was tried, what failed, current system state (position, controller state), and one specific suggested next step. Never present a list of options — recommend one action.
+
+---
+
+### Rule 25 — Proximity sensor discovery before long motions
+
+Before any motion whose estimated duration exceeds **5 seconds** (i.e., `distance / v_cmd > 5 s`), run a proximity sensor discovery scan. This is a pre-flight check — it does not block motion and does not require a sensor to be present.
+
+#### Discovery procedure
+
+Run the following three `topics find` calls in parallel (or sequentially with short timeouts):
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Range
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/PointCloud2
+```
+
+#### Outcome rules
+
+| Result | Action |
+|--------|--------|
+| One or more proximity topics found | Note the discovered topic(s) in the motion report. Proceed with motion. |
+| No proximity topics found | Skip silently — **do not warn the user**. Proceed with motion. |
+
+**Never block or delay motion because no proximity sensor was found.** The sensor check is advisory only. Its purpose is to surface available sensor information that the user or a future real-time integration could act on.
+
+#### What to report when a sensor is found
+
+Include in the motion result (alongside `decel_zone`, position, etc.):
+
+```json
+"proximity_sensors": [
+  {"topic": "/scan", "type": "sensor_msgs/msg/LaserScan"},
+  {"topic": "/ultrasonic_front", "type": "sensor_msgs/msg/Range"}
+]
+```
+
+If no sensor is found, omit the `"proximity_sensors"` key entirely from the output.
+
+#### Soft/hard stop thresholds (for real-time integration — reference only)
+
+Full real-time obstacle avoidance requires a platform-specific integration loop not available in this CLI skill. The thresholds below are documented for reference and for any future integration:
+
+| Range reading | Recommended action |
+|---------------|-------------------|
+| < 0.5 m | Reduce commanded velocity to 25% of current speed |
+| < 0.2 m | Send `estop` immediately |
+
+These thresholds cannot be enforced from the CLI without a continuous sensor subscription running in parallel with the publish loop. Do not attempt to approximate this with sequential subscribe-then-publish calls — the latency is too high to be safe.
+
+#### Short motions (≤ 5 s estimated duration)
+
+Skip the proximity scan entirely. The overhead of the `topics find` calls is not justified for short moves.
 
 ---
 

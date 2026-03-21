@@ -28,6 +28,7 @@ Controls and monitors ROS 2 robots directly via rclpy. This skill provides a uni
 - **Movement:** Agent-optimized `publish-until` (closed-loop with odom) and `publish-sequence` (timed).
 - **Configuration:** Get/set parameters, use presets, and manage lifecycle nodes.
 - **System:** Run `ros2 doctor`, manage `launch` files via tmux, and control `ros2_control` hardware.
+- **Packages:** List installed packages, resolve prefix paths, enumerate executables, and read `package.xml` manifests — no live graph required.
 
 ## 🏗️ Architecture
 

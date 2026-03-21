@@ -4,113 +4,62 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.5] - 2026-03-21
 
-Comprehensive review of RULES.md, AGENTS.md, and SKILL.md targeting agent self-reliance. Added bag, component, and daemon commands. Hardened safety rules. Closed AGENTS.md coverage gaps.
+Comprehensive self-reliance review. Added introspection commands, hardened safety and motion rules, introduced AGENTS.md, and made the deceleration zone dynamic.
 
 ### New Commands
 
-- `bag info <bag_path>` — show metadata for a ROS 2 bag (duration, message counts, per-topic stats); no live graph required
-- `component types` — list all registered rclcpp composable node types; no live graph required
-- `daemon status` — check if the ROS 2 daemon is running; no live graph required
-- `daemon start` — start the ROS 2 daemon
-- `daemon stop` — stop the ROS 2 daemon
+- `bag info <bag_path>` — bag metadata (duration, message counts, per-topic stats); no live graph required
+- `component types` — list registered rclcpp composable node types; no live graph required
+- `daemon status` / `daemon start` / `daemon stop` — ROS 2 daemon management
+- `params find <pattern> [--node N]` — search all live nodes for params matching a substring
+- `tf tree` — ASCII visualization of the full TF frame hierarchy
+- `tf validate` — DFS cycle detection and multiple-parent checks across the TF graph
+- `topics qos-check <topic>` — compare publisher/subscriber QoS profiles; suggests fix flags
+- `launch list <keyword>` — find launch files across installed packages by keyword (no keyword = existing session list behaviour)
+- `pkg list` / `pkg ls` — list all installed packages; no live graph required
+- `pkg prefix <package>` — resolve the install prefix for a package
+- `pkg executables <package>` — list executable files provided by a package
+- `pkg xml <package>` — output the `package.xml` manifest for a package
 
-### Safety Rules
+### Skill
 
-- **Rules 18–21** — `estop` mandatory after every `publish-until` (Rule 18), QoS pre-flight gate (Rule 19), `--slow-last` for moves > 2 m / 180° (Rule 20), position verify before re-issue on timeout (Rule 21)
-- **Rule 18 hard preemption** — estop is the first and only permitted action on any `publish-until` exit; no diagnosis before estop is verified
-- **Rule 19 hard gate** — QoS and monitor field checks are pre-flight; never attempt `publish-until` if publisher count is 0 or field path cannot be resolved
-- **Rule 22** — motion ceilings: > 50 m or > 3600° requires explicit user confirmation
-- **Rule 23** — any new command during active motion triggers estop + verify before the new command is handled
-- **Estop verification window** standardised to 5 s (10 s for heavy platforms > 20 kg)
-- **Long-motion segmentation** (Rule 9) — `publish-until` with expected duration > 30 s broken into max-30 s segments with estop + odom rate check between each
+- `publish-until` deceleration zone is now auto-computed from kinematics (`v_cmd² / 2a_max`); per-axis fallbacks: `lin.x=0.125 m/s`, `lin.y=0.1 m/s`, `ang.z=0.375 rad/s`. Manual `--slow-last` still overrides. Result includes `"decel_zone"` with computed values.
+- `publish-until` scans for proximity sensors (`LaserScan`, `Range`, `PointCloud2`) before motions estimated > 5 s; reports found topics in output, skips silently if none
+- Velocity-limit scan extended to four sources: node params, URDF joint limits, ros2_control hardware interface limits, and `controller_manager` YAML config
+- `ConditionMonitor` auto-matches publisher QoS (BEST_EFFORT / RELIABLE) to prevent silent odom dropout
+- Vague quantity defaults: "a bit" = 0.1 m / 5°, "nearby" = 0.5 m; act on defaults, note assumption
+- Already-at-target short-circuit: skip motion if remaining ≤ 0.05 m or ≤ 3°
+- Conditional/branching task sequences: retry limits per failure type, fallback chains, escalation format
 
-### Self-Reliance Rules
+### Rules
 
-- **Vague quantity defaults** (Rule 5) — "a bit" = 0.1 m / 5°, "nearby" = 0.5 m, etc.; act on defaults and note the assumption instead of asking
-- **Already-at-target short-circuit** — skip motion if remaining ≤ 0.05 m or ≤ 3° (AGENTS.md Phase 2 Step 0.5)
-- **Near-success tolerance** (Rule 21) — `condition_met: false` within 0.05 m / 3° of target treated as success
-- **Multiple controller selection** (Rule 0) — prefer by robot part named in user request before falling back to first result
-- **Discovery retry** (Rule 10) — retry once after 1 s before broadening; DDS discovery is eventually-consistent
-- **Rule 9 carry-forward pose** — confirmed final position from prior move is the next baseline; velocity + hz checks still run fresh each time
+- `estop` is a hard preemption — first and only action on any motion exit, before any diagnosis
+- QoS and monitor field checks are mandatory pre-flight; never attempt `publish-until` if publisher count is 0
+- Motion ceilings: > 50 m or > 3600° requires explicit user confirmation
+- Any new command during active motion: estop first, verify, then handle
+- `publish-until` > 30 s segmented into max-30 s chunks with estop + odom check between
+- Simulated clock re-verified before every timed command (not just session start)
+- TF pre-flight: `tf list` + `tf echo` staleness check + `tf validate` cycle detection before spatial ops
+- Proximity sensor discovery before long motions (> 5 s); real-time obstacle avoidance is platform-specific
+- Odometry `frame_id` checked on first use; non-canonical frames noted in report
+- Node crash monitoring for commands > 10 s; estop + escalate if controller or odom node disappears
 
-### Rule Clarifications
+### Fixes
 
-- **Rule 0 vs Rule 5** — discovery is silent, execution is silent; no narration, no confirmation requests
-- **Rule 8** — service response JSON must be inspected (`success`/`status` field); CLI exit code 0 ≠ success. Retry protocol: 1 auto + 2 fix+retry, then escalate
-- **Rule 9 hard gate** — overriding a failed pre-motion check is a safety violation; escalate if recovery fails
-- **Rule 9 odom rate** — `topics hz` mandatory before every motion command; cannot carry forward from prior command
-- **Rule 11** — always state selection when more than one candidate existed
-- **`condition_met: false` diagnostic** — `topics hz` after estop distinguishes QoS failure (0 Hz) from genuine timeout
-
-### Code Fixes
-
-- **M5** — `ConditionMonitor` auto-matches publisher QoS (BEST_EFFORT / RELIABLE) to prevent silent odom dropout
-- **M8** — `scale_twist_velocity` restructured as if/elif to correctly handle Twist vs TwistStamped
-- **M9** — 440-line module docstring removed from `ros2_cli.py`
-- **H3** — `cmd_actions_details` missing None guard added
-- **Q7** — `cmd_version` reports `rclpy_available`
-- **Q8** — unique per-topic node names (`skill_<prefix>_<slug>`) to prevent node name collision
-
-### AGENTS.md
-
-- **Rules 18–23** condensed and added to Core Rules
-- **Rules 24–27** added: session-start checks (← 0.1), ros2-skill exclusively (← 2), execute without asking (← 5), minimal reporting (← 6)
-- **Removed** stale Safety line "Confirm before any movement — wait for acknowledgement" which contradicted Rule 5
+- `scale_twist_velocity` — if/elif guards to correctly handle Twist vs TwistStamped
+- `cmd_actions_details` — missing None guard added
+- `cmd_version` — reports `rclpy_available`
+- Unique per-topic node names to prevent collision on concurrent commands
+- 440-line module docstring removed from `ros2_cli.py`
 
 ### Tests
 
 - 14 new unit tests: estop Twist/TwistStamped branching, `ros2_context` shutdown, `ConditionMonitor` QoS auto-matching, TF monitor missing-frame error
-
-### Edge Cases and Limit Enforcement (Wave 3)
-
-- **Four-source velocity-limit scan** (Rule 0) — extends param scan to: URDF joint limits from `robot_description` on `robot_state_publisher`; ros2_control hardware interface limits via `control list-hardware-interfaces`; YAML config params on `controller_manager`; adds `scale` keyword to catch teleop `scale_linear`/`scale_angular` params. Binding ceiling = minimum across all four sources.
-- **Robot not moving diagnostic** (Rule 7) — 3-step protocol when odom velocity stays ≈ 0 despite active publishing: check topic hz; compare commanded vs binding ceiling; auto-reissue at 90% of limit if exceeded. Never report "not moving" without completing all three steps.
-- **Mid-motion node crash monitoring** (Rule 13) — for commands > 10 s, check `nodes list` every 10 s; estop and escalate if velocity controller or odom publisher disappears.
-- **Simulated clock re-check** (Rule 0.1) — `/clock` liveness must be re-verified before every timed command, not just at session start. If clock is not advancing, block the timed command.
-- **Odometry `frame_id` check** (Rule 15) — on first use of odom topic, read `header.frame_id`; note non-canonical frames to user; store for position reporting and TF queries.
-- **TF tree pre-flight validation** (Rule 17) — run `tf list` before any TF operation; run `tf echo` for sensor frames to confirm staleness; `tf echo` timeout = suspect cycle.
-- **Process interrupt cleanup** (Rule 18) — any abrupt CLI exit during motion = potential coasting robot; send estop immediately as first recovery action. Notes known signal handler gap in `ros2_cli.py`.
-- **AGENTS.md Rules 28–32** — condensed coverage for all seven Wave 3 additions; full RULES.md → AGENTS.md coverage audit confirmed (all 25 rules, 0–23, covered across entries 1–32).
-
-### Workflow and Self-Reliance (Wave 4)
-
-- **Launch discovery** — keyword inference table added (bringup/nav/camera/arm/sim); planned native `launch list <keyword>` noted for Wave 5; `ros2 pkg list` / `ros2 pkg files` documented as Rule 2 exceptions until then.
-- **Rule 24 / AGENTS.md Rule 33** — conditional and branching task sequences: retry limits per failure type, fallback chain table, escalation message format. Two consecutive identical failures → escalate immediately.
-
-### Dynamic Deceleration Zone
-
-- **Auto-computed decel zone in `publish-until`** — `--slow-last` and `--slow-factor` are now computed from kinematics (`v_cmd² / (2 × a_max)` for linear; `ω_cmd² / (2 × α_max)` for rotation) instead of hardcoded constants. Accel and min-vel params fetched from live nodes at startup (2 s timeout). Per-axis fallbacks: `linear.x=0.125 m/s`, `linear.y=0.1 m/s`, `angular.z=0.375 rad/s`; accel fallbacks: `0.5 m/s²` linear / `1.0 rad/s²` angular. `--slow-last` still overrides when provided. Computed values reported in output as `"decel_zone"`. Rule 20 and AGENTS.md Rule 20 updated.
-
-### CLI Introspection (Wave 5)
-
-- **`params find <pattern>`** — cross-node parameter search; finds any parameter matching a substring across all live nodes; optional `--node` filter; returns node path + current value for each match (AGENTS.md Rule 34)
-- **`tf tree`** — ASCII TF hierarchy visualization; subscribes to `/tf` + `/tf_static`, builds parent→child tree; use before any spatial operation (AGENTS.md Rule 35)
-- **`tf validate`** — DFS cycle detection + multiple-parent checks across full TF graph; returns `"valid": false` with offending frames; required pre-flight for spatial ops (AGENTS.md Rules 36 + RULES.md Rule 17 EC-7 updated)
-- **`topics qos-check <topic>`** — cross-compares publisher and subscriber QoS profiles; returns `compatible` flag and suggested `--qos-*` flag to resolve mismatches (AGENTS.md Rule 37)
-- **`launch list <keyword>`** — keyword-based launch file discovery across all installed packages; returns package name + full path for each match; use to resolve natural-language launch requests (AGENTS.md Rule 38)
-
-### New Commands
-
-- `bag info <bag_path>` — show metadata for a ROS 2 bag (duration, message counts, per-topic stats); no live graph required
-- `component types` — list all registered rclcpp composable node types; no live graph required
-- `daemon status` — check if the ROS 2 daemon is running; no live graph required
-- `daemon start` — start the ROS 2 daemon
-- `daemon stop` — stop the ROS 2 daemon
-
-### RULES.md Hardening
-
-- ros2_control hardware interface lifecycle pre-flight before any controller load/switch/configure
-- TF2 sensor frame validation before consuming spatially-interpreted sensor data
-- Camera pipeline calibration check (camera_info K matrix + TF frame presence)
-- Pre-escalation log level control via `set_logger_level` before asking the user
-- Recursive nested type expansion via `interface show` before publishing
-- Parameter file pre-flight for `params load` / `--params-file`
-- ROS domain ID, daemon, and `ROS_LOCALHOST_ONLY` context checks (Rule 0.1)
-- Testing vocabulary for `colcon test` / `colcon test-result`
+- 16 new unit tests: `TestPkgParsing` (parser + dispatch wiring for all 5 pkg entries including `ls` alias) and `TestPkgLogic` (mocked `ament_index_python` — list sorting, prefix found/not-found, executables executable-bit filtering, empty lib dir, xml content, xml missing file)
 
 ### Documentation
 
-- `AGENTS.md` — new agent guide: entry-point rules, session-start protocol, output folders (`.artifacts/`, `.presets/`, `.profiles/`), core operational rules, safety, and troubleshooting
+- `AGENTS.md` added — condensed operational guide covering session-start protocol, core rules, motion workflow, safety, and troubleshooting
 
 ---
 

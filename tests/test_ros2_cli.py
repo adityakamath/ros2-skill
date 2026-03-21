@@ -5,7 +5,9 @@ Tests cover argument parsing, dispatch table, JSON handling,
 and utility functions.
 """
 
+import argparse
 import json
+import pathlib
 import sys
 import os
 import unittest
@@ -22,6 +24,207 @@ def check_rclpy_available():
         return True
     except ImportError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Gap 1 — rclpy mock infrastructure
+#
+# Captured BEFORE mocks are injected so tests that need a real ROS 2
+# environment can still guard against running without it.
+# ---------------------------------------------------------------------------
+
+_ROS_AVAILABLE = check_rclpy_available()
+
+
+def _setup_ros_mocks():
+    """Inject MagicMock stubs for rclpy and all ROS 2 message packages.
+
+    Called once at module level when rclpy is not installed.  After this
+    runs, ``check_rclpy_available()`` returns True (rclpy is in sys.modules)
+    so every ``if not check_rclpy_available(): raise SkipTest`` guard in
+    existing test classes is bypassed automatically — no per-class changes
+    needed.  Classes that require a *live* ROS 2 environment should guard
+    against ``_ROS_AVAILABLE`` instead.
+    """
+    mocked = [
+        'rclpy', 'rclpy.node', 'rclpy.qos', 'rclpy.action',
+        'rclpy.duration', 'rclpy.clock', 'rclpy.time',
+        'geometry_msgs', 'geometry_msgs.msg',
+        'std_msgs', 'std_msgs.msg',
+        'sensor_msgs', 'sensor_msgs.msg',
+        'nav_msgs', 'nav_msgs.msg',
+        'rcl_interfaces', 'rcl_interfaces.msg', 'rcl_interfaces.srv',
+        'builtin_interfaces', 'builtin_interfaces.msg',
+        'lifecycle_msgs', 'lifecycle_msgs.msg', 'lifecycle_msgs.srv',
+        'action_msgs', 'action_msgs.msg',
+        'controller_manager_msgs', 'controller_manager_msgs.srv',
+        'tf2_ros', 'tf2_geometry_msgs',
+        'cv_bridge', 'cv2',
+    ]
+    for mod in mocked:
+        sys.modules.setdefault(mod, MagicMock())
+
+
+if not _ROS_AVAILABLE:
+    _setup_ros_mocks()
+
+
+# ---------------------------------------------------------------------------
+# Gap 4 — MINIMAL_ARGS: exhaustive (cmd, sub, cli_args) table
+#
+# Every entry in DISPATCH must appear here.  Used by TestExhaustiveParser
+# (parse sweep) and TestDispatchTable (symmetry canary).
+# ---------------------------------------------------------------------------
+
+MINIMAL_ARGS = [
+    # version / estop
+    ("version",  None,               ["version"]),
+    ("estop",    None,               ["estop"]),
+    # topics — canonical
+    ("topics",   "list",             ["topics", "list"]),
+    ("topics",   "type",             ["topics", "type", "/t"]),
+    ("topics",   "details",          ["topics", "details", "/t"]),
+    ("topics",   "message",          ["topics", "message", "geometry_msgs/Twist"]),
+    ("topics",   "message-structure",["topics", "message-structure", "geometry_msgs/Twist"]),
+    ("topics",   "message-struct",   ["topics", "message-struct", "geometry_msgs/Twist"]),
+    ("topics",   "subscribe",        ["topics", "subscribe", "/t"]),
+    ("topics",   "publish",          ["topics", "publish", "/t", "{}"]),
+    ("topics",   "publish-sequence", ["topics", "publish-sequence", "/t", "[]", "[]"]),
+    ("topics",   "publish-until",    ["topics", "publish-until", "/t", "{}", "--monitor", "/m", "--field", "x", "--delta", "1"]),
+    ("topics",   "publish-continuous",["topics", "publish-continuous", "/t", "{}"]),
+    ("topics",   "hz",               ["topics", "hz", "/t"]),
+    ("topics",   "find",             ["topics", "find", "std_msgs/msg/String"]),
+    ("topics",   "capture-image",    ["topics", "capture-image", "--topic", "/camera/image_raw", "--output", "img.jpg"]),
+    ("topics",   "diag-list",        ["topics", "diag-list"]),
+    ("topics",   "diag",             ["topics", "diag"]),
+    ("topics",   "battery-list",     ["topics", "battery-list"]),
+    ("topics",   "battery",          ["topics", "battery"]),
+    ("topics",   "bw",               ["topics", "bw", "/t"]),
+    ("topics",   "delay",            ["topics", "delay", "/t"]),
+    ("topics",   "qos-check",        ["topics", "qos-check", "/t"]),
+    # topics — aliases
+    ("topics",   "echo",             ["topics", "echo", "/t"]),
+    ("topics",   "pub",              ["topics", "pub", "/t", "{}"]),
+    ("topics",   "ls",               ["topics", "ls"]),
+    ("topics",   "info",             ["topics", "info", "/t"]),
+    # services
+    ("services", "list",             ["services", "list"]),
+    ("services", "type",             ["services", "type", "/s"]),
+    ("services", "details",          ["services", "details", "/s"]),
+    ("services", "call",             ["services", "call", "/s", "{}"]),
+    ("services", "find",             ["services", "find", "std_srvs/srv/Empty"]),
+    ("services", "echo",             ["services", "echo", "/s"]),
+    ("services", "ls",               ["services", "ls"]),
+    ("services", "info",             ["services", "info", "/s"]),
+    # nodes
+    ("nodes",    "list",             ["nodes", "list"]),
+    ("nodes",    "details",          ["nodes", "details", "/n"]),
+    ("nodes",    "info",             ["nodes", "info", "/n"]),
+    ("nodes",    "ls",               ["nodes", "ls"]),
+    # lifecycle
+    ("lifecycle","nodes",            ["lifecycle", "nodes"]),
+    ("lifecycle","list",             ["lifecycle", "list"]),
+    ("lifecycle","get",              ["lifecycle", "get", "/n"]),
+    ("lifecycle","set",              ["lifecycle", "set", "/n", "configure"]),
+    ("lifecycle","ls",               ["lifecycle", "ls"]),
+    # control
+    ("control",  "list-controller-types",       ["control", "list-controller-types"]),
+    ("control",  "list-controllers",            ["control", "list-controllers"]),
+    ("control",  "list-hardware-components",    ["control", "list-hardware-components"]),
+    ("control",  "list-hardware-interfaces",    ["control", "list-hardware-interfaces"]),
+    ("control",  "load-controller",             ["control", "load-controller", "c"]),
+    ("control",  "unload-controller",           ["control", "unload-controller", "c"]),
+    ("control",  "configure-controller",        ["control", "configure-controller", "c"]),
+    ("control",  "reload-controller-libraries", ["control", "reload-controller-libraries"]),
+    ("control",  "set-controller-state",        ["control", "set-controller-state", "c", "active"]),
+    ("control",  "set-hardware-component-state",["control", "set-hardware-component-state", "h", "active"]),
+    ("control",  "switch-controllers",          ["control", "switch-controllers", "--activate", "a"]),
+    ("control",  "view-controller-chains",      ["control", "view-controller-chains"]),
+    ("control",  "load",                        ["control", "load", "c"]),
+    ("control",  "unload",                      ["control", "unload", "c"]),
+    # params
+    ("params",   "list",             ["params", "list", "/n"]),
+    ("params",   "get",              ["params", "get", "/n:p"]),
+    ("params",   "set",              ["params", "set", "/n:p", "v"]),
+    ("params",   "describe",         ["params", "describe", "/n", "p"]),
+    ("params",   "dump",             ["params", "dump", "/n"]),
+    ("params",   "load",             ["params", "load", "/n", "{}"]),
+    ("params",   "delete",           ["params", "delete", "/n", "p"]),
+    ("params",   "preset-save",      ["params", "preset-save", "/n", "p"]),
+    ("params",   "preset-load",      ["params", "preset-load", "/n", "p"]),
+    ("params",   "preset-list",      ["params", "preset-list"]),
+    ("params",   "preset-delete",    ["params", "preset-delete", "p"]),
+    ("params",   "find",             ["params", "find", "velocity"]),
+    ("params",   "ls",               ["params", "ls", "/n"]),
+    # actions
+    ("actions",  "list",             ["actions", "list"]),
+    ("actions",  "details",          ["actions", "details", "/a"]),
+    ("actions",  "send",             ["actions", "send", "/a", "{}"]),
+    ("actions",  "type",             ["actions", "type", "/a"]),
+    ("actions",  "cancel",           ["actions", "cancel", "/a"]),
+    ("actions",  "echo",             ["actions", "echo", "/a"]),
+    ("actions",  "find",             ["actions", "find", "pkg/action/Type"]),
+    ("actions",  "info",             ["actions", "info", "/a"]),
+    ("actions",  "ls",               ["actions", "ls"]),
+    # doctor / wtf
+    ("doctor",   None,               ["doctor"]),
+    ("doctor",   "hello",            ["doctor", "hello"]),
+    ("wtf",      None,               ["wtf"]),
+    ("wtf",      "hello",            ["wtf", "hello"]),
+    # multicast
+    ("multicast","send",             ["multicast", "send"]),
+    ("multicast","receive",          ["multicast", "receive"]),
+    # tf
+    ("tf",       "list",             ["tf", "list"]),
+    ("tf",       "ls",               ["tf", "ls"]),
+    ("tf",       "lookup",           ["tf", "lookup", "s", "t"]),
+    ("tf",       "get",              ["tf", "get", "s", "t"]),
+    ("tf",       "echo",             ["tf", "echo", "s", "t"]),
+    ("tf",       "monitor",          ["tf", "monitor", "f"]),
+    ("tf",       "static",           ["tf", "static", "--from", "s", "--to", "t", "--xyz", "0", "0", "0", "--rpy", "0", "0", "0"]),
+    ("tf",       "euler-from-quaternion",     ["tf", "euler-from-quaternion", "0", "0", "0", "1"]),
+    ("tf",       "euler-from-quaternion-deg", ["tf", "euler-from-quaternion-deg", "0", "0", "0", "1"]),
+    ("tf",       "quaternion-from-euler",     ["tf", "quaternion-from-euler", "0", "0", "0"]),
+    ("tf",       "quaternion-from-euler-deg", ["tf", "quaternion-from-euler-deg", "0", "0", "0"]),
+    ("tf",       "transform-point",  ["tf", "transform-point", "t", "s", "0", "0", "0"]),
+    ("tf",       "transform-vector", ["tf", "transform-vector", "t", "s", "0", "0", "0"]),
+    ("tf",       "tree",             ["tf", "tree"]),
+    ("tf",       "validate",         ["tf", "validate"]),
+    # launch
+    ("launch",   "new",      ["launch", "new", "p", "f.launch.py"]),
+    ("launch",   "list",     ["launch", "list"]),
+    ("launch",   "ls",       ["launch", "ls"]),
+    ("launch",   "kill",     ["launch", "kill", "s"]),
+    ("launch",   "restart",  ["launch", "restart", "s"]),
+    ("launch",   "foxglove", ["launch", "foxglove"]),
+    # run
+    ("run",      "new",      ["run", "new", "p", "e"]),
+    ("run",      "list",     ["run", "list"]),
+    ("run",      "ls",       ["run", "ls"]),
+    ("run",      "kill",     ["run", "kill", "s"]),
+    ("run",      "restart",  ["run", "restart", "s"]),
+    # interface
+    ("interface","list",     ["interface", "list"]),
+    ("interface","ls",       ["interface", "ls"]),
+    ("interface","show",     ["interface", "show", "std_msgs/String"]),
+    ("interface","proto",    ["interface", "proto", "std_msgs/String"]),
+    ("interface","packages", ["interface", "packages"]),
+    ("interface","package",  ["interface", "package", "std_msgs"]),
+    # bag
+    ("bag",      "info",     ["bag", "info", "/path/to/bag"]),
+    # component
+    ("component","types",    ["component", "types"]),
+    # pkg
+    ("pkg",       "list",        ["pkg", "list"]),
+    ("pkg",       "ls",          ["pkg", "ls"]),
+    ("pkg",       "prefix",      ["pkg", "prefix", "std_msgs"]),
+    ("pkg",       "executables", ["pkg", "executables", "turtlesim"]),
+    ("pkg",       "xml",         ["pkg", "xml", "std_msgs"]),
+    # daemon
+    ("daemon",   "status",   ["daemon", "status"]),
+    ("daemon",   "start",    ["daemon", "start"]),
+    ("daemon",   "stop",     ["daemon", "stop"]),
+]
 
 
 class TestBuildParser(unittest.TestCase):
@@ -153,8 +356,9 @@ class TestOutput(unittest.TestCase):
 class TestGetMsgType(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if not check_rclpy_available():
-            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        # Requires *live* ROS 2: resolves real message packages by name.
+        if not _ROS_AVAILABLE:
+            raise unittest.SkipTest("live rclpy required — real message packages must be importable")
         import ros2_cli
         cls.ros2_cli = ros2_cli
 
@@ -801,6 +1005,236 @@ class TestComponentParsing(unittest.TestCase):
         D = self.ros2_cli.DISPATCH
         self.assertIn(("component", "types"), D)
         self.assertTrue(callable(D[("component", "types")]))
+
+
+class TestPkgParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for the pkg subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_pkg_list_parsing(self):
+        args = self.parser.parse_args(["pkg", "list"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "list")
+
+    def test_pkg_ls_alias(self):
+        args = self.parser.parse_args(["pkg", "ls"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "ls")
+
+    def test_pkg_prefix_parsing(self):
+        args = self.parser.parse_args(["pkg", "prefix", "nav2_bringup"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "prefix")
+        self.assertEqual(args.package, "nav2_bringup")
+
+    def test_pkg_executables_parsing(self):
+        args = self.parser.parse_args(["pkg", "executables", "turtlesim"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "executables")
+        self.assertEqual(args.package, "turtlesim")
+
+    def test_pkg_xml_parsing(self):
+        args = self.parser.parse_args(["pkg", "xml", "std_msgs"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "xml")
+        self.assertEqual(args.package, "std_msgs")
+
+    def test_pkg_dispatch(self):
+        D = self.ros2_cli.DISPATCH
+        for subcommand in ("list", "ls", "prefix", "executables", "xml"):
+            with self.subTest(subcommand=subcommand):
+                self.assertIn(("pkg", subcommand), D)
+                self.assertTrue(callable(D[("pkg", subcommand)]))
+
+
+class TestPkgLogic(unittest.TestCase):
+    """Pure-Python logic tests for ros2_pkg with mocked ament_index_python.
+
+    No rclpy calls are made by the functions under test, but ros2_utils
+    (imported by ros2_pkg) calls sys.exit(1) when rclpy is absent, so the
+    rclpy guard is still required to import the module safely.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_pkg
+        cls.ros2_pkg = ros2_pkg
+
+    # ------------------------------------------------------------------
+    # pkg list
+    # ------------------------------------------------------------------
+
+    def test_pkg_list_no_ament(self):
+        """When ament_index_python is missing, output contains an error key."""
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python": None,
+                                       "ament_index_python.packages": None}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_list(None)
+        self.assertEqual(len(captured), 1)
+        self.assertIn("error", captured[0])
+
+    def test_pkg_list_returns_sorted_packages(self):
+        """Packages are sorted alphabetically and total matches count."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_packages_with_prefixes.return_value = {
+            "zebra_pkg": "/opt/ros/humble",
+            "alpha_pkg": "/opt/ros/humble",
+            "middle_pkg": "/opt/ros/humble",
+        }
+        captured = []
+        with patch.dict(sys.modules, {
+                "ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_list(None)
+        result = captured[0]
+        self.assertIn("packages", result)
+        self.assertEqual(result["packages"], ["alpha_pkg", "middle_pkg", "zebra_pkg"])
+        self.assertEqual(result["total"], 3)
+
+    # ------------------------------------------------------------------
+    # pkg prefix
+    # ------------------------------------------------------------------
+
+    def test_pkg_prefix_found(self):
+        """Returns package name and prefix path."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_package_prefix.return_value = "/opt/ros/humble"
+        args = argparse.Namespace(package="turtlesim")
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_prefix(args)
+        result = captured[0]
+        self.assertEqual(result["package"], "turtlesim")
+        self.assertEqual(result["prefix"], "/opt/ros/humble")
+
+    def test_pkg_prefix_not_found(self):
+        """KeyError from ament_index produces an error with the package name."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_package_prefix.side_effect = KeyError("nonexistent_pkg")
+        args = argparse.Namespace(package="nonexistent_pkg")
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_prefix(args)
+        self.assertIn("error", captured[0])
+        self.assertIn("nonexistent_pkg", captured[0]["error"])
+
+    # ------------------------------------------------------------------
+    # pkg executables
+    # ------------------------------------------------------------------
+
+    def test_pkg_executables_found(self):
+        """Executable files in lib/<pkg>/ are listed; non-executables are excluded."""
+        import tempfile
+        mock_pkgs = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lib_dir = pathlib.Path(tmpdir) / "lib" / "mypkg"
+            lib_dir.mkdir(parents=True)
+            exe = lib_dir / "my_node"
+            exe.write_text("#!/bin/sh")
+            exe.chmod(0o755)
+            non_exe = lib_dir / "readme.txt"
+            non_exe.write_text("not a binary")
+            non_exe.chmod(0o644)
+            mock_pkgs.get_package_prefix.return_value = tmpdir
+            args = argparse.Namespace(package="mypkg")
+            captured = []
+            with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+                 patch("ros2_pkg.output", side_effect=captured.append):
+                self.ros2_pkg.cmd_pkg_executables(args)
+        result = captured[0]
+        self.assertEqual(result["package"], "mypkg")
+        self.assertIn("my_node", result["executables"])
+        self.assertNotIn("readme.txt", result["executables"])
+        self.assertEqual(result["total"], 1)
+
+    def test_pkg_executables_no_lib_dir(self):
+        """When lib/<pkg>/ does not exist, returns empty list without error."""
+        import tempfile
+        mock_pkgs = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_pkgs.get_package_prefix.return_value = tmpdir
+            args = argparse.Namespace(package="mypkg")
+            captured = []
+            with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+                 patch("ros2_pkg.output", side_effect=captured.append):
+                self.ros2_pkg.cmd_pkg_executables(args)
+        result = captured[0]
+        self.assertEqual(result["executables"], [])
+        self.assertEqual(result["total"], 0)
+
+    def test_pkg_executables_not_found(self):
+        """Unknown package produces an error."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_package_prefix.side_effect = KeyError("ghost_pkg")
+        args = argparse.Namespace(package="ghost_pkg")
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_executables(args)
+        self.assertIn("error", captured[0])
+
+    # ------------------------------------------------------------------
+    # pkg xml
+    # ------------------------------------------------------------------
+
+    def test_pkg_xml_found(self):
+        """Returns package name, path, and xml content."""
+        import tempfile
+        mock_pkgs = MagicMock()
+        xml_content = '<?xml version="1.0"?>\n<package format="3"><name>mypkg</name></package>\n'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            share_dir = pathlib.Path(tmpdir) / "share" / "mypkg"
+            share_dir.mkdir(parents=True)
+            (share_dir / "package.xml").write_text(xml_content, encoding="utf-8")
+            mock_pkgs.get_package_share_directory.return_value = str(share_dir)
+            args = argparse.Namespace(package="mypkg")
+            captured = []
+            with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+                 patch("ros2_pkg.output", side_effect=captured.append):
+                self.ros2_pkg.cmd_pkg_xml(args)
+        result = captured[0]
+        self.assertEqual(result["package"], "mypkg")
+        self.assertIn("<name>mypkg</name>", result["xml"])
+        self.assertIn("path", result)
+
+    def test_pkg_xml_package_not_found(self):
+        """Unknown package produces an error."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_package_share_directory.side_effect = KeyError("ghost")
+        args = argparse.Namespace(package="ghost")
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_xml(args)
+        self.assertIn("error", captured[0])
+
+    def test_pkg_xml_missing_file(self):
+        """Package in ament index but package.xml absent on disk → error."""
+        import tempfile
+        mock_pkgs = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            share_dir = pathlib.Path(tmpdir) / "share" / "mypkg"
+            share_dir.mkdir(parents=True)
+            # No package.xml written
+            mock_pkgs.get_package_share_directory.return_value = str(share_dir)
+            args = argparse.Namespace(package="mypkg")
+            captured = []
+            with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+                 patch("ros2_pkg.output", side_effect=captured.append):
+                self.ros2_pkg.cmd_pkg_xml(args)
+        self.assertIn("error", captured[0])
 
 
 class TestComponentTypesLogic(unittest.TestCase):
@@ -2331,7 +2765,9 @@ class TestScaleTwistVelocity(unittest.TestCase):
         if not check_rclpy_available():
             raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
         import ros2_topic
-        cls.fn = ros2_topic.scale_twist_velocity
+        # staticmethod prevents Python binding self as the first argument when
+        # the function is stored as a class attribute and called via self.fn().
+        cls.fn = staticmethod(ros2_topic.scale_twist_velocity)
 
     def test_plain_twist_scales_all_axes(self):
         data = {"linear": {"x": 1.0, "y": 0.5, "z": 0.0},
@@ -2532,7 +2968,9 @@ class TestLaunchTmuxPath(unittest.TestCase):
         import ros2_launch
         import ros2_run
         cls.launch = ros2_launch
-        cls.run = ros2_run
+        # Stored as ros2_run_mod (not cls.run) to avoid shadowing
+        # unittest.TestCase.run(), which the test runner calls on every test.
+        cls.ros2_run_mod = ros2_run
 
     def _stdout(self):
         return patch("sys.stdout", new_callable=StringIO)
@@ -2572,23 +3010,23 @@ class TestLaunchTmuxPath(unittest.TestCase):
     # --- ros2_run ---
 
     def test_run_no_tmux_returns_error(self):
-        with patch.object(self.run, "check_tmux", return_value=False), \
+        with patch.object(self.ros2_run_mod, "check_tmux", return_value=False), \
              self._stdout() as buf:
             import types
             args = types.SimpleNamespace(package="pkg", executable="node",
                                          args=[], session=None,
                                          presets=None, params=None, config_path=None)
-            self.run.cmd_run(args)
+            self.ros2_run_mod.cmd_run(args)
             res = json.loads(buf.getvalue())
         self.assertIn("error", res)
         self.assertIn("tmux", res["error"].lower())
 
     def test_run_list_empty_sessions(self):
-        with patch.object(self.run, "list_sessions",
+        with patch.object(self.ros2_run_mod, "list_sessions",
                           return_value={"run_sessions": [], "running_sessions": []}), \
              self._stdout() as buf:
             import types
-            self.run.cmd_run_list(types.SimpleNamespace())
+            self.ros2_run_mod.cmd_run_list(types.SimpleNamespace())
             res = json.loads(buf.getvalue())
         self.assertEqual(res.get("run_sessions"), [])
 
@@ -2608,8 +3046,12 @@ class TestConditionMonitorCallback(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not check_rclpy_available():
-            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        # Requires *live* rclpy: uses object.__new__(ConditionMonitor) which
+        # needs ConditionMonitor to be a real class (not a MagicMock stub).
+        # With mocked rclpy, Node is a MagicMock so ConditionMonitor would be
+        # a dynamic subclass of MagicMock, which object.__new__ cannot allocate.
+        if not _ROS_AVAILABLE:
+            raise unittest.SkipTest("live rclpy required — ConditionMonitor must be a real class")
         import ros2_topic
         cls.ros2_topic = ros2_topic
 
@@ -3109,8 +3551,10 @@ class TestConditionMonitorQoS(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not check_rclpy_available():
-            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        # Requires *live* rclpy: asserts against real ReliabilityPolicy enum values and
+        # qos_profile_sensor_data / qos_profile_system_default identity.
+        if not _ROS_AVAILABLE:
+            raise unittest.SkipTest("live rclpy required — real QoS enum values needed")
         import ros2_topic
         cls.mod = ros2_topic
 
@@ -3212,6 +3656,224 @@ class TestTFMonitorMissingFrame(unittest.TestCase):
     def test_all_frames_exception_returns_autodiscovery_error(self):
         result = self._run(frames_raise=Exception('tf2 unavailable'))
         self.assertIn('error', result)
+
+
+# ---------------------------------------------------------------------------
+# Gap 2 — v1.0.5 new commands: parser tests
+# ---------------------------------------------------------------------------
+
+class TestParamsFindParsing(unittest.TestCase):
+    """Parser tests for the params find subcommand added in v1.0.5."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_pattern_positional_required(self):
+        args = self.parser.parse_args(["params", "find", "velocity"])
+        self.assertEqual(args.pattern, "velocity")
+        self.assertEqual(args.subcommand, "find")
+
+    def test_node_optional_default_none(self):
+        args = self.parser.parse_args(["params", "find", "velocity"])
+        self.assertIsNone(args.node)
+
+    def test_node_flag_accepted(self):
+        args = self.parser.parse_args(["params", "find", "velocity", "--node", "/controller"])
+        self.assertEqual(args.node, "/controller")
+
+    def test_wildcard_pattern(self):
+        args = self.parser.parse_args(["params", "find", "all"])
+        self.assertEqual(args.pattern, "all")
+
+    def test_dispatch_wired(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIn(("params", "find"), D)
+        self.assertTrue(callable(D[("params", "find")]))
+
+
+class TestTFNewCommandsParsing(unittest.TestCase):
+    """Parser tests for tf tree and tf validate added in v1.0.5."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_tf_tree_parses(self):
+        args = self.parser.parse_args(["tf", "tree"])
+        self.assertEqual(args.subcommand, "tree")
+
+    def test_tf_tree_duration_default(self):
+        args = self.parser.parse_args(["tf", "tree"])
+        self.assertAlmostEqual(args.duration, 2.0)
+
+    def test_tf_tree_duration_custom(self):
+        args = self.parser.parse_args(["tf", "tree", "--duration", "5"])
+        self.assertAlmostEqual(args.duration, 5.0)
+
+    def test_tf_validate_parses(self):
+        args = self.parser.parse_args(["tf", "validate"])
+        self.assertEqual(args.subcommand, "validate")
+
+    def test_tf_validate_duration_default(self):
+        args = self.parser.parse_args(["tf", "validate"])
+        self.assertAlmostEqual(args.duration, 2.0)
+
+    def test_tf_validate_duration_short_flag(self):
+        args = self.parser.parse_args(["tf", "validate", "-d", "3"])
+        self.assertAlmostEqual(args.duration, 3.0)
+
+    def test_dispatch_wired(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIn(("tf", "tree"), D)
+        self.assertIn(("tf", "validate"), D)
+        self.assertTrue(callable(D[("tf", "tree")]))
+        self.assertTrue(callable(D[("tf", "validate")]))
+
+
+class TestQosCheckParsing(unittest.TestCase):
+    """Parser tests for topics qos-check added in v1.0.5."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_topic_positional_required(self):
+        args = self.parser.parse_args(["topics", "qos-check", "/odom"])
+        self.assertEqual(args.topic, "/odom")
+        self.assertEqual(args.subcommand, "qos-check")
+
+    def test_timeout_default(self):
+        args = self.parser.parse_args(["topics", "qos-check", "/odom"])
+        self.assertAlmostEqual(args.timeout, 5.0)
+
+    def test_timeout_custom(self):
+        args = self.parser.parse_args(["topics", "qos-check", "/odom", "--timeout", "10"])
+        self.assertAlmostEqual(args.timeout, 10.0)
+
+    def test_dispatch_wired(self):
+        D = self.ros2_cli.DISPATCH
+        self.assertIn(("topics", "qos-check"), D)
+        self.assertTrue(callable(D[("topics", "qos-check")]))
+
+
+# ---------------------------------------------------------------------------
+# Gap 3 — _apply_params unit tests
+# ---------------------------------------------------------------------------
+
+class TestApplyParams(unittest.TestCase):
+    """Unit tests for ros2_run._apply_params — inline param string parser."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        from ros2_run import _apply_params
+        cls.fn = staticmethod(_apply_params)
+
+    def test_none_returns_empty(self):
+        self.assertEqual(self.fn(None), {})
+
+    def test_empty_string_returns_empty(self):
+        self.assertEqual(self.fn(""), {})
+
+    def test_walrus_float(self):
+        result = self.fn("key:=1.5")
+        self.assertAlmostEqual(result["key"], 1.5)
+
+    def test_walrus_int(self):
+        result = self.fn("key:=42")
+        self.assertEqual(result["key"], 42)
+        self.assertIsInstance(result["key"], int)
+
+    def test_walrus_string_value(self):
+        result = self.fn("key:=hello")
+        self.assertEqual(result["key"], "hello")
+
+    def test_colon_form_string(self):
+        result = self.fn("key:value")
+        self.assertEqual(result["key"], "value")
+
+    def test_multiple_entries(self):
+        result = self.fn("k1:=a,k2:=b")
+        self.assertEqual(result["k1"], "a")
+        self.assertEqual(result["k2"], "b")
+
+    def test_mixed_types(self):
+        result = self.fn("speed:=0.5,label:=robot,count:=3")
+        self.assertAlmostEqual(result["speed"], 0.5)
+        self.assertEqual(result["label"], "robot")
+        self.assertEqual(result["count"], 3)
+
+    def test_keys_stripped_of_whitespace(self):
+        result = self.fn(" key :=1")
+        self.assertIn("key", result)
+
+    def test_pair_without_separator_skipped(self):
+        # A token with no ':' or ':=' is silently ignored
+        result = self.fn("badtoken")
+        self.assertEqual(result, {})
+
+
+# ---------------------------------------------------------------------------
+# Gap 4 — Exhaustive parser sweep + DISPATCH/parser symmetry canary
+# ---------------------------------------------------------------------------
+
+class TestExhaustiveParser(unittest.TestCase):
+    """Every (cmd, sub) in MINIMAL_ARGS parses correctly through build_parser()."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_all_dispatch_keys_parse(self):
+        """Every MINIMAL_ARGS entry must parse without error and resolve to the right command."""
+        D = self.ros2_cli.DISPATCH
+        for cmd, sub, cli_args in MINIMAL_ARGS:
+            with self.subTest(cmd=cmd, sub=sub):
+                args = self.parser.parse_args(cli_args)
+                self.assertEqual(args.command, cmd,
+                                 f"Expected command={cmd!r}, got {args.command!r}")
+                if sub is not None:
+                    self.assertEqual(args.subcommand, sub,
+                                     f"Expected subcommand={sub!r}, got {args.subcommand!r}")
+                self.assertIn((cmd, sub), D,
+                              f"DISPATCH missing ({cmd!r}, {sub!r})")
+                self.assertTrue(callable(D[(cmd, sub)]),
+                                f"DISPATCH[({cmd!r}, {sub!r})] is not callable")
+
+    def test_dispatch_covers_all_minimal_args_entries(self):
+        """Every MINIMAL_ARGS entry is present in DISPATCH — canary for future drift."""
+        D = self.ros2_cli.DISPATCH
+        for cmd, sub, _ in MINIMAL_ARGS:
+            with self.subTest(cmd=cmd, sub=sub):
+                self.assertIn((cmd, sub), D,
+                              f"DISPATCH missing ({cmd!r}, {sub!r}) — add it or update MINIMAL_ARGS")
+
+    def test_all_dispatch_entries_covered_by_minimal_args(self):
+        """Every DISPATCH entry has a corresponding MINIMAL_ARGS row — canary for new commands."""
+        D = self.ros2_cli.DISPATCH
+        covered = {(cmd, sub) for cmd, sub, _ in MINIMAL_ARGS}
+        for key in D:
+            with self.subTest(key=key):
+                self.assertIn(key, covered,
+                              f"DISPATCH key {key!r} has no MINIMAL_ARGS entry — add a parse test row")
 
 
 if __name__ == "__main__":

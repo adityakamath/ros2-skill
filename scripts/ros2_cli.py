@@ -140,6 +140,12 @@ from ros2_bag import (
 from ros2_component import (
     cmd_component_types,
 )
+from ros2_pkg import (
+    cmd_pkg_list,
+    cmd_pkg_prefix,
+    cmd_pkg_executables,
+    cmd_pkg_xml,
+)
 from ros2_daemon import (
     cmd_daemon_status,
     cmd_daemon_start,
@@ -927,6 +933,24 @@ def build_parser():
     daemonsub.add_parser("start",  help="Start the ROS 2 daemon")
     daemonsub.add_parser("stop",   help="Stop the ROS 2 daemon")
 
+    # ------------------------------------------------------------------
+    # pkg
+    # ------------------------------------------------------------------
+    pkg = sub.add_parser("pkg", help="ROS 2 package utilities (no graph required)")
+    pkgsub = pkg.add_subparsers(dest="subcommand")
+
+    pkgsub.add_parser("list", help="List all installed packages")
+    pkgsub.add_parser("ls",   help="Alias for list")
+
+    p = pkgsub.add_parser("prefix", help="Output the prefix path of a package")
+    p.add_argument("package", help="Package name (e.g. nav2_bringup)")
+
+    p = pkgsub.add_parser("executables", help="List executables provided by a package")
+    p.add_argument("package", help="Package name (e.g. turtlesim)")
+
+    p = pkgsub.add_parser("xml", help="Output the package.xml of a package")
+    p.add_argument("package", help="Package name (e.g. std_msgs)")
+
     return parser
 
 
@@ -1079,6 +1103,12 @@ DISPATCH = {
     ("bag", "info"): cmd_bag_info,
     # component
     ("component", "types"): cmd_component_types,
+    # pkg
+    ("pkg", "list"):        cmd_pkg_list,
+    ("pkg", "ls"):          cmd_pkg_list,
+    ("pkg", "prefix"):      cmd_pkg_prefix,
+    ("pkg", "executables"): cmd_pkg_executables,
+    ("pkg", "xml"):         cmd_pkg_xml,
     # daemon
     ("daemon", "status"): cmd_daemon_status,
     ("daemon", "start"):  cmd_daemon_start,

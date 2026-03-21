@@ -41,6 +41,12 @@ python3 {baseDir}/scripts/ros2_cli.py doctor               # DDS/graph health
 python3 {baseDir}/scripts/ros2_cli.py daemon status        # is the ROS daemon running?
 python3 {baseDir}/scripts/ros2_cli.py daemon start         # start it if not running
 
+# --- Package discovery (no graph required) ---
+python3 {baseDir}/scripts/ros2_cli.py pkg list                    # all installed packages
+python3 {baseDir}/scripts/ros2_cli.py pkg prefix <pkg>            # install prefix
+python3 {baseDir}/scripts/ros2_cli.py pkg executables <pkg>       # launchable executables
+python3 {baseDir}/scripts/ros2_cli.py pkg xml <pkg>               # package manifest
+
 # --- Introspection — always do this before acting ---
 python3 {baseDir}/scripts/ros2_cli.py nodes list
 python3 {baseDir}/scripts/ros2_cli.py topics list
@@ -585,6 +591,21 @@ python3 {baseDir}/scripts/ros2_cli.py launch list <keyword>
 ```
 
 **Common keywords:** `navigation` / `nav2`, `robot_description` / `urdf`, `teleop`, `camera`, `ros2_control` / `controller`, `gazebo` / `sim`.
+
+### 39 — Proximity sensor discovery before motions > 5 s
+
+Before any motion whose estimated duration exceeds 5 s (`distance / v_cmd > 5 s`), scan for proximity sensors:
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Range
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/PointCloud2
+```
+
+- **Sensor found** → include `"proximity_sensors": [{"topic": "...", "type": "..."}]` in the motion report. Proceed with motion.
+- **No sensor found** → skip silently. Do not warn the user. Proceed with motion.
+
+Never block motion because no sensor was found. For short moves (≤ 5 s), skip the scan entirely.
 
 ---
 

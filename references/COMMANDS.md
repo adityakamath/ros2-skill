@@ -109,6 +109,12 @@ python3 {baseDir}/scripts/ros2_cli.py bag info --help
 # component (no live ROS 2 graph required)
 python3 {baseDir}/scripts/ros2_cli.py component types --help
 
+# pkg (no live ROS 2 graph required)
+python3 {baseDir}/scripts/ros2_cli.py pkg list --help
+python3 {baseDir}/scripts/ros2_cli.py pkg prefix --help
+python3 {baseDir}/scripts/ros2_cli.py pkg executables --help
+python3 {baseDir}/scripts/ros2_cli.py pkg xml --help
+
 # daemon (no live ROS 2 graph required)
 python3 {baseDir}/scripts/ros2_cli.py daemon status --help
 python3 {baseDir}/scripts/ros2_cli.py daemon start --help
@@ -3761,6 +3767,132 @@ Error (PyYAML not installed):
 
 ---
 
+## pkg list / pkg ls
+
+List all ROS 2 packages installed on this system.
+
+**No live ROS 2 graph required.** Reads the ament resource index from the filesystem.
+
+**ROS 2 CLI equivalent:** `ros2 pkg list`
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py pkg list
+python3 {baseDir}/scripts/ros2_cli.py pkg ls
+```
+
+Output:
+```json
+{
+  "packages": [
+    "ackermann_msgs",
+    "action_msgs",
+    "geometry_msgs",
+    "...and many more..."
+  ],
+  "total": 312
+}
+```
+
+---
+
+## pkg prefix `<package>`
+
+Output the install prefix path for a package.
+
+**No live ROS 2 graph required.**
+
+**ROS 2 CLI equivalent:** `ros2 pkg prefix <package>`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `package` | Yes | Package name (e.g. `nav2_bringup`) |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py pkg prefix nav2_bringup
+python3 {baseDir}/scripts/ros2_cli.py pkg prefix turtlesim
+```
+
+Output:
+```json
+{"package": "turtlesim", "prefix": "/opt/ros/humble"}
+```
+
+Error (package not found):
+```json
+{"error": "Package 'bad_pkg' not found. Is it installed and sourced?"}
+```
+
+---
+
+## pkg executables `<package>`
+
+List all executable files provided by a package.
+
+**No live ROS 2 graph required.** Walks `<prefix>/lib/<package>/` and returns files with the executable bit set.
+
+**ROS 2 CLI equivalent:** `ros2 pkg executables <package>`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `package` | Yes | Package name (e.g. `turtlesim`) |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py pkg executables turtlesim
+python3 {baseDir}/scripts/ros2_cli.py pkg executables demo_nodes_cpp
+```
+
+Output:
+```json
+{
+  "package": "turtlesim",
+  "executables": ["draw_square", "mimic", "turtle_teleop_key", "turtlesim_node"],
+  "total": 4,
+  "lib_dir": "/opt/ros/humble/lib/turtlesim"
+}
+```
+
+If the package has no executables (e.g. a message-only package), `executables` is `[]` and `total` is `0`.
+
+Error (package not found):
+```json
+{"error": "Package 'bad_pkg' not found. Is it installed and sourced?"}
+```
+
+---
+
+## pkg xml `<package>`
+
+Output the `package.xml` manifest of a package.
+
+**No live ROS 2 graph required.** Reads `<prefix>/share/<package>/package.xml` from the filesystem.
+
+**ROS 2 CLI equivalent:** `ros2 pkg xml <package>`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `package` | Yes | Package name (e.g. `std_msgs`) |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py pkg xml std_msgs
+python3 {baseDir}/scripts/ros2_cli.py pkg xml turtlesim
+```
+
+Output:
+```json
+{
+  "package": "std_msgs",
+  "path": "/opt/ros/humble/share/std_msgs/package.xml",
+  "xml": "<?xml version=\"1.0\"?>\n<package format=\"3\">...</package>\n"
+}
+```
+
+Error (package not found):
+```json
+{"error": "Package 'bad_pkg' not found. Is it installed and sourced?"}
+```
+
+---
+
 ## component types
 
 List all registered `rclcpp` composable node types installed on this system.
@@ -3910,6 +4042,12 @@ python3 {baseDir}/scripts/ros2_cli.py topics list
 python3 {baseDir}/scripts/ros2_cli.py nodes list
 python3 {baseDir}/scripts/ros2_cli.py services list
 python3 {baseDir}/scripts/ros2_cli.py actions list
+
+# Discover installed packages and what they provide
+python3 {baseDir}/scripts/ros2_cli.py pkg list
+python3 {baseDir}/scripts/ros2_cli.py pkg prefix turtlesim
+python3 {baseDir}/scripts/ros2_cli.py pkg executables turtlesim
+python3 {baseDir}/scripts/ros2_cli.py pkg xml turtlesim
 
 # Find a topic by type, then inspect it
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
