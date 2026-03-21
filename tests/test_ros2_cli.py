@@ -2275,5 +2275,716 @@ class TestDaemonArgIntrospection(unittest.TestCase):
         self.assertEqual(cm.exception.code, 0)
 
 
+# ---------------------------------------------------------------------------
+# Q5 — Parser tests for --slow-last / --slow-factor
+# ---------------------------------------------------------------------------
+
+class TestSlowLastFlagParsing(unittest.TestCase):
+    """Parser argument tests for the decel zone flags on publish-until."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    # Minimal valid publish-until invocation (--delta condition).
+    BASE = ["topics", "publish-until", "/cmd_vel", "{}",
+            "--monitor", "/odom", "--delta", "1.0"]
+
+    def test_slow_last_default_is_none(self):
+        args = self.parser.parse_args(self.BASE)
+        self.assertIsNone(args.slow_last)
+
+    def test_slow_factor_default_is_0_25(self):
+        args = self.parser.parse_args(self.BASE)
+        self.assertAlmostEqual(args.slow_factor, 0.25)
+
+    def test_slow_last_accepts_float(self):
+        args = self.parser.parse_args(self.BASE + ["--slow-last", "0.5"])
+        self.assertAlmostEqual(args.slow_last, 0.5)
+
+    def test_slow_last_accepts_integer_string(self):
+        args = self.parser.parse_args(self.BASE + ["--slow-last", "2"])
+        self.assertAlmostEqual(args.slow_last, 2.0)
+
+    def test_slow_factor_accepts_custom_value(self):
+        args = self.parser.parse_args(self.BASE + ["--slow-last", "1.0", "--slow-factor", "0.1"])
+        self.assertAlmostEqual(args.slow_factor, 0.1)
+
+    def test_slow_factor_accepts_zero(self):
+        args = self.parser.parse_args(self.BASE + ["--slow-last", "1.0", "--slow-factor", "0.0"])
+        self.assertAlmostEqual(args.slow_factor, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# H1 — Unit tests for scale_twist_velocity
+# ---------------------------------------------------------------------------
+
+class TestScaleTwistVelocity(unittest.TestCase):
+    """Unit tests for scale_twist_velocity — scales Twist / TwistStamped dicts."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_topic
+        cls.fn = ros2_topic.scale_twist_velocity
+
+    def test_plain_twist_scales_all_axes(self):
+        data = {"linear": {"x": 1.0, "y": 0.5, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.5}}
+        result = self.fn(data, 0.5)
+        self.assertAlmostEqual(result["linear"]["x"], 0.5)
+        self.assertAlmostEqual(result["linear"]["y"], 0.25)
+        self.assertAlmostEqual(result["angular"]["z"], 0.25)
+
+    def test_scale_zero_zeroes_all_velocities(self):
+        data = {"linear": {"x": 2.0, "y": 1.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": -1.0}}
+        result = self.fn(data, 0.0)
+        self.assertAlmostEqual(result["linear"]["x"], 0.0)
+        self.assertAlmostEqual(result["linear"]["y"], 0.0)
+        self.assertAlmostEqual(result["angular"]["z"], 0.0)
+
+    def test_scale_one_is_identity(self):
+        data = {"linear": {"x": 1.5, "y": -0.3, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.7}}
+        result = self.fn(data, 1.0)
+        self.assertAlmostEqual(result["linear"]["x"], 1.5)
+        self.assertAlmostEqual(result["linear"]["y"], -0.3)
+        self.assertAlmostEqual(result["angular"]["z"], 0.7)
+
+    def test_twist_stamped_scales_nested_twist(self):
+        data = {"header": {"frame_id": "base_link"},
+                "twist": {"linear": {"x": 1.0, "y": 0.0, "z": 0.0},
+                          "angular": {"x": 0.0, "y": 0.0, "z": 0.5}}}
+        result = self.fn(data, 0.5)
+        self.assertAlmostEqual(result["twist"]["linear"]["x"], 0.5)
+        self.assertAlmostEqual(result["twist"]["angular"]["z"], 0.25)
+
+    def test_twist_stamped_no_top_level_linear_key(self):
+        """A TwistStamped dict has no top-level linear/angular — only under twist."""
+        data = {"header": {"frame_id": "base_link"},
+                "twist": {"linear": {"x": 1.0, "y": 0.0, "z": 0.0},
+                          "angular": {"x": 0.0, "y": 0.0, "z": 0.5}}}
+        result = self.fn(data, 0.0)
+        # top-level key absent before and after
+        self.assertNotIn("linear", result)
+        self.assertNotIn("angular", result)
+        # nested values are zeroed
+        self.assertAlmostEqual(result["twist"]["linear"]["x"], 0.0)
+
+    def test_partial_payload_skips_absent_axes(self):
+        """Missing axes in a sub-dict should not raise."""
+        data = {"linear": {"x": 1.0}, "angular": {}}
+        result = self.fn(data, 0.5)
+        self.assertAlmostEqual(result["linear"]["x"], 0.5)
+        self.assertEqual(result["angular"], {})
+
+    def test_sign_preserved_for_negative_velocity(self):
+        data = {"linear": {"x": -1.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}
+        result = self.fn(data, 0.5)
+        self.assertAlmostEqual(result["linear"]["x"], -0.5)
+
+    def test_does_not_mutate_input(self):
+        data = {"linear": {"x": 1.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.5}}
+        _ = self.fn(data, 0.0)
+        # Original dict must be unchanged after the call.
+        self.assertAlmostEqual(data["linear"]["x"], 1.0)
+        self.assertAlmostEqual(data["angular"]["z"], 0.5)
+
+
+# ---------------------------------------------------------------------------
+# H1 — Pure-arithmetic decel zone formula tests (no rclpy required)
+# ---------------------------------------------------------------------------
+
+class TestDecelZoneMath(unittest.TestCase):
+    """Pure-arithmetic tests for the decel zone scale formula.
+
+    Formula from publish-until:
+        scale = max(slow_factor, remaining / slow_zone)
+    Applied only when remaining < slow_zone.
+    """
+
+    @staticmethod
+    def _scale(remaining, slow_zone, slow_factor):
+        return max(slow_factor, remaining / slow_zone)
+
+    def test_at_zone_boundary_scale_is_one(self):
+        # remaining == slow_zone → scale = max(sf, 1.0) = 1.0
+        self.assertAlmostEqual(self._scale(1.0, 1.0, 0.25), 1.0)
+
+    def test_linear_ramp_at_midpoint(self):
+        # remaining = half slow_zone → scale = 0.5
+        self.assertAlmostEqual(self._scale(0.5, 1.0, 0.25), 0.5)
+
+    def test_floor_clamps_near_zero(self):
+        # remaining << slow_zone — floor kicks in
+        self.assertAlmostEqual(self._scale(0.01, 1.0, 0.25), 0.25)
+
+    def test_zero_remaining_returns_slow_factor(self):
+        self.assertAlmostEqual(self._scale(0.0, 1.0, 0.25), 0.25)
+
+    def test_slow_factor_zero_allows_ramp_to_zero(self):
+        self.assertAlmostEqual(self._scale(0.5, 1.0, 0.0), 0.5)
+        self.assertAlmostEqual(self._scale(0.0, 1.0, 0.0), 0.0)
+
+    def test_larger_slow_zone(self):
+        # slow_zone = 2.0, remaining = 1.0 → 0.5; floor = 0.25 → result = 0.5
+        self.assertAlmostEqual(self._scale(1.0, 2.0, 0.25), 0.5)
+
+    def test_scale_never_below_slow_factor(self):
+        for remaining in [0.0, 0.01, 0.1, 0.2, 0.5, 1.0]:
+            with self.subTest(remaining=remaining):
+                scale = self._scale(remaining, 1.0, 0.25)
+                self.assertGreaterEqual(scale, 0.25)
+
+
+# ---------------------------------------------------------------------------
+# H2 — Preset file I/O (ros2_param preset list / delete)
+# ---------------------------------------------------------------------------
+
+class TestParamPresetIO(unittest.TestCase):
+    """Unit tests for preset list / delete using mocked filesystem calls."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_param
+        cls.mod = ros2_param
+
+    def _stdout(self):
+        return patch("sys.stdout", new_callable=StringIO)
+
+    def test_list_empty_when_directory_absent(self):
+        with patch.object(self.mod.os.path, "isdir", return_value=False), \
+             self._stdout() as buf:
+            import types
+            self.mod.cmd_params_preset_list(types.SimpleNamespace())
+            res = json.loads(buf.getvalue())
+        self.assertEqual(res["presets"], [])
+        self.assertEqual(res["count"], 0)
+
+    def test_list_filters_json_only(self):
+        files = ["alpha.json", "beta.json", "readme.txt", "config.yaml"]
+        with patch.object(self.mod.os.path, "isdir", return_value=True), \
+             patch.object(self.mod.os, "listdir", return_value=files), \
+             self._stdout() as buf:
+            import types
+            self.mod.cmd_params_preset_list(types.SimpleNamespace())
+            res = json.loads(buf.getvalue())
+        self.assertEqual(res["count"], 2)
+        names = {p["preset"] for p in res["presets"]}
+        self.assertEqual(names, {"alpha", "beta"})
+
+    def test_delete_missing_preset_returns_error(self):
+        with patch.object(self.mod, "_presets_base", return_value="/fake/presets"), \
+             patch.object(self.mod.os.path, "exists", return_value=False), \
+             self._stdout() as buf:
+            import types
+            self.mod.cmd_params_preset_delete(types.SimpleNamespace(preset="ghost"))
+            res = json.loads(buf.getvalue())
+        self.assertIn("error", res)
+        self.assertIn("ghost", res["error"])
+
+    def test_delete_existing_preset_succeeds(self):
+        with patch.object(self.mod, "_presets_base", return_value="/fake/presets"), \
+             patch.object(self.mod.os.path, "exists", return_value=True), \
+             patch.object(self.mod.os, "remove") as mock_rm, \
+             self._stdout() as buf:
+            import types
+            self.mod.cmd_params_preset_delete(types.SimpleNamespace(preset="cam_calib"))
+            res = json.loads(buf.getvalue())
+        self.assertTrue(res.get("deleted"))
+        self.assertEqual(res.get("preset"), "cam_calib")
+        mock_rm.assert_called_once()
+
+    def test_delete_path_ends_with_preset_dot_json(self):
+        removed = []
+        with patch.object(self.mod, "_presets_base", return_value="/fake/presets"), \
+             patch.object(self.mod.os.path, "exists", return_value=True), \
+             patch.object(self.mod.os, "remove", side_effect=lambda p: removed.append(p)), \
+             self._stdout():
+            import types
+            self.mod.cmd_params_preset_delete(types.SimpleNamespace(preset="robot_base"))
+        self.assertEqual(len(removed), 1)
+        self.assertTrue(removed[0].endswith("robot_base.json"))
+
+
+# ---------------------------------------------------------------------------
+# H2 — Tmux path tests (ros2_launch / ros2_run no-tmux and empty session list)
+# ---------------------------------------------------------------------------
+
+class TestLaunchTmuxPath(unittest.TestCase):
+    """Unit tests for the tmux-absent error path and empty session list
+    in ros2_launch and ros2_run commands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_launch
+        import ros2_run
+        cls.launch = ros2_launch
+        cls.run = ros2_run
+
+    def _stdout(self):
+        return patch("sys.stdout", new_callable=StringIO)
+
+    # --- ros2_launch ---
+
+    def test_launch_run_no_tmux_returns_error(self):
+        with patch.object(self.launch, "check_tmux", return_value=False), \
+             self._stdout() as buf:
+            import types
+            args = types.SimpleNamespace(package="pkg", launch_file="nav.launch.py",
+                                         args=[], session=None)
+            self.launch.cmd_launch_run(args)
+            res = json.loads(buf.getvalue())
+        self.assertIn("error", res)
+        self.assertIn("tmux", res["error"].lower())
+
+    def test_launch_list_no_tmux_returns_error(self):
+        with patch.object(self.launch, "list_sessions",
+                          return_value={"error": "tmux is not installed",
+                                        "running_sessions": []}), \
+             self._stdout() as buf:
+            import types
+            self.launch.cmd_launch_list(types.SimpleNamespace())
+            res = json.loads(buf.getvalue())
+        self.assertIn("error", res)
+
+    def test_launch_list_empty_sessions(self):
+        with patch.object(self.launch, "list_sessions",
+                          return_value={"launch_sessions": [], "running_sessions": []}), \
+             self._stdout() as buf:
+            import types
+            self.launch.cmd_launch_list(types.SimpleNamespace())
+            res = json.loads(buf.getvalue())
+        self.assertEqual(res.get("launch_sessions"), [])
+
+    # --- ros2_run ---
+
+    def test_run_no_tmux_returns_error(self):
+        with patch.object(self.run, "check_tmux", return_value=False), \
+             self._stdout() as buf:
+            import types
+            args = types.SimpleNamespace(package="pkg", executable="node",
+                                         args=[], session=None,
+                                         presets=None, params=None, config_path=None)
+            self.run.cmd_run(args)
+            res = json.loads(buf.getvalue())
+        self.assertIn("error", res)
+        self.assertIn("tmux", res["error"].lower())
+
+    def test_run_list_empty_sessions(self):
+        with patch.object(self.run, "list_sessions",
+                          return_value={"run_sessions": [], "running_sessions": []}), \
+             self._stdout() as buf:
+            import types
+            self.run.cmd_run_list(types.SimpleNamespace())
+            res = json.loads(buf.getvalue())
+        self.assertEqual(res.get("run_sessions"), [])
+
+
+# ---------------------------------------------------------------------------
+# H1 — ConditionMonitor.callback unit tests
+# ---------------------------------------------------------------------------
+
+class TestConditionMonitorCallback(unittest.TestCase):
+    """Unit tests for ConditionMonitor.callback — bypasses Node.__init__.
+
+    Three branches tested:
+      - Standard field operators (delta, above, below, equals)
+      - Euclidean distance mode
+      - Rotation accumulation mode
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_topic
+        cls.ros2_topic = ros2_topic
+
+    def _make_monitor(self, *, euclidean=False, rotate=None,
+                      field='x', fields=None, operator='delta', threshold=1.0):
+        """Build a ConditionMonitor instance bypassing Node.__init__."""
+        import threading
+        m = object.__new__(self.ros2_topic.ConditionMonitor)
+        m.lock = threading.Lock()
+        m.stop_event = threading.Event()
+        m.euclidean = euclidean
+        m.rotate = rotate
+        m.field = field
+        m.fields = fields if fields is not None else [field]
+        m.operator = operator
+        m.threshold = threshold
+        m.start_value = None
+        m.current_value = None
+        m.start_values = None
+        m.current_values = None
+        m.euclidean_distance = None
+        m.start_yaw = None
+        m.last_yaw = None
+        m.accumulated_rotation = 0.0
+        m.rotation_delta = None
+        m.start_msg = None
+        m.end_msg = None
+        m.field_error = None
+        return m
+
+    def _call(self, monitor, msg_dict):
+        """Invoke callback with a MagicMock msg whose msg_to_dict returns msg_dict."""
+        with patch.object(self.ros2_topic, 'msg_to_dict', return_value=msg_dict):
+            monitor.callback(MagicMock())
+
+    # ------------------------------------------------------------------ operators
+
+    def test_first_call_sets_start_value(self):
+        m = self._make_monitor(operator='delta', threshold=1.0, field='x')
+        self._call(m, {'x': 0.0})
+        self.assertAlmostEqual(float(m.start_value), 0.0)
+        self.assertFalse(m.stop_event.is_set())
+
+    def test_delta_positive_triggers_stop(self):
+        m = self._make_monitor(operator='delta', threshold=1.0, field='x')
+        self._call(m, {'x': 0.0})
+        self._call(m, {'x': 1.5})
+        self.assertTrue(m.stop_event.is_set())
+
+    def test_delta_below_threshold_no_stop(self):
+        m = self._make_monitor(operator='delta', threshold=1.0, field='x')
+        self._call(m, {'x': 0.0})
+        self._call(m, {'x': 0.5})
+        self.assertFalse(m.stop_event.is_set())
+
+    def test_delta_negative_threshold_triggers_stop(self):
+        m = self._make_monitor(operator='delta', threshold=-1.0, field='x')
+        self._call(m, {'x': 0.0})
+        self._call(m, {'x': -1.5})
+        self.assertTrue(m.stop_event.is_set())
+
+    def test_above_triggers_stop(self):
+        m = self._make_monitor(operator='above', threshold=5.0, field='x')
+        self._call(m, {'x': 3.0})
+        self.assertFalse(m.stop_event.is_set())
+        self._call(m, {'x': 6.0})
+        self.assertTrue(m.stop_event.is_set())
+
+    def test_below_triggers_stop(self):
+        m = self._make_monitor(operator='below', threshold=5.0, field='x')
+        self._call(m, {'x': 7.0})
+        self.assertFalse(m.stop_event.is_set())
+        self._call(m, {'x': 3.0})
+        self.assertTrue(m.stop_event.is_set())
+
+    def test_equals_triggers_stop(self):
+        m = self._make_monitor(operator='equals', threshold=42.0, field='x')
+        self._call(m, {'x': 41.0})
+        self.assertFalse(m.stop_event.is_set())
+        self._call(m, {'x': 42.0})
+        self.assertTrue(m.stop_event.is_set())
+
+    def test_stop_event_already_set_short_circuits(self):
+        m = self._make_monitor(operator='above', threshold=1.0, field='x')
+        m.stop_event.set()
+        self._call(m, {'x': 999.0})
+        # start_value must still be None — callback returned before modifying state
+        self.assertIsNone(m.start_value)
+
+    # ------------------------------------------------------------------ euclidean
+
+    def test_euclidean_first_call_sets_start_values(self):
+        m = self._make_monitor(euclidean=True, fields=['x', 'y'], threshold=1.0)
+        self._call(m, {'x': 0.0, 'y': 0.0})
+        self.assertEqual(m.start_values, [0.0, 0.0])
+        self.assertFalse(m.stop_event.is_set())
+
+    def test_euclidean_triggers_stop_when_distance_met(self):
+        m = self._make_monitor(euclidean=True, fields=['x', 'y'], threshold=1.0)
+        self._call(m, {'x': 0.0, 'y': 0.0})
+        self._call(m, {'x': 1.0, 'y': 0.0})
+        self.assertTrue(m.stop_event.is_set())
+        self.assertAlmostEqual(m.euclidean_distance, 1.0)
+
+    def test_euclidean_no_stop_below_threshold(self):
+        m = self._make_monitor(euclidean=True, fields=['x', 'y'], threshold=2.0)
+        self._call(m, {'x': 0.0, 'y': 0.0})
+        self._call(m, {'x': 1.0, 'y': 0.0})
+        self.assertFalse(m.stop_event.is_set())
+
+    def test_euclidean_diagonal_distance(self):
+        import math as _math
+        m = self._make_monitor(euclidean=True, fields=['x', 'y'], threshold=1.4)
+        self._call(m, {'x': 0.0, 'y': 0.0})
+        self._call(m, {'x': 1.0, 'y': 1.0})
+        self.assertTrue(m.stop_event.is_set())
+        self.assertAlmostEqual(m.euclidean_distance, _math.sqrt(2), places=5)
+
+    # ------------------------------------------------------------------ rotation
+
+    def test_rotation_first_call_sets_start_yaw(self):
+        m = self._make_monitor(rotate=1.571)
+        self._call(m, {'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0}})
+        self.assertIsNotNone(m.start_yaw)
+        self.assertAlmostEqual(m.start_yaw, 0.0)
+        self.assertFalse(m.stop_event.is_set())
+
+    def test_rotation_positive_triggers_stop(self):
+        import math as _math
+        m = self._make_monitor(rotate=_math.pi / 2)
+        self._call(m, {'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0}})
+        sz = _math.sin(_math.pi / 4)
+        cw = _math.cos(_math.pi / 4)
+        self._call(m, {'orientation': {'x': 0.0, 'y': 0.0, 'z': sz, 'w': cw}})
+        self.assertTrue(m.stop_event.is_set())
+
+    def test_rotation_negative_triggers_stop(self):
+        import math as _math
+        m = self._make_monitor(rotate=-_math.pi / 2)
+        self._call(m, {'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0}})
+        sz = -_math.sin(_math.pi / 4)
+        cw = _math.cos(_math.pi / 4)
+        self._call(m, {'orientation': {'x': 0.0, 'y': 0.0, 'z': sz, 'w': cw}})
+        self.assertTrue(m.stop_event.is_set())
+
+    def test_rotation_missing_quaternion_sets_field_error(self):
+        import math as _math
+        m = self._make_monitor(rotate=_math.pi / 2)
+        self._call(m, {})
+        self.assertIsNotNone(m.field_error)
+        self.assertTrue(m.stop_event.is_set())
+
+    def test_rotation_accumulates_over_multiple_steps(self):
+        import math as _math
+        m = self._make_monitor(rotate=_math.pi)
+        # First call: identity quat → sets start_yaw=0
+        self._call(m, {'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0}})
+        # Second call: 90° CCW — accumulated=pi/2, target=pi → no stop
+        s45 = _math.sin(_math.pi / 4)
+        c45 = _math.cos(_math.pi / 4)
+        self._call(m, {'orientation': {'x': 0.0, 'y': 0.0, 'z': s45, 'w': c45}})
+        self.assertFalse(m.stop_event.is_set())
+        # Third call: 180° CCW — accumulated=pi, target=pi → stop
+        s90 = _math.sin(_math.pi / 2)
+        c90 = _math.cos(_math.pi / 2)
+        self._call(m, {'orientation': {'x': 0.0, 'y': 0.0, 'z': s90, 'w': c90}})
+        self.assertTrue(m.stop_event.is_set())
+
+
+# ---------------------------------------------------------------------------
+# H2 — _get_managed_nodes filtering logic (ros2_lifecycle)
+# ---------------------------------------------------------------------------
+
+class TestGetManagedNodes(unittest.TestCase):
+    """Unit tests for _get_managed_nodes — pure filtering on service graph."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_lifecycle
+        cls.mod = ros2_lifecycle
+
+    def test_returns_sorted_node_names(self):
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = [
+            ('/cam_node/get_state', ['lifecycle_msgs/srv/GetState']),
+            ('/arm_node/get_state', ['lifecycle_msgs/srv/GetState']),
+        ]
+        result = self.mod._get_managed_nodes(mock_node)
+        self.assertEqual(result, ['/arm_node', '/cam_node'])
+
+    def test_excludes_non_lifecycle_services(self):
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = [
+            ('/my_node/get_state', ['lifecycle_msgs/srv/GetState']),
+            ('/other/some_service', ['std_srvs/srv/Empty']),
+        ]
+        result = self.mod._get_managed_nodes(mock_node)
+        self.assertEqual(result, ['/my_node'])
+
+    def test_empty_graph_returns_empty(self):
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = []
+        result = self.mod._get_managed_nodes(mock_node)
+        self.assertEqual(result, [])
+
+    def test_excludes_bare_get_state_service(self):
+        """/get_state alone has len == len('/get_state') and must be excluded."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = [
+            ('/get_state', ['lifecycle_msgs/srv/GetState']),
+        ]
+        result = self.mod._get_managed_nodes(mock_node)
+        self.assertEqual(result, [])
+
+
+# ---------------------------------------------------------------------------
+# H2 — Control command error / success paths (ros2_control)
+# ---------------------------------------------------------------------------
+
+class TestControlCommandPaths(unittest.TestCase):
+    """Unit tests for ros2_control commands with mocked service calls."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_control
+        cls.mod = ros2_control
+
+    def _stdout(self):
+        return patch("sys.stdout", new_callable=StringIO)
+
+    def _args(self, **kwargs):
+        import types
+        base = dict(controller_manager='/controller_manager', timeout=5.0, retries=1)
+        base.update(kwargs)
+        return types.SimpleNamespace(**base)
+
+    def test_list_controllers_error_path(self):
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', MagicMock()), \
+             patch.object(self.mod, '_call_cm_service',
+                          return_value=(None, {"error": "service not available"})), \
+             self._stdout() as buf:
+            self.mod.cmd_control_list_controllers(self._args())
+            res = json.loads(buf.getvalue())
+        self.assertIn("error", res)
+
+    def test_list_controllers_success_formats_output(self):
+        mock_result = MagicMock()
+        mock_result.controller = []
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', MagicMock()), \
+             patch.object(self.mod, '_call_cm_service',
+                          return_value=(mock_result, None)), \
+             self._stdout() as buf:
+            self.mod.cmd_control_list_controllers(self._args())
+            res = json.loads(buf.getvalue())
+        self.assertIn("controllers", res)
+        self.assertEqual(res["count"], 0)
+
+    def test_load_controller_success_returns_ok(self):
+        mock_result = MagicMock()
+        mock_result.ok = True
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', MagicMock()), \
+             patch.object(self.mod, '_call_cm_service',
+                          return_value=(mock_result, None)), \
+             self._stdout() as buf:
+            self.mod.cmd_control_load_controller(self._args(name='joint_controller'))
+            res = json.loads(buf.getvalue())
+        self.assertEqual(res.get("controller"), "joint_controller")
+        self.assertTrue(res.get("ok"))
+
+    def test_load_controller_error_path(self):
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', MagicMock()), \
+             patch.object(self.mod, '_call_cm_service',
+                          return_value=(None, {"error": "timeout"})), \
+             self._stdout() as buf:
+            self.mod.cmd_control_load_controller(self._args(name='joint_controller'))
+            res = json.loads(buf.getvalue())
+        self.assertIn("error", res)
+
+    def test_call_cm_service_service_unavailable_returns_error(self):
+        """_call_cm_service returns error dict when service never appears."""
+        mock_node = MagicMock()
+        mock_client = MagicMock()
+        mock_node.create_client.return_value = mock_client
+        mock_client.wait_for_service.return_value = False
+        result, err = self.mod._call_cm_service(
+            mock_node, MagicMock(), '/cm', 'list_controllers', MagicMock(), 0.1, retries=1
+        )
+        self.assertIsNone(result)
+        self.assertIn("error", err)
+        mock_client.destroy.assert_called_once()
+
+    def test_call_cm_service_retries_before_giving_up(self):
+        """_call_cm_service calls wait_for_service once per retry attempt."""
+        mock_node = MagicMock()
+        mock_client = MagicMock()
+        mock_node.create_client.return_value = mock_client
+        mock_client.wait_for_service.return_value = False
+        self.mod._call_cm_service(
+            mock_node, MagicMock(), '/cm', 'list_controllers', MagicMock(), 0.1, retries=3
+        )
+        self.assertEqual(mock_client.wait_for_service.call_count, 3)
+
+
+# ---------------------------------------------------------------------------
+# H2 — Lifecycle command paths (ros2_lifecycle)
+# ---------------------------------------------------------------------------
+
+class TestLifecycleCommandPaths(unittest.TestCase):
+    """Unit tests for ros2_lifecycle commands with mocked context and node."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_lifecycle
+        cls.mod = ros2_lifecycle
+
+    def _stdout(self):
+        return patch("sys.stdout", new_callable=StringIO)
+
+    def test_cmd_lifecycle_nodes_returns_sorted_list(self):
+        import types
+        mock_node_inst = MagicMock()
+        mock_node_inst.get_service_names_and_types.return_value = [
+            ('/cam_node/get_state', ['lifecycle_msgs/srv/GetState']),
+            ('/arm_node/get_state', ['lifecycle_msgs/srv/GetState']),
+        ]
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', return_value=mock_node_inst), \
+             self._stdout() as buf:
+            self.mod.cmd_lifecycle_nodes(types.SimpleNamespace())
+            res = json.loads(buf.getvalue())
+        self.assertEqual(res["managed_nodes"], ['/arm_node', '/cam_node'])
+        self.assertEqual(res["count"], 2)
+
+    def test_cmd_lifecycle_nodes_empty_graph(self):
+        import types
+        mock_node_inst = MagicMock()
+        mock_node_inst.get_service_names_and_types.return_value = []
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', return_value=mock_node_inst), \
+             self._stdout() as buf:
+            self.mod.cmd_lifecycle_nodes(types.SimpleNamespace())
+            res = json.loads(buf.getvalue())
+        self.assertEqual(res["managed_nodes"], [])
+        self.assertEqual(res["count"], 0)
+
+    def test_cmd_lifecycle_get_service_unavailable(self):
+        import types, sys
+        args = types.SimpleNamespace(node='/my_node', timeout=0.1, retries=1)
+        mock_node_inst = MagicMock()
+        mock_client = MagicMock()
+        mock_node_inst.create_client.return_value = mock_client
+        mock_client.wait_for_service.return_value = False
+
+        mock_lc = MagicMock()
+        mock_lc.srv.GetState = MagicMock()
+        with patch.dict(sys.modules, {'lifecycle_msgs': mock_lc,
+                                       'lifecycle_msgs.srv': mock_lc.srv}), \
+             patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', return_value=mock_node_inst), \
+             self._stdout() as buf:
+            self.mod.cmd_lifecycle_get(args)
+            res = json.loads(buf.getvalue())
+        self.assertIn("error", res)
+        self.assertIn("my_node", res["error"])
+
+
 if __name__ == "__main__":
     unittest.main()
