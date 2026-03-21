@@ -431,6 +431,40 @@ If the user requests > 50 m linear or > 3600° rotation in a single command, sto
 
 If a new user command arrives while a motion is in progress: (1) send `estop` immediately, (2) verify odom velocity < 0.01 within 5 s, (3) then handle the new command from a stationary robot. Never run two motions in parallel. If the new command is "stop" / "halt" / "estop": estop, verify, report — no further motion until the user issues a new motion command.
 
+### 24 — Run session-start health checks before the first task
+
+Before any task in a new session, run all three checks once:
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py doctor          # DDS/graph health — stop if critical failure
+python3 {baseDir}/scripts/ros2_cli.py topics find rosgraph_msgs/msg/Clock  # simulated time?
+python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes  # lifecycle-managed nodes?
+```
+
+If `doctor` reports critical failures: stop and tell the user. Do not operate a robot that fails its health check. If `/clock` is found, verify it is actively publishing before any timed command. If lifecycle nodes exist, check their states — a node in `unconfigured` or `inactive` state silently fails when used. These checks are session-level; do not re-run for every command.
+
+### 25 — Use ros2-skill exclusively; never call the ros2 CLI directly
+
+All ROS 2 interactions go through `python3 {baseDir}/scripts/ros2_cli.py`. Never use `ros2 topic`, `ros2 service`, `ros2 action`, `ros2 param`, `ros2 node`, `ros2 lifecycle`, `ros2 control`, `ros2 doctor`, or any other `ros2` CLI command directly. The ros2-skill CLI provides a consistent JSON interface, structured error handling, and safety wrappers that the raw `ros2` CLI lacks. Direct `ros2` calls bypass all safety rules in this document.
+
+### 26 — Execute without asking or narrating; the user's request is the approval
+
+The user's message is the approval to act. Do not ask for confirmation before executing, do not narrate what you are about to do and wait for a response, do not say "I'll now run X — shall I proceed?". Run Rule 0 discovery in parallel and silently, then execute. Only the final outcome is reported.
+
+The three conditions that permit asking the user: (1) genuine ambiguity that introspection cannot resolve, (2) destructive or irreversible action not specifically authorised by the user's message, (3) motion goal uses a vague quantity word — resolve with the conservative defaults from Rule 5 (RULES.md) rather than asking. If none apply: just do it.
+
+### 27 — Keep output minimal; report one line per operation
+
+| Situation | What to report |
+|---|---|
+| Success | One line: what was done and the key outcome. e.g. *"Done. Moved 1.02 m forward."* |
+| Movement | Start position, end position, actual distance/angle — all from fresh odom reads, never estimated |
+| No topic / source found | Clear error: what was searched, what to try next |
+| Safety triggered | What happened and what estop command was sent |
+| Failure | Error, cause, recovery suggestion |
+
+**Never report by default:** topic name selected (unless unexpected), intermediate discovery steps, command text being run, "I will now…" narration, or unsolicited explanations. The user wants results, not running commentary.
+
 ---
 
 ## Safety
@@ -449,7 +483,7 @@ python3 {baseDir}/scripts/ros2_cli.py estop
 
 Safety checks are never optional. Do not bypass them even if the user requests it.
 
-**Confirm before any action that moves the robot or interacts with hardware.** State what you are about to do and wait for acknowledgement before executing movement commands, hardware state changes, or any irreversible action.
+**Safety checks run automatically — do not narrate them.** The velocity limit scan, pre-motion odom check, and post-motion verify are mandatory parts of the Movement workflow (Phases 1–3). They are not optional confirmations to ask the user about — they are silent preconditions to every motion command. The user's request is the approval to move (Rule 26); the safety checks execute automatically before motion begins.
 
 ---
 
