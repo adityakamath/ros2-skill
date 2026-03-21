@@ -16,6 +16,10 @@ Comprehensive self-reliance review. Added introspection commands, hardened safet
 - `tf validate` — DFS cycle detection and multiple-parent checks across the TF graph
 - `topics qos-check <topic>` — compare publisher/subscriber QoS profiles; suggests fix flags
 - `launch list <keyword>` — find launch files across installed packages by keyword (no keyword = existing session list behaviour)
+- `pkg list` / `pkg ls` — list all installed packages; no live graph required
+- `pkg prefix <package>` — resolve the install prefix for a package
+- `pkg executables <package>` — list executable files provided by a package
+- `pkg xml <package>` — output the `package.xml` manifest for a package
 
 ### Skill
 
@@ -51,6 +55,7 @@ Comprehensive self-reliance review. Added introspection commands, hardened safet
 ### Tests
 
 - 14 new unit tests: estop Twist/TwistStamped branching, `ros2_context` shutdown, `ConditionMonitor` QoS auto-matching, TF monitor missing-frame error
+- 16 new unit tests: `TestPkgParsing` (parser + dispatch wiring for all 5 pkg entries including `ls` alias) and `TestPkgLogic` (mocked `ament_index_python` — list sorting, prefix found/not-found, executables executable-bit filtering, empty lib dir, xml content, xml missing file)
 
 ### Documentation
 

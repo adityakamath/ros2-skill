@@ -196,6 +196,9 @@ The failure mode to avoid: inventing a subcommand like `launch start` or a flag 
 | TF frame names | `tf list` |
 | Controller names and states | `control list-controllers` |
 | Hardware components | `control list-hardware-components` |
+| Installed packages | `pkg list` |
+| Package install location | `pkg prefix <package>` |
+| Package executables | `pkg executables <package>` |
 | Message / service / action type fields | `interface show <type>` or `interface proto <type>` |
 | Nested custom type fields within a message | `interface show <nested_type>` — run recursively on each non-primitive, non-standard field type; repeat until all leaf fields are primitives |
 

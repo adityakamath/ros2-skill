@@ -41,6 +41,12 @@ python3 {baseDir}/scripts/ros2_cli.py doctor               # DDS/graph health
 python3 {baseDir}/scripts/ros2_cli.py daemon status        # is the ROS daemon running?
 python3 {baseDir}/scripts/ros2_cli.py daemon start         # start it if not running
 
+# --- Package discovery (no graph required) ---
+python3 {baseDir}/scripts/ros2_cli.py pkg list                    # all installed packages
+python3 {baseDir}/scripts/ros2_cli.py pkg prefix <pkg>            # install prefix
+python3 {baseDir}/scripts/ros2_cli.py pkg executables <pkg>       # launchable executables
+python3 {baseDir}/scripts/ros2_cli.py pkg xml <pkg>               # package manifest
+
 # --- Introspection — always do this before acting ---
 python3 {baseDir}/scripts/ros2_cli.py nodes list
 python3 {baseDir}/scripts/ros2_cli.py topics list

@@ -5,7 +5,9 @@ Tests cover argument parsing, dispatch table, JSON handling,
 and utility functions.
 """
 
+import argparse
 import json
+import pathlib
 import sys
 import os
 import unittest
@@ -212,6 +214,12 @@ MINIMAL_ARGS = [
     ("bag",      "info",     ["bag", "info", "/path/to/bag"]),
     # component
     ("component","types",    ["component", "types"]),
+    # pkg
+    ("pkg",       "list",        ["pkg", "list"]),
+    ("pkg",       "ls",          ["pkg", "ls"]),
+    ("pkg",       "prefix",      ["pkg", "prefix", "std_msgs"]),
+    ("pkg",       "executables", ["pkg", "executables", "turtlesim"]),
+    ("pkg",       "xml",         ["pkg", "xml", "std_msgs"]),
     # daemon
     ("daemon",   "status",   ["daemon", "status"]),
     ("daemon",   "start",    ["daemon", "start"]),
@@ -997,6 +1005,236 @@ class TestComponentParsing(unittest.TestCase):
         D = self.ros2_cli.DISPATCH
         self.assertIn(("component", "types"), D)
         self.assertTrue(callable(D[("component", "types")]))
+
+
+class TestPkgParsing(unittest.TestCase):
+    """Parser argument and DISPATCH wiring tests for the pkg subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        cls.ros2_cli = ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_pkg_list_parsing(self):
+        args = self.parser.parse_args(["pkg", "list"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "list")
+
+    def test_pkg_ls_alias(self):
+        args = self.parser.parse_args(["pkg", "ls"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "ls")
+
+    def test_pkg_prefix_parsing(self):
+        args = self.parser.parse_args(["pkg", "prefix", "nav2_bringup"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "prefix")
+        self.assertEqual(args.package, "nav2_bringup")
+
+    def test_pkg_executables_parsing(self):
+        args = self.parser.parse_args(["pkg", "executables", "turtlesim"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "executables")
+        self.assertEqual(args.package, "turtlesim")
+
+    def test_pkg_xml_parsing(self):
+        args = self.parser.parse_args(["pkg", "xml", "std_msgs"])
+        self.assertEqual(args.command, "pkg")
+        self.assertEqual(args.subcommand, "xml")
+        self.assertEqual(args.package, "std_msgs")
+
+    def test_pkg_dispatch(self):
+        D = self.ros2_cli.DISPATCH
+        for subcommand in ("list", "ls", "prefix", "executables", "xml"):
+            with self.subTest(subcommand=subcommand):
+                self.assertIn(("pkg", subcommand), D)
+                self.assertTrue(callable(D[("pkg", subcommand)]))
+
+
+class TestPkgLogic(unittest.TestCase):
+    """Pure-Python logic tests for ros2_pkg with mocked ament_index_python.
+
+    No rclpy calls are made by the functions under test, but ros2_utils
+    (imported by ros2_pkg) calls sys.exit(1) when rclpy is absent, so the
+    rclpy guard is still required to import the module safely.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_pkg
+        cls.ros2_pkg = ros2_pkg
+
+    # ------------------------------------------------------------------
+    # pkg list
+    # ------------------------------------------------------------------
+
+    def test_pkg_list_no_ament(self):
+        """When ament_index_python is missing, output contains an error key."""
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python": None,
+                                       "ament_index_python.packages": None}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_list(None)
+        self.assertEqual(len(captured), 1)
+        self.assertIn("error", captured[0])
+
+    def test_pkg_list_returns_sorted_packages(self):
+        """Packages are sorted alphabetically and total matches count."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_packages_with_prefixes.return_value = {
+            "zebra_pkg": "/opt/ros/humble",
+            "alpha_pkg": "/opt/ros/humble",
+            "middle_pkg": "/opt/ros/humble",
+        }
+        captured = []
+        with patch.dict(sys.modules, {
+                "ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_list(None)
+        result = captured[0]
+        self.assertIn("packages", result)
+        self.assertEqual(result["packages"], ["alpha_pkg", "middle_pkg", "zebra_pkg"])
+        self.assertEqual(result["total"], 3)
+
+    # ------------------------------------------------------------------
+    # pkg prefix
+    # ------------------------------------------------------------------
+
+    def test_pkg_prefix_found(self):
+        """Returns package name and prefix path."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_package_prefix.return_value = "/opt/ros/humble"
+        args = argparse.Namespace(package="turtlesim")
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_prefix(args)
+        result = captured[0]
+        self.assertEqual(result["package"], "turtlesim")
+        self.assertEqual(result["prefix"], "/opt/ros/humble")
+
+    def test_pkg_prefix_not_found(self):
+        """KeyError from ament_index produces an error with the package name."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_package_prefix.side_effect = KeyError("nonexistent_pkg")
+        args = argparse.Namespace(package="nonexistent_pkg")
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_prefix(args)
+        self.assertIn("error", captured[0])
+        self.assertIn("nonexistent_pkg", captured[0]["error"])
+
+    # ------------------------------------------------------------------
+    # pkg executables
+    # ------------------------------------------------------------------
+
+    def test_pkg_executables_found(self):
+        """Executable files in lib/<pkg>/ are listed; non-executables are excluded."""
+        import tempfile
+        mock_pkgs = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lib_dir = pathlib.Path(tmpdir) / "lib" / "mypkg"
+            lib_dir.mkdir(parents=True)
+            exe = lib_dir / "my_node"
+            exe.write_text("#!/bin/sh")
+            exe.chmod(0o755)
+            non_exe = lib_dir / "readme.txt"
+            non_exe.write_text("not a binary")
+            non_exe.chmod(0o644)
+            mock_pkgs.get_package_prefix.return_value = tmpdir
+            args = argparse.Namespace(package="mypkg")
+            captured = []
+            with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+                 patch("ros2_pkg.output", side_effect=captured.append):
+                self.ros2_pkg.cmd_pkg_executables(args)
+        result = captured[0]
+        self.assertEqual(result["package"], "mypkg")
+        self.assertIn("my_node", result["executables"])
+        self.assertNotIn("readme.txt", result["executables"])
+        self.assertEqual(result["total"], 1)
+
+    def test_pkg_executables_no_lib_dir(self):
+        """When lib/<pkg>/ does not exist, returns empty list without error."""
+        import tempfile
+        mock_pkgs = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_pkgs.get_package_prefix.return_value = tmpdir
+            args = argparse.Namespace(package="mypkg")
+            captured = []
+            with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+                 patch("ros2_pkg.output", side_effect=captured.append):
+                self.ros2_pkg.cmd_pkg_executables(args)
+        result = captured[0]
+        self.assertEqual(result["executables"], [])
+        self.assertEqual(result["total"], 0)
+
+    def test_pkg_executables_not_found(self):
+        """Unknown package produces an error."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_package_prefix.side_effect = KeyError("ghost_pkg")
+        args = argparse.Namespace(package="ghost_pkg")
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_executables(args)
+        self.assertIn("error", captured[0])
+
+    # ------------------------------------------------------------------
+    # pkg xml
+    # ------------------------------------------------------------------
+
+    def test_pkg_xml_found(self):
+        """Returns package name, path, and xml content."""
+        import tempfile
+        mock_pkgs = MagicMock()
+        xml_content = '<?xml version="1.0"?>\n<package format="3"><name>mypkg</name></package>\n'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            share_dir = pathlib.Path(tmpdir) / "share" / "mypkg"
+            share_dir.mkdir(parents=True)
+            (share_dir / "package.xml").write_text(xml_content, encoding="utf-8")
+            mock_pkgs.get_package_share_directory.return_value = str(share_dir)
+            args = argparse.Namespace(package="mypkg")
+            captured = []
+            with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+                 patch("ros2_pkg.output", side_effect=captured.append):
+                self.ros2_pkg.cmd_pkg_xml(args)
+        result = captured[0]
+        self.assertEqual(result["package"], "mypkg")
+        self.assertIn("<name>mypkg</name>", result["xml"])
+        self.assertIn("path", result)
+
+    def test_pkg_xml_package_not_found(self):
+        """Unknown package produces an error."""
+        mock_pkgs = MagicMock()
+        mock_pkgs.get_package_share_directory.side_effect = KeyError("ghost")
+        args = argparse.Namespace(package="ghost")
+        captured = []
+        with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+             patch("ros2_pkg.output", side_effect=captured.append):
+            self.ros2_pkg.cmd_pkg_xml(args)
+        self.assertIn("error", captured[0])
+
+    def test_pkg_xml_missing_file(self):
+        """Package in ament index but package.xml absent on disk → error."""
+        import tempfile
+        mock_pkgs = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            share_dir = pathlib.Path(tmpdir) / "share" / "mypkg"
+            share_dir.mkdir(parents=True)
+            # No package.xml written
+            mock_pkgs.get_package_share_directory.return_value = str(share_dir)
+            args = argparse.Namespace(package="mypkg")
+            captured = []
+            with patch.dict(sys.modules, {"ament_index_python.packages": mock_pkgs}), \
+                 patch("ros2_pkg.output", side_effect=captured.append):
+                self.ros2_pkg.cmd_pkg_xml(args)
+        self.assertIn("error", captured[0])
 
 
 class TestComponentTypesLogic(unittest.TestCase):
