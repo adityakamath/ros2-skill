@@ -466,6 +466,26 @@ The three conditions that permit asking the user: (1) genuine ambiguity that int
 
 ### 27 — Keep output minimal; report one line per operation
 
+### 28 — Velocity-limit scan covers four sources, not just node params
+
+Before any motion command, discover limits from all four sources in parallel: (1) node parameters — `params list` every node, filter for `max`/`limit`/`vel`/`speed`/`accel`/`scale` (catches teleop `scale_linear`/`scale_angular`); (2) URDF joint limits — if `robot_state_publisher` is running, read `robot_description` and parse `<limit velocity="..."/>` for relevant joints; (3) ros2_control hardware interface limits — `control list-hardware-interfaces` then `params list /controller_manager` for per-joint `<joint>/limits/max_velocity`; (4) YAML config params on controller_manager — `params list /controller_manager` filtered for `<joint>.*limit.*` or `<joint>.*max.*`. Binding ceiling = minimum across all four. YAML config files loaded via `--params-file` land as regular node params (Source 1) — no separate file reading needed.
+
+### 29 — Robot not moving: diagnose before reporting
+
+If odom velocity stays ≈ 0 for > 2 s while commands are being published: (1) run `topics hz <VEL_TOPIC>` — if 0 Hz, commands are not reaching the topic (wrong topic or publish failed); (2) compare commanded velocity to binding ceiling from Rule 28 — if commanded > any limit, the controller is silently discarding the message; **immediately reissue at 90% of the binding ceiling** and note: *"Reissued at Z m/s (original X m/s exceeded limit Y m/s)"*; (3) if commanded ≤ all limits and still not moving, diagnose controller: `control list-controllers` (is it `active`?), `control list-hardware-components` (hardware `active`?), `nodes list` (controller still running?). Never report "robot not moving" without completing all three steps.
+
+### 30 — Monitor for node crashes on long commands; re-check clock before every timed command
+
+For any command with timeout > 10 s: note the critical nodes (velocity controller, odom publisher) at pre-flight, then check `nodes list` every 10 s during execution. If either disappears: estop immediately and escalate. — Before every timed command (`publish-until`, `publish-sequence`, any `--timeout`), if `/clock` was found at session start, re-verify it is actively publishing (`topics subscribe /clock --max-messages 1 --timeout 2`). If no message arrives: escalate *"Simulator clock not advancing"*; do not issue the timed command.
+
+### 31 — Validate odometry frame_id and TF tree before spatial operations
+
+On first use of `<ODOM_TOPIC>` per session, subscribe for one message and read `header.frame_id`. If non-canonical (not containing `odom`), note to the user once; store the frame for position reporting. If empty, flag as misconfiguration. — Before any TF operation: run `tf list` to confirm frames are present. For sensor frames: run `tf echo <SENSOR_FRAME> <BASE_FRAME> --duration 1` to confirm the transform is not stale. If `tf echo` or `tf lookup` hangs past timeout, suspect a TF cycle — inspect `tf list` for duplicate parent-child relationships.
+
+### 32 — On any process interrupt, send estop before exiting
+
+If a motion command is interrupted (CLI exception, SIGTERM, keyboard interrupt): treat as a Rule 18 exception case — send `estop` immediately as the first recovery action. Do not assume the robot stopped because the CLI process exited. The velocity controller continues executing the last commanded velocity until it receives a stop command. Any abrupt CLI exit during motion = potential coasting robot = estop required.
+
 | Situation | What to report |
 |---|---|
 | Success | One line: what was done and the key outcome. e.g. *"Done. Moved 1.02 m forward."* |
