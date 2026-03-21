@@ -2986,5 +2986,233 @@ class TestLifecycleCommandPaths(unittest.TestCase):
         self.assertIn("my_node", res["error"])
 
 
+# ---------------------------------------------------------------------------
+# Wave 8 — Gap 4: cmd_estop — topic auto-detection and Twist/TwistStamped path
+# ---------------------------------------------------------------------------
+
+class TestEstopBranching(unittest.TestCase):
+    """cmd_estop: velocity topic auto-detection and Twist vs TwistStamped branching."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_topic
+        cls.mod = ros2_topic
+
+    def _run_estop(self, topics, msg_has_twist, explicit_topic=None):
+        """Run cmd_estop with a mocked ROS graph. Return (output_dict, msg_instance)."""
+        import types
+        # Use spec to control hasattr(msg, 'twist') — MagicMock only exposes listed attrs.
+        if msg_has_twist:
+            mock_msg = MagicMock(spec=['header', 'twist'])
+        else:
+            mock_msg = MagicMock(spec=['linear', 'angular'])
+        mock_msg_class = MagicMock(return_value=mock_msg)
+
+        mock_node = MagicMock()
+        mock_node.get_topic_names.return_value = topics
+        args = types.SimpleNamespace(topic=explicit_topic)
+
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', return_value=mock_node), \
+             patch.object(self.mod, 'get_msg_type', return_value=mock_msg_class), \
+             patch.object(self.mod.time, 'sleep'), \
+             patch('sys.stdout', new_callable=StringIO) as buf:
+            self.mod.cmd_estop(args)
+        return json.loads(buf.getvalue()), mock_msg
+
+    def test_autodetect_prefers_topic_with_cmd_vel_in_name(self):
+        topics = [
+            ('/base/vel', ['geometry_msgs/msg/Twist']),
+            ('/cmd_vel',  ['geometry_msgs/msg/Twist']),
+        ]
+        result, _ = self._run_estop(topics, msg_has_twist=False)
+        self.assertEqual(result['topic'], '/cmd_vel')
+
+    def test_autodetect_falls_back_to_first_when_no_cmd_vel(self):
+        topics = [
+            ('/base/velocity', ['geometry_msgs/msg/Twist']),
+            ('/robot/vel',     ['geometry_msgs/msg/Twist']),
+        ]
+        result, _ = self._run_estop(topics, msg_has_twist=False)
+        self.assertEqual(result['topic'], '/base/velocity')
+
+    def test_twist_path_zeroes_top_level_linear_and_angular(self):
+        topics = [('/cmd_vel', ['geometry_msgs/msg/Twist'])]
+        _, msg = self._run_estop(topics, msg_has_twist=False)
+        self.assertEqual(msg.linear.x, 0.0)
+        self.assertEqual(msg.angular.z, 0.0)
+
+    def test_twist_stamped_path_zeroes_nested_twist(self):
+        topics = [('/cmd_vel', ['geometry_msgs/msg/TwistStamped'])]
+        _, msg = self._run_estop(topics, msg_has_twist=True)
+        self.assertEqual(msg.twist.linear.x, 0.0)
+        self.assertEqual(msg.twist.angular.z, 0.0)
+
+    def test_no_velocity_topic_returns_error(self):
+        import types
+        topics = [('/scan', ['sensor_msgs/msg/LaserScan'])]
+        mock_node = MagicMock()
+        mock_node.get_topic_names.return_value = topics
+        args = types.SimpleNamespace(topic=None)
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.object(self.mod, 'ROS2CLI', return_value=mock_node), \
+             patch('sys.stdout', new_callable=StringIO) as buf:
+            self.mod.cmd_estop(args)
+        self.assertIn('error', json.loads(buf.getvalue()))
+
+
+# ---------------------------------------------------------------------------
+# Wave 8 — Gap 6: ros2_context always shuts down rclpy, even on exception
+# ---------------------------------------------------------------------------
+
+class TestRos2ContextCleanup(unittest.TestCase):
+    """ros2_context calls rclpy.shutdown() in the finally block — always."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_utils
+        cls.mod = ros2_utils
+
+    def test_shutdown_called_on_normal_exit(self):
+        with patch.object(self.mod.rclpy, 'init'), \
+             patch.object(self.mod.rclpy, 'shutdown') as mock_shutdown:
+            with self.mod.ros2_context():
+                pass
+            mock_shutdown.assert_called_once()
+
+    def test_shutdown_called_when_exception_raised_inside_context(self):
+        with patch.object(self.mod.rclpy, 'init'), \
+             patch.object(self.mod.rclpy, 'shutdown') as mock_shutdown:
+            with self.assertRaises(RuntimeError):
+                with self.mod.ros2_context():
+                    raise RuntimeError("boom")
+            mock_shutdown.assert_called_once()
+
+    def test_exception_propagates_after_cleanup(self):
+        with patch.object(self.mod.rclpy, 'init'), \
+             patch.object(self.mod.rclpy, 'shutdown'):
+            with self.assertRaises(ValueError):
+                with self.mod.ros2_context():
+                    raise ValueError("propagated")
+
+
+# ---------------------------------------------------------------------------
+# Wave 8 — Gap 7: ConditionMonitor picks QoS to match publisher reliability
+# ---------------------------------------------------------------------------
+
+class TestConditionMonitorQoS(unittest.TestCase):
+    """ConditionMonitor uses BEST_EFFORT QoS when any publisher does; system default otherwise."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_topic
+        cls.mod = ros2_topic
+
+    def _captured_qos(self, pub_infos):
+        """Instantiate ConditionMonitor with mocked Node; return QoS passed to create_subscription."""
+        import threading
+        captured = {}
+
+        def mock_node_init(self, name):
+            self.get_publishers_info_by_topic = MagicMock(return_value=pub_infos)
+            self.create_subscription = MagicMock(
+                side_effect=lambda cls, t, cb, qos: captured.update({'qos': qos})
+            )
+
+        stop_event = threading.Event()
+        with patch.object(self.mod.Node, '__init__', mock_node_init), \
+             patch.object(self.mod, 'get_msg_type', return_value=MagicMock()):
+            self.mod.ConditionMonitor(
+                '/odom', 'nav_msgs/msg/Odometry', 'x', 'delta', 1.0, stop_event
+            )
+        return captured.get('qos')
+
+    def test_best_effort_publisher_selects_sensor_data_qos(self):
+        from rclpy.qos import ReliabilityPolicy
+        pub = MagicMock()
+        pub.qos_profile.reliability = ReliabilityPolicy.BEST_EFFORT
+        self.assertIs(self._captured_qos([pub]), self.mod.qos_profile_sensor_data)
+
+    def test_reliable_publisher_keeps_system_default_qos(self):
+        from rclpy.qos import ReliabilityPolicy
+        pub = MagicMock()
+        pub.qos_profile.reliability = ReliabilityPolicy.RELIABLE
+        self.assertIs(self._captured_qos([pub]), self.mod.qos_profile_system_default)
+
+    def test_empty_publisher_list_keeps_system_default_qos(self):
+        self.assertIs(self._captured_qos([]), self.mod.qos_profile_system_default)
+
+    def test_get_publishers_info_exception_falls_back_to_system_default(self):
+        import threading
+        captured = {}
+
+        def mock_node_init(self, name):
+            self.get_publishers_info_by_topic = MagicMock(side_effect=Exception("rpc error"))
+            self.create_subscription = MagicMock(
+                side_effect=lambda cls, t, cb, qos: captured.update({'qos': qos})
+            )
+
+        stop_event = threading.Event()
+        with patch.object(self.mod.Node, '__init__', mock_node_init), \
+             patch.object(self.mod, 'get_msg_type', return_value=MagicMock()):
+            self.mod.ConditionMonitor(
+                '/odom', 'nav_msgs/msg/Odometry', 'x', 'delta', 1.0, stop_event
+            )
+        self.assertIs(captured.get('qos'), self.mod.qos_profile_system_default)
+
+
+# ---------------------------------------------------------------------------
+# Wave 8 — Gap 8: tf monitor returns clear error when no frame can be discovered
+# ---------------------------------------------------------------------------
+
+class TestTFMonitorMissingFrame(unittest.TestCase):
+    """cmd_tf_monitor returns a clear error when reference frame auto-discovery fails."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_tf
+        cls.mod = ros2_tf
+
+    def _run(self, reference_frame=None, frames_yaml='', frames_raise=None):
+        import types, sys
+        args = types.SimpleNamespace(
+            frame='base_link', reference_frame=reference_frame,
+            timeout=1.0, count=1,
+        )
+        mock_buffer = MagicMock()
+        if frames_raise:
+            mock_buffer.all_frames_as_yaml.side_effect = frames_raise
+        else:
+            mock_buffer.all_frames_as_yaml.return_value = frames_yaml
+
+        mock_tf2_ros = MagicMock()
+        mock_tf2_ros.Buffer.return_value = mock_buffer
+
+        with patch.object(self.mod, 'ros2_context', MagicMock()), \
+             patch.dict(sys.modules, {'tf2_ros': mock_tf2_ros}), \
+             patch('rclpy.node.Node', return_value=MagicMock()), \
+             patch('rclpy.spin_once'), \
+             patch('time.sleep'), \
+             patch('sys.stdout', new_callable=StringIO) as buf:
+            self.mod.cmd_tf_monitor(args)
+        return json.loads(buf.getvalue())
+
+    def test_empty_tf_tree_returns_autodiscovery_error(self):
+        result = self._run(frames_yaml='')
+        self.assertIn('error', result)
+
+    def test_all_frames_exception_returns_autodiscovery_error(self):
+        result = self._run(frames_raise=Exception('tf2 unavailable'))
+        self.assertIn('error', result)
+
+
 if __name__ == "__main__":
     unittest.main()
