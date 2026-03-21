@@ -42,6 +42,17 @@ python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
   --euclidean --delta 1.0
 ```
 
+### Drive with Deceleration Zone (Closed-Loop, Smooth Stop)
+Use `--slow-last` to ramp down to `--slow-factor` speed over the last N meters.
+Prevents overshoot on long moves — always use for moves > 2 m.
+```bash
+python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":0.4},"angular":{"z":0.0}}' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta 3.0 \
+  --slow-last 0.5 --slow-factor 0.3
+```
+`--slow-last 0.5` activates decel when 0.5 m remains. `--slow-factor 0.3` scales velocity to 30% during decel.
+
 ### Rotate by Angle (Closed-Loop)
 Rotate 90 degrees CCW (positive `--rotate`, positive `angular.z`):
 ```bash
