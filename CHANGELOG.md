@@ -2,9 +2,64 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.5] - 2026-03-16
+## [1.0.5] - 2026-03-21
 
-Added bag, component, and daemon commands. Hardened RULES.md with 8 new agent behaviour rules. Added AGENTS.md agent guide.
+Comprehensive review of RULES.md, AGENTS.md, and SKILL.md targeting agent self-reliance. Added bag, component, and daemon commands. Hardened safety rules. Closed AGENTS.md coverage gaps.
+
+### New Commands
+
+- `bag info <bag_path>` — show metadata for a ROS 2 bag (duration, message counts, per-topic stats); no live graph required
+- `component types` — list all registered rclcpp composable node types; no live graph required
+- `daemon status` — check if the ROS 2 daemon is running; no live graph required
+- `daemon start` — start the ROS 2 daemon
+- `daemon stop` — stop the ROS 2 daemon
+
+### Safety Rules
+
+- **Rules 18–21** — `estop` mandatory after every `publish-until` (Rule 18), QoS pre-flight gate (Rule 19), `--slow-last` for moves > 2 m / 180° (Rule 20), position verify before re-issue on timeout (Rule 21)
+- **Rule 18 hard preemption** — estop is the first and only permitted action on any `publish-until` exit; no diagnosis before estop is verified
+- **Rule 19 hard gate** — QoS and monitor field checks are pre-flight; never attempt `publish-until` if publisher count is 0 or field path cannot be resolved
+- **Rule 22** — motion ceilings: > 50 m or > 3600° requires explicit user confirmation
+- **Rule 23** — any new command during active motion triggers estop + verify before the new command is handled
+- **Estop verification window** standardised to 5 s (10 s for heavy platforms > 20 kg)
+- **Long-motion segmentation** (Rule 9) — `publish-until` with expected duration > 30 s broken into max-30 s segments with estop + odom rate check between each
+
+### Self-Reliance Rules
+
+- **Vague quantity defaults** (Rule 5) — "a bit" = 0.1 m / 5°, "nearby" = 0.5 m, etc.; act on defaults and note the assumption instead of asking
+- **Already-at-target short-circuit** — skip motion if remaining ≤ 0.05 m or ≤ 3° (AGENTS.md Phase 2 Step 0.5)
+- **Near-success tolerance** (Rule 21) — `condition_met: false` within 0.05 m / 3° of target treated as success
+- **Multiple controller selection** (Rule 0) — prefer by robot part named in user request before falling back to first result
+- **Discovery retry** (Rule 10) — retry once after 1 s before broadening; DDS discovery is eventually-consistent
+- **Rule 9 carry-forward pose** — confirmed final position from prior move is the next baseline; velocity + hz checks still run fresh each time
+
+### Rule Clarifications
+
+- **Rule 0 vs Rule 5** — discovery is silent, execution is silent; no narration, no confirmation requests
+- **Rule 8** — service response JSON must be inspected (`success`/`status` field); CLI exit code 0 ≠ success. Retry protocol: 1 auto + 2 fix+retry, then escalate
+- **Rule 9 hard gate** — overriding a failed pre-motion check is a safety violation; escalate if recovery fails
+- **Rule 9 odom rate** — `topics hz` mandatory before every motion command; cannot carry forward from prior command
+- **Rule 11** — always state selection when more than one candidate existed
+- **`condition_met: false` diagnostic** — `topics hz` after estop distinguishes QoS failure (0 Hz) from genuine timeout
+
+### Code Fixes
+
+- **M5** — `ConditionMonitor` auto-matches publisher QoS (BEST_EFFORT / RELIABLE) to prevent silent odom dropout
+- **M8** — `scale_twist_velocity` restructured as if/elif to correctly handle Twist vs TwistStamped
+- **M9** — 440-line module docstring removed from `ros2_cli.py`
+- **H3** — `cmd_actions_details` missing None guard added
+- **Q7** — `cmd_version` reports `rclpy_available`
+- **Q8** — unique per-topic node names (`skill_<prefix>_<slug>`) to prevent node name collision
+
+### AGENTS.md
+
+- **Rules 18–23** condensed and added to Core Rules
+- **Rules 24–27** added: session-start checks (← 0.1), ros2-skill exclusively (← 2), execute without asking (← 5), minimal reporting (← 6)
+- **Removed** stale Safety line "Confirm before any movement — wait for acknowledgement" which contradicted Rule 5
+
+### Tests
+
+- 14 new unit tests: estop Twist/TwistStamped branching, `ros2_context` shutdown, `ConditionMonitor` QoS auto-matching, TF monitor missing-frame error
 
 ### New Commands
 

@@ -43,6 +43,8 @@ def cmd_actions_list(args):
 
 
 def cmd_actions_details(args):
+    if not args.action:
+        return output({"error": "action argument is required"})
     try:
         with ros2_context():
             node = ROS2CLI()

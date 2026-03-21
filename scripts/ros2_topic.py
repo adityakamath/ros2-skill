@@ -4,12 +4,13 @@
 import json
 import math
 import os
+import re
 import threading
 import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_system_default
+from rclpy.qos import qos_profile_system_default, qos_profile_sensor_data, ReliabilityPolicy
 
 from ros2_utils import (
     ROS2CLI, get_msg_type, get_msg_error, get_msg_fields,
@@ -132,8 +133,12 @@ def cmd_estop(args):
                 msg.angular.y = 0.0
                 msg.angular.z = 0.0
 
-            pub.publish(msg)
-            time.sleep(0.1)
+            # Publish in a burst to ensure delivery regardless of QoS/late discovery
+            burst_count = 10
+            burst_interval = 0.05  # 20 Hz over 0.5 s
+            for _ in range(burst_count):
+                pub.publish(msg)
+                time.sleep(burst_interval)
 
         output({
             "success": True,
@@ -222,12 +227,22 @@ def cmd_topics_message(args):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _node_name(prefix, topic):
+    """Build a unique-per-topic ROS 2 node name: skill_<prefix>_<topic_slug>."""
+    slug = re.sub(r'[^a-zA-Z0-9]', '_', topic.lstrip('/')).strip('_') or 'topic'
+    return f"skill_{prefix}_{slug}"
+
+
+# ---------------------------------------------------------------------------
 # Subscriber node
 # ---------------------------------------------------------------------------
 
 class TopicSubscriber(Node):
     def __init__(self, topic, msg_type, msg_class=None, qos=None):
-        super().__init__('subscriber')
+        super().__init__(_node_name('sub', topic))
         self.msg_type = msg_type
         self.messages = []
         self.lock = threading.Lock()
@@ -301,7 +316,7 @@ def cmd_topics_subscribe(args):
 
 class TopicPublisher(Node):
     def __init__(self, topic, msg_type):
-        super().__init__('publisher')
+        super().__init__(_node_name('pub', topic))
         self.topic = topic
         self.msg_type = msg_type
         self.pub = None
@@ -333,12 +348,33 @@ def normalize_angle(angle):
     return angle
 
 
+def scale_twist_velocity(data, scale):
+    """Return a copy of a Twist or TwistStamped dict with all velocity fields multiplied by scale."""
+    import copy
+    d = copy.deepcopy(data)
+    if 'twist' in d and isinstance(d.get('twist'), dict):
+        # TwistStamped: velocity nested under 'twist' key
+        for top in ('linear', 'angular'):
+            if top in d['twist'] and isinstance(d['twist'][top], dict):
+                for ax in ('x', 'y', 'z'):
+                    if ax in d['twist'][top] and isinstance(d['twist'][top][ax], (int, float)):
+                        d['twist'][top][ax] = d['twist'][top][ax] * scale
+    else:
+        # Twist: velocity at top level
+        for top in ('linear', 'angular'):
+            if top in d and isinstance(d[top], dict):
+                for ax in ('x', 'y', 'z'):
+                    if ax in d[top] and isinstance(d[top][ax], (int, float)):
+                        d[top][ax] = d[top][ax] * scale
+    return d
+
+
 class ConditionMonitor(Node):
     """Subscriber that evaluates a stop condition on every incoming message."""
 
     def __init__(self, topic, msg_type, field, operator, threshold, stop_event,
                  euclidean=False, rotate=None):
-        super().__init__('condition_monitor')
+        super().__init__(_node_name('mon', topic))
         self.euclidean = euclidean
         self.rotate = rotate
         if isinstance(field, list):
@@ -371,9 +407,17 @@ class ConditionMonitor(Node):
 
         msg_class = get_msg_type(msg_type)
         if msg_class:
-            self.sub = self.create_subscription(
-                msg_class, topic, self.callback, qos_profile_system_default
-            )
+            # Auto-match publisher QoS: use BEST_EFFORT if any publisher does,
+            # so RELIABLE/BEST_EFFORT mismatches don't silently drop all messages.
+            qos = qos_profile_system_default
+            try:
+                pub_infos = self.get_publishers_info_by_topic(topic)
+                if any(p.qos_profile.reliability == ReliabilityPolicy.BEST_EFFORT
+                       for p in pub_infos):
+                    qos = qos_profile_sensor_data
+            except Exception:
+                pass
+            self.sub = self.create_subscription(msg_class, topic, self.callback, qos)
 
     def callback(self, msg):
         with self.lock:
@@ -786,15 +830,53 @@ def cmd_topics_publish_until(args):
             start_time = time.time()
             published_count = 0
 
+            # Deceleration zone: resolve --slow-last to the same unit system as the condition.
+            slow_last = getattr(args, 'slow_last', None)
+            slow_factor = max(0.0, min(1.0, getattr(args, 'slow_factor', 0.25)))
+            slow_zone = None
+            if slow_last is not None:
+                slow_zone = (
+                    math.radians(slow_last)
+                    if (rotate_angle is not None and use_degrees)
+                    else float(slow_last)
+                )
+
             try:
                 while not stop_event.is_set():
                     if timeout and (time.time() - start_time) >= timeout:
                         break
-                    publisher.pub.publish(msg)
+
+                    publish_msg = msg
+                    if slow_zone is not None and slow_zone > 0:
+                        with monitor.lock:
+                            if rotate_angle is not None:
+                                remaining = max(0.0, abs(rotate_angle) - abs(monitor.accumulated_rotation or 0.0))
+                            elif euclidean:
+                                remaining = max(0.0, float(threshold) - (monitor.euclidean_distance or 0.0))
+                            elif operator == 'delta' and monitor.start_value is not None and monitor.current_value is not None:
+                                try:
+                                    remaining = max(0.0, abs(float(threshold)) - abs(float(monitor.current_value) - float(monitor.start_value)))
+                                except (TypeError, ValueError):
+                                    remaining = None
+                            else:
+                                remaining = None
+
+                        if remaining is not None and remaining < slow_zone:
+                            scale = max(slow_factor, remaining / slow_zone)
+                            if scale < 0.999:
+                                publish_msg = dict_to_msg(pub_msg_class, scale_twist_velocity(msg_data, scale))
+
+                    publisher.pub.publish(publish_msg)
                     published_count += 1
                     executor.spin_once(timeout_sec=interval)
             finally:
                 stop_event.set()
+                # Always send a zero-velocity burst after the loop to stop the robot,
+                # regardless of whether the condition was met or the command timed out.
+                zero_msg = dict_to_msg(pub_msg_class, scale_twist_velocity(msg_data, 0.0))
+                for _ in range(10):
+                    publisher.pub.publish(zero_msg)
+                    time.sleep(0.05)
 
             elapsed = round(time.time() - start_time, 3)
 

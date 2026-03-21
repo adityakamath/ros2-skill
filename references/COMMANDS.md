@@ -330,8 +330,10 @@ Publish a message at a fixed rate while simultaneously monitoring a second topic
 | `--timeout SECONDS` | No | `60` | Safety stop if condition not met within this time |
 | `--msg-type TYPE` | No | auto-detect | Override publish topic message type |
 | `--monitor-msg-type TYPE` | No | auto-detect | Override monitor topic message type |
+| `--slow-last N` | No | off | Begin decelerating when N units remain before the target. Units match the movement type: metres for `--field`/`--euclidean` distance; degrees if `--degrees` is set, radians otherwise for `--rotate`. Velocity ramps linearly from full commanded speed at N remaining down to `--slow-factor × full speed` at the target. |
+| `--slow-factor F` | No | `0.25` | Minimum velocity as a fraction of the commanded velocity at the end of the decel zone (0–1). E.g. `0.25` = robot reaches target at 25% of its commanded speed. |
 
-**Note:** Either `--field` OR `--rotate` must be specified, but not both.
+**Note:** Either `--field` OR `--rotate` must be specified, but not both. `--slow-last` works with `--delta`, `--euclidean --delta`, and `--rotate`; ignored for `--above`/`--below`/`--equals`.
 
 **Move forward until x-position increases by 1 m (straight path):**
 ```bash
@@ -391,6 +393,31 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
   '{"linear":{"x":0},"angular":{"z":0.5}}' \
   --monitor /odom --rotate 3.14159 --timeout 30
+```
+
+**Drive 10 m forward with deceleration for the last 0.3 m (precision landing):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
+  --monitor /odom --field pose.pose.position --euclidean --delta 10.0 \
+  --slow-last 0.3 --slow-factor 0.25 --timeout 120
+```
+
+**Drive 15 cm forward — short distance, decel zone spans the whole move:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0.1},"angular":{"z":0}}' \
+  --monitor /odom --field pose.pose.position --euclidean --delta 0.15 \
+  --slow-last 0.3 --slow-factor 0.25 --timeout 15
+```
+*(When `--slow-last` > total distance, deceleration applies from the start — velocity ramps from 0.1 × (0.15/0.3) = 0.05 m/s down to 0.1 × 0.25 = 0.025 m/s.)*
+
+**Rotate 10° CCW with decel for the last 20° (or the whole move, whichever is shorter):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
+  '{"linear":{"x":0},"angular":{"z":0.3}}' \
+  --monitor /odom --rotate 10 --degrees \
+  --slow-last 20 --slow-factor 0.25 --timeout 15
 ```
 
 **Stop when temperature exceeds 50°C:**
