@@ -40,7 +40,7 @@ No user clarification needed — the agent uses ros2-skill tools to answer all i
 
 For nanobot deployments, load both `SKILL.md` (command reference) and `AGENTS.md` (operational rules and safety constraints) into the agent's system prompt. The full rule set is in [`references/RULES.md`](references/RULES.md).
 
-> **Note:** `ros2_cli.py` is intended for debugging and development only. Normal usage is through the chat interface of your agent platform. See [`references/CLI.md`](references/CLI.md) for the full command list.
+> **Note:** `ros2_cli.py` is intended for debugging and development only. Normal usage is through the chat interface or messaging gateway of your agent platform. See [`references/CLI.md`](references/CLI.md) for the full command list.
 
 ## How It Works
 
