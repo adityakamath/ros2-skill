@@ -98,8 +98,6 @@ Capabilities that go beyond standard `ros2` CLI parity — designed specifically
 | **Parameter presets** | `params preset-save/load/list/delete` | Save and restore complete parameter sets for a node by name |
 | **Launch files** | `launch new/list/kill/restart/foxglove` | Run launch files in tmux sessions, list/kill/restart running sessions, launch foxglove_bridge |
 | **Run executables** | `run new/list/kill/restart` | Run executables in tmux sessions, list/kill/restart running sessions |
-| **TF2 transforms** | `tf list/lookup/echo/monitor/static` | Query transforms, list frames, echo transforms, monitor frames, publish static transforms |
-| **TF2 helpers** | `tf euler-from-quaternion/quaternion-from-euler/transform-point/transform-vector` | Quaternion/Euler conversion, point/vector transformation |
 | **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token |
 
 ### Global Options
@@ -126,9 +124,9 @@ See [`EXAMPLES.md`](EXAMPLES.md) for usage examples including image capture and 
 3. User asks something like "move the robot forward"
 4. **Agent thinks:** "This requires publishing velocity commands. I need to find Twist topics, get the message structure, check safety limits, then publish."
 5. **Agent auto-discovers:**
-   - `topics find geometry_msgs/Twist` + `TwistStamped` → finds `/cmd_vel`
+   - `topics find geometry_msgs/Twist` + `TwistStamped` → finds the velocity topic
    - `topics message geometry_msgs/Twist` → gets structure
-   - `params list /diff_drive_controller` → gets safety limits
+   - `nodes list` + `params list <controller_node>` → gets safety limits
 6. Agent executes: `python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel ...`
 7. `ros2_cli.py` uses rclpy to communicate with ROS 2 and returns JSON
 8. Agent parses the JSON and responds in natural language
@@ -162,7 +160,8 @@ ros2-skill/
 │   ├── ros2_daemon.py         # ROS 2 daemon management
 │   └── discord_tools.py       # Discord integration
 ├── references/
-│   └── COMMANDS.md            # Full command reference with output examples
+│   ├── COMMANDS.md            # Full command reference with output examples
+│   └── RULES.md               # Agent safety rules and operational constraints
 ├── tests/
 │   └── test_ros2_cli.py       # Unit tests
 ├── EXAMPLES.md                # Practical usage guide for agents
