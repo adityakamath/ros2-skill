@@ -57,6 +57,8 @@ python3 scripts/ros2_cli.py topics subscribe /scan --duration 3
 
 No user clarification needed — the agent uses ros2-skill tools to answer all its own questions.
 
+For nanobot deployments, load both `SKILL.md` (command reference) and `AGENTS.md` (operational rules and safety constraints) into the agent's system prompt. The full rule set is in [`references/RULES.md`](references/RULES.md).
+
 ## Supported Commands
 
 | Category | Commands |
@@ -92,17 +94,21 @@ Capabilities that go beyond standard `ros2` CLI parity — designed specifically
 | **Emergency stop** | `estop` | Send zero-velocity command to halt mobile robots safely |
 | **Publish sequence** | `topics publish-sequence` | Publish a timed sequence of different messages in one call |
 | **Publish-until** | `topics publish-until` | Publish repeatedly and stop automatically when a condition is met (supports Euclidean distance and rotation) |
+| **Topic rate / bandwidth** | `topics hz`, `topics bw`, `topics delay` | Monitor publish rate, bandwidth, and message delay for any topic |
+| **QoS compatibility check** | `topics qos-check` | Compare publisher and subscriber QoS profiles; suggests fix flags for mismatches |
 | **Image capture** | `topics capture-image` | Grab a frame from any ROS 2 image topic and save to `.artifacts/` |
 | **Diagnostics monitoring** | `topics diag-list`, `topics diag` | Discover and read `DiagnosticArray` topics by type, with human-readable level names |
 | **Battery monitoring** | `topics battery-list`, `topics battery` | Discover and read `BatteryState` topics by type, with decoded status, health, and technology names |
+| **Parameter search** | `params find` | Search all live nodes for parameters matching a substring |
 | **Parameter presets** | `params preset-save/load/list/delete` | Save and restore complete parameter sets for a node by name |
+| **TF graph tools** | `tf tree`, `tf validate` | Visualise the full TF frame hierarchy; detect cycles and multiple-parent errors |
 | **Launch files** | `launch new/list/kill/restart/foxglove` | Run launch files in tmux sessions, list/kill/restart running sessions, launch foxglove_bridge |
 | **Run executables** | `run new/list/kill/restart` | Run executables in tmux sessions, list/kill/restart running sessions |
 | **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token |
 
 ### Global Options
 
-Place these **before** the command name to apply a setting to every service/action call:
+Place these **before** the command name to apply a setting to all commands:
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -164,8 +170,8 @@ ros2-skill/
 │   └── RULES.md               # Agent safety rules and operational constraints
 ├── tests/
 │   └── test_ros2_cli.py       # Unit tests
+├── AGENTS.md                  # Agent system prompt — load alongside SKILL.md for nanobot deployments
 ├── EXAMPLES.md                # Practical usage guide for agents
-├── SKILL.md                   # Skill definition for agent platforms
 └── CHANGELOG.md               # Version history
 ```
 
@@ -173,10 +179,38 @@ ros2-skill/
 
 - Python 3.10+
 - ROS 2, environment sourced
+- `tmux` — required for `launch` and `run` commands (session management)
 
 **Optional:**
 - `opencv-python` and `numpy` — required for `topics capture-image`
 - `requests` — required for `discord_tools.py send-image`
+
+## Output Directories
+
+Commands that produce file artifacts write to subdirectories of the skill installation root:
+
+| Directory | Contents |
+|-----------|----------|
+| `.artifacts/` | Captured images, logs, and all other generated outputs |
+| `.presets/` | Saved parameter presets (`params preset-save` / `params preset-load`) |
+| `.profiles/` | Robot profiles |
+
+## Discord Setup
+
+`discord_tools.py send-image` reads its bot token from a config file — the same one used by nanobot:
+
+```json
+// ~/.nanobot/config.json
+{
+  "channels": {
+    "discord": {
+      "token": "YOUR_BOT_TOKEN"
+    }
+  }
+}
+```
+
+See [`AGENTS.md`](AGENTS.md) for the full Discord image-sending workflow.
 
 ## Testing
 
@@ -191,7 +225,7 @@ Tested with ROS 2 Kilted and [nanobot](https://github.com/HKUDS/nanobot) on a Ra
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md).
+Current version: **v1.0.5**. See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 ---
 

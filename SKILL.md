@@ -13,7 +13,7 @@ metadata:
     category: "robotics"
     tags: ["ros2", "robotics", "rclpy"]
   author: ["adityakamath", "lpigeon"]
-  version: "3.0.0"
+  version: "1.0.5"
 ---
 
 # ROS 2 Skill
