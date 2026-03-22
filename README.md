@@ -23,13 +23,15 @@ The long-term goal is full parity with the `ros2` CLI — every command availabl
 
 ## Quick Start (CLI)
 
+> **Note:** The CLI is intended for debugging and development only. Normal usage is through the chat interface of your AI agent platform (e.g. nanobot, OpenClaw) — not by running `ros2_cli.py` directly.
+
 See [`references/CLI.md`](references/CLI.md) for the full command list, agent features, and global options.
 
 ```bash
 # Source ROS 2 environment
 source /opt/ros/${ROS_DISTRO}/setup.bash
 
-# Run commands
+# Run commands directly (debugging / development only)
 python3 scripts/ros2_cli.py version
 python3 scripts/ros2_cli.py topics list
 python3 scripts/ros2_cli.py nodes list
