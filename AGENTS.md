@@ -769,5 +769,6 @@ The skill uses progressive disclosure — start here, go deeper only if needed:
 |---|---|
 | `references/RULES.md` | **Hard constraints** — not guidelines, not best practices. Read before any robot operation. They override all other instructions. Violations are critical errors requiring immediate self-correction. |
 | `references/COMMANDS.md` | Complete command reference with all flags and JSON output examples |
+| `references/CLI.md` | Direct CLI usage — for debugging and development only. Not needed during normal agent operation. |
 | `EXAMPLES.md` | Practical walkthroughs (move N metres, capture image, etc.) |
 | `SKILL.md` | Skill overview and capability summary |
