@@ -30,15 +30,13 @@ The long-term goal is full parity with the `ros2` CLI — every command availabl
 - "Trigger the emergency stop"
 
 **Agent Workflow:** The agent automatically:
-1. Checks whether the required nodes and topics are already running
-2. If not, finds and launches the appropriate launch file — you can also launch it manually beforehand
-3. Understands user intent (subscribe/publish/call/send)
-4. Discovers relevant topics, services, actions from the live graph
-5. Finds message types and structures
-6. Applies safety limits from parameters
-7. Executes the command
+1. Understands user intent (subscribe/publish/call/send/run/launch)
+2. Discovers relevant launch files, nodes, topics, services, actions from the live graph
+3. Finds message types and structures
+4. Applies safety limits from parameters
+5. Executes the command
 
-No user clarification needed — the agent uses ros2-skill tools to answer all its own questions, including starting the robot stack if it isn't already running.
+No user clarification needed — the agent uses ros2-skill tools to answer all its own questions, including finding and launching the robot stack if it isn't already running.
 
 For nanobot deployments, load both `SKILL.md` (command reference) and `AGENTS.md` (operational rules and safety constraints) into the agent's system prompt. The full rule set is in [`references/RULES.md`](references/RULES.md).
 
