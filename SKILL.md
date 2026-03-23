@@ -53,6 +53,7 @@ To maintain performance and accuracy, this skill uses **Progressive Disclosure**
 1. **[references/RULES.md](references/RULES.md) (CRITICAL):** Mandatory Agent Behaviour Rules (0–26), Safety Protocols, and Decision Frameworks. **These are hard constraints — not guidelines. Read and follow before performing any robot action. Violation = immediate halt, self-correct, retry.**
 2. **[references/COMMANDS.md](references/COMMANDS.md):** Full technical reference for all CLI subcommands, flags, and JSON payload structures.
 3. **[EXAMPLES.md](EXAMPLES.md):** Practical walkthroughs for common tasks like "Move N meters" or "Capture Camera Image".
+4. **[references/CLI.md](references/CLI.md):** Direct CLI usage reference for debugging and development. Not needed during normal agent operation.
 
 ## 🛠️ Setup & Preconditions
 
