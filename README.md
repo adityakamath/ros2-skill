@@ -1,11 +1,11 @@
 # ROS 2 Skill
 
 ![Status](https://img.shields.io/badge/Status-Active-green)
-![Static Badge](https://img.shields.io/badge/ROS%202-Supported-green)
-[![Repo](https://img.shields.io/badge/Repo-adityakamath%2Fros2--skill-purple)](https://github.com/adityakamath/ros2-skill)
-[![Blog](https://img.shields.io/badge/Blog-kamathrobotics.com-darkorange)](https://kamathrobotics.com)
+![ROS 2](https://img.shields.io/badge/ROS%202-Supported-green?style=flat&logo=ros&logoSize=auto)
+[![Repo](https://img.shields.io/badge/Repo-adityakamath%2Fros2--skill-purple?style=flat&logo=github&logoSize=auto)](https://github.com/adityakamath/ros2-skill)
+[![Blog](https://img.shields.io/badge/Blog-kamathrobotics.com-darkorange?style=flat&logo=hashnode&logoSize=auto)](https://kamathrobotics.com)
 [![Ask DeepWiki (Experimental)](https://deepwiki.com/badge.svg)](https://deepwiki.com/adityakamath/ros2-skill)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat&logo=python&logoColor=white)
 ![Static Badge](https://img.shields.io/badge/License-Apache%202.0-blue)
 
 [![SKILL.md](https://img.shields.io/badge/docs-SKILL.md-green)](SKILL.md)
