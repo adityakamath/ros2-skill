@@ -4,20 +4,14 @@ Practical, copy-ready examples for every command group. All commands output JSON
 
 ---
 
-## 1. System Version & ROS 2 Info
-
-```bash
-# Detect ROS 2 version, distro, and domain ID
-python3 scripts/ros2_cli.py version
-```
-
----
-
-## 2. Graph Exploration — Topics, Nodes, Services, Actions
+## 1. Graph Exploration — Topics, Nodes, Services, Actions
 
 **Always start here to understand the live graph before acting.**
 
 ```bash
+# Detect ROS 2 version, distro, and domain ID
+python3 scripts/ros2_cli.py version
+
 # List all active topics with types
 python3 scripts/ros2_cli.py topics list
 
@@ -61,7 +55,7 @@ python3 scripts/ros2_cli.py actions find nav2_msgs/action/NavigateToPose
 
 ---
 
-## 3. Interface Discovery
+## 2. Interface Discovery
 
 **No live ROS 2 graph required** — reads from the ament resource index.
 
@@ -69,10 +63,10 @@ python3 scripts/ros2_cli.py actions find nav2_msgs/action/NavigateToPose
 # List all installed interface types (messages, services, actions)
 python3 scripts/ros2_cli.py interface list
 
-# Show field structure of a message type
+# Show field structure of a message, service, or action type
 python3 scripts/ros2_cli.py interface show geometry_msgs/msg/Twist
-python3 scripts/ros2_cli.py interface show nav2_msgs/action/NavigateToPose
 python3 scripts/ros2_cli.py interface show std_srvs/srv/SetBool
+python3 scripts/ros2_cli.py interface show nav2_msgs/action/NavigateToPose
 
 # Get a default-value prototype (use as payload template)
 python3 scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
@@ -89,7 +83,7 @@ python3 scripts/ros2_cli.py interface package std_msgs
 
 ---
 
-## 4. Topic Monitoring
+## 3. Topic Monitoring & Data Capture
 
 ```bash
 # Subscribe and return first message
@@ -119,11 +113,24 @@ python3 scripts/ros2_cli.py topics qos-check <CMD_VEL_TOPIC>
 # Get message structure for a type
 python3 scripts/ros2_cli.py topics message geometry_msgs/msg/Twist
 python3 scripts/ros2_cli.py topics message nav_msgs/msg/Odometry
+
+# Capture an image from a camera topic (saved to .artifacts/)
+python3 scripts/ros2_cli.py topics capture-image \
+  --topic <CAMERA_TOPIC> \
+  --output photo.jpg
+
+# Capture with explicit type
+python3 scripts/ros2_cli.py topics capture-image \
+  --topic <CAMERA_TOPIC> \
+  --output photo.jpg \
+  --type compressed
 ```
+
+If multiple camera topics are found, prefer the one matching the user's context (front/rear, color/depth, compressed/raw).
 
 ---
 
-## 5. Topic Publishing
+## 4. Topic Publishing
 
 ```bash
 # Single-shot publish
@@ -145,19 +152,7 @@ python3 scripts/ros2_cli.py topics publish <CMD_VEL_TOPIC> \
 
 ---
 
-## 6. Emergency Stop
-
-```bash
-# Auto-detect velocity topic and publish zero velocity immediately
-python3 scripts/ros2_cli.py estop
-
-# Override topic (when auto-detection finds multiple candidates)
-python3 scripts/ros2_cli.py estop --topic <CMD_VEL_TOPIC>
-```
-
----
-
-## 7. Robot Motion (Closed-Loop)
+## 5. Robot Motion (Closed-Loop)
 
 **Always discover topic names before moving. Never hardcode `/cmd_vel` or `/odom`.**
 
@@ -168,10 +163,15 @@ python3 scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
 # → confirm exact type:
 python3 scripts/ros2_cli.py topics type <VEL_TOPIC>
 
-# Step 2: Discover odometry topic
+# Step 2: Discover odometry topic and verify it is live
 python3 scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
-# → verify it is live:
 python3 scripts/ros2_cli.py topics hz <ODOM_TOPIC>
+```
+
+### Emergency stop
+```bash
+python3 scripts/ros2_cli.py estop
+python3 scripts/ros2_cli.py estop --topic <CMD_VEL_TOPIC>
 ```
 
 ### Drive forward 1 m (closed-loop)
@@ -195,7 +195,7 @@ python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
 python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
   '{"linear":{"x":0.4,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
   --monitor <ODOM_TOPIC> --field pose.pose.position.x --delta 5.0 --timeout 60
-# Deceleration zone is computed automatically from velocity and node params.
+# Deceleration zone is auto-computed from velocity and node params.
 # To override: add --slow-last 0.5 --slow-factor 0.3
 ```
 
@@ -230,7 +230,7 @@ python3 scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> \
 
 ---
 
-## 8. Services
+## 6. Services
 
 ```bash
 # Discover available services and their request structure before calling
@@ -257,7 +257,7 @@ python3 scripts/ros2_cli.py services echo <SERVICE_NAME> --max-messages 2
 
 ---
 
-## 9. Actions
+## 7. Actions
 
 **Always discover action name and goal structure before sending a goal.**
 
@@ -292,7 +292,7 @@ python3 scripts/ros2_cli.py actions echo <ACTION_NAME> --duration 30 --max-messa
 
 ---
 
-## 10. Parameters
+## 8. Parameters
 
 **Always discover the node name and parameter names before reading or writing.**
 
@@ -328,13 +328,7 @@ python3 scripts/ros2_cli.py params find all
 # Delete a parameter (node must allow undeclaring)
 python3 scripts/ros2_cli.py params delete <NODE_NAME> <PARAM_NAME>
 python3 scripts/ros2_cli.py params delete <NODE_NAME> param_a param_b param_c
-```
 
----
-
-## 11. Parameter Presets
-
-```bash
 # Save current parameters as a named preset
 python3 scripts/ros2_cli.py params preset-save <NODE_NAME> my_preset
 
@@ -350,7 +344,7 @@ python3 scripts/ros2_cli.py params preset-delete my_preset
 
 ---
 
-## 12. Lifecycle Management
+## 9. Lifecycle Management
 
 ```bash
 # List all managed (lifecycle) nodes in the graph
@@ -382,7 +376,7 @@ Standard lifecycle sequence: `configure` → `activate` → (running) → `deact
 
 ---
 
-## 13. Hardware & Controllers (ros2_control)
+## 10. Hardware & Controllers (ros2_control)
 
 **Always list controllers and verify hardware component state before any controller operation.**
 
@@ -395,12 +389,10 @@ python3 scripts/ros2_cli.py control list-controller-types
 
 # List hardware components and their lifecycle states
 python3 scripts/ros2_cli.py control list-hardware-components
-# Alias: lhc
 python3 scripts/ros2_cli.py control lhc
 
 # List hardware interfaces (command and state interfaces)
 python3 scripts/ros2_cli.py control list-hardware-interfaces
-# Alias: lhi
 python3 scripts/ros2_cli.py control lhi
 ```
 
@@ -426,10 +418,8 @@ python3 scripts/ros2_cli.py control switch-controllers \
 
 ### Other controller operations
 ```bash
-# Deactivate a controller
+# Deactivate or unload a controller
 python3 scripts/ros2_cli.py control set-controller-state <CONTROLLER_NAME> inactive
-
-# Unload a stopped controller
 python3 scripts/ros2_cli.py control unload-controller <CONTROLLER_NAME>
 
 # Drive hardware component through lifecycle
@@ -443,7 +433,7 @@ python3 scripts/ros2_cli.py control view-controller-chains --output my_diagram.p
 
 ---
 
-## 14. Transforms (TF2)
+## 11. Transforms (TF2)
 
 **Always discover frame names — never hardcode `map`, `base_link`, `odom`, or any frame name.**
 
@@ -471,53 +461,22 @@ python3 scripts/ros2_cli.py tf monitor <FRAME> --count 5
 # Publish a static transform (runs in tmux session)
 python3 scripts/ros2_cli.py tf static 0 0 0.1 0 0 0 base_link camera_link
 
-# Convert quaternion to Euler angles (radians)
+# Convert quaternion to Euler angles (radians / degrees)
 python3 scripts/ros2_cli.py tf euler-from-quaternion 0 0 0.7071 0.7071
-
-# Convert Euler angles to quaternion (radians)
-python3 scripts/ros2_cli.py tf quaternion-from-euler 0 0 1.5708
-
-# Convert quaternion to Euler angles (degrees)
 python3 scripts/ros2_cli.py tf euler-from-quaternion-deg 0 0 0.7071 0.7071
 
-# Convert Euler angles to quaternion (degrees)
+# Convert Euler angles to quaternion (radians / degrees)
+python3 scripts/ros2_cli.py tf quaternion-from-euler 0 0 1.5708
 python3 scripts/ros2_cli.py tf quaternion-from-euler-deg 0 0 90
 
-# Transform a point from source to target frame
+# Transform a point or vector from source to target frame
 python3 scripts/ros2_cli.py tf transform-point <TARGET_FRAME> <SOURCE_FRAME> 1.0 0.0 0.0
-
-# Transform a vector from source to target frame
 python3 scripts/ros2_cli.py tf transform-vector <TARGET_FRAME> <SOURCE_FRAME> 1.0 0.0 0.0
 ```
 
 ---
 
-## 15. Vision & Perception
-
-**Always discover the camera topic — never hardcode topic names.**
-
-```bash
-# Discover camera topics
-python3 scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
-python3 scripts/ros2_cli.py topics find sensor_msgs/msg/Image
-
-# Capture an image (saved to .artifacts/)
-python3 scripts/ros2_cli.py topics capture-image \
-  --topic <CAMERA_TOPIC> \
-  --output photo.jpg
-
-# Capture with explicit type
-python3 scripts/ros2_cli.py topics capture-image \
-  --topic <CAMERA_TOPIC> \
-  --output photo.jpg \
-  --type compressed
-```
-
-If multiple camera topics are found, prefer the one matching the user's context (front/rear, color/depth, compressed/raw).
-
----
-
-## 16. Diagnostics & Battery
+## 12. Diagnostics & Battery
 
 ```bash
 # List all diagnostic topics (discovered by type, not name)
@@ -544,7 +503,7 @@ python3 scripts/ros2_cli.py topics battery --topic <BATTERY_TOPIC>
 
 ---
 
-## 17. Launch Management
+## 13. Launch Management
 
 ```bash
 # List running launch sessions
@@ -574,7 +533,7 @@ python3 scripts/ros2_cli.py launch foxglove 9000
 
 ---
 
-## 18. Run Management
+## 14. Run Management
 
 ```bash
 # List running run sessions
@@ -601,9 +560,9 @@ python3 scripts/ros2_cli.py run restart <SESSION_NAME>
 
 ---
 
-## 19. Package Introspection
+## 15. Package, Component & Bag Introspection
 
-**No live ROS 2 graph required.**
+**No live ROS 2 graph required** for all commands in this section.
 
 ```bash
 # List all installed ROS 2 packages
@@ -617,24 +576,18 @@ python3 scripts/ros2_cli.py pkg executables <PACKAGE>
 
 # Read a package's manifest (package.xml)
 python3 scripts/ros2_cli.py pkg xml <PACKAGE>
-```
 
----
-
-## 20. Composable Nodes & Components
-
-**No live ROS 2 graph required.**
-
-```bash
-# List all registered composable node types on this system
+# List all registered composable node types
 python3 scripts/ros2_cli.py component types
+
+# Inspect bag metadata: duration, topics, message counts, storage format
+python3 scripts/ros2_cli.py bag info /path/to/my_bag
+python3 scripts/ros2_cli.py bag info /path/to/my_bag/metadata.yaml
 ```
 
 ---
 
-## 21. Daemon
-
-**No live ROS 2 graph required.**
+## 16. System Health & Connectivity
 
 ```bash
 # Check whether the ROS 2 daemon is running
@@ -643,31 +596,13 @@ python3 scripts/ros2_cli.py daemon status
 # Start the daemon (idempotent — safe to call when already running)
 python3 scripts/ros2_cli.py daemon start
 
-# Stop the daemon (idempotent — safe to call when already stopped)
+# Stop the daemon
 python3 scripts/ros2_cli.py daemon stop
-```
 
----
-
-## 22. Bag Files
-
-**No live ROS 2 graph required.**
-
-```bash
-# Inspect bag metadata: duration, topics, message counts, storage format
-python3 scripts/ros2_cli.py bag info /path/to/my_bag
-python3 scripts/ros2_cli.py bag info /path/to/my_bag/metadata.yaml
-```
-
----
-
-## 23. System Health
-
-```bash
 # Run ROS 2 system health checks
 python3 scripts/ros2_cli.py doctor
 
-# Include warning details in output
+# Include warning details
 python3 scripts/ros2_cli.py doctor --include-warnings
 
 # Show report sections for failed checks only
@@ -687,12 +622,12 @@ python3 scripts/ros2_cli.py multicast receive --timeout 10
 
 ---
 
-## 24. Discord — Image Delivery
+## 17. Discord — Image Delivery
 
 **Always use `discord_tools.py` to send files and images. Never use any other Discord integration.**
 
 ```bash
-# Capture an image and send to Discord in one workflow
+# Capture an image and send to Discord
 python3 scripts/ros2_cli.py topics capture-image \
   --topic <CAMERA_TOPIC> \
   --output photo.jpg
@@ -720,7 +655,7 @@ python3 scripts/discord_tools.py send-image \
 
 ---
 
-## 25. Global Options
+## 18. Global Options
 
 These go **before** the command name and apply to all service/action calls.
 
