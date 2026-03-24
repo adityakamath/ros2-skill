@@ -361,6 +361,7 @@ def cmd_component_standalone(args):
     package_name   = args.package_name
     plugin_name    = args.plugin_name
     container_type = getattr(args, 'container_type', 'component_container')
+    container_type = "".join(c if c.isalnum() or c == '_' else '_' for c in container_type)
     node_name      = getattr(args, 'node_name', '') or ''
     node_namespace = getattr(args, 'node_namespace', '') or ''
     remap_rules    = getattr(args, 'remap_rules', None) or []
