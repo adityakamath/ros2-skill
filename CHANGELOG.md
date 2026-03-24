@@ -2,6 +2,41 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.6] - 2026-03-24
+
+Completed the component command group and hardened agent self-recovery behaviour.
+
+### New Commands
+
+- `component list` / `component ls` — list all running component containers and their loaded components
+- `component load <container> <package> <plugin>` — load a composable node into an existing container
+- `component unload <container> <unique_id>` — unload a composable node by its unique ID
+- `component standalone <package> <plugin>` — start a fresh container in a tmux session and load the plugin in one step; container named `standalone_<plugin_class>` (e.g. `demo_nodes_cpp::Talker` → `/standalone_talker`)
+- `component kill <session>` — kill a standalone container session (`comp_*` prefix); companion to `run kill` and `launch kill`
+
+### Fixes
+
+- `component standalone` with `--container-type component_container_isolated` now polls the correct service path (`/{name}/_container/list_nodes` instead of `/{name}/list_nodes`)
+- `component standalone` timeout error now distinguishes three states: container alive but slow (retry with longer `--timeout`), service found at alternate path (`container_found_at`), or container crashed
+- All `component standalone` Phase 2 failures now kill the orphaned tmux session automatically so the next retry is not blocked by "session already exists"
+- `--log-level` argument type fixed to `int` to prevent `PyLong_Check` assertion failure in `LoadNode.Request`
+
+### Agent Behaviour
+
+- CLI `hint` key: agent must act on it immediately, never ask for approval
+- tmux session error protocol: autonomous recovery table mapping each error condition to the correct action (kill + retry, retry with `--container-type`, retry with longer `--timeout`)
+- Banned phrase "you may need to…": requires full diagnosis and action before reporting
+- Background-launch commands: forward-looking narration ("Proceeding to launch X") banned; report result only
+- Session kill routing by prefix: `comp_*` → `component kill`, `run_*` → `run kill`, `launch_*` → `launch kill`
+
+### Documentation
+
+- `run kill` corrected to `component kill` everywhere it was used for standalone teardown (EXAMPLES.md, COMMANDS.md, RULES.md, AGENTS.md)
+- New `## component kill` section in COMMANDS.md; vocabulary table updated
+- CLI.md, README.md updated with `kill` subcommand
+
+---
+
 ## [1.0.5] - 2026-03-21
 
 Comprehensive self-reliance review. Added introspection commands, hardened safety and motion rules, introduced AGENTS.md, and made the deceleration zone dynamic.
