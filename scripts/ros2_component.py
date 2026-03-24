@@ -256,6 +256,83 @@ def cmd_component_load(args):
         output({"error": str(exc)})
 
 
+def cmd_component_unload(args):
+    """Unload a composable node from a component container by its unique_id.
+
+    Calls composition_interfaces/srv/UnloadNode on the target container.
+    The unique_id is the integer returned by component load (or component list).
+    """
+    import time as _time
+    import rclpy as _rclpy
+
+    timeout = getattr(args, 'timeout', 5.0)
+    container = args.container
+    unique_id = args.unique_id
+
+    try:
+        from composition_interfaces.srv import UnloadNode
+    except ImportError:
+        output({
+            "error": "composition_interfaces is not installed",
+            "hint": "Install with: sudo apt install ros-$ROS_DISTRO-composition-interfaces",
+        })
+        return
+
+    svc_name = f"{container}/unload_node"
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+
+            client = node.create_client(UnloadNode, svc_name)
+            if not client.wait_for_service(timeout_sec=timeout):
+                node.destroy_node()
+                output({
+                    "error": f"Container service not available: {svc_name}",
+                    "hint": f"Is the container node '{container}' running? Check with: nodes list",
+                })
+                return
+
+            request = UnloadNode.Request()
+            request.unique_id = unique_id
+
+            future = client.call_async(request)
+            end = _time.time() + timeout
+            while _time.time() < end and not future.done():
+                _rclpy.spin_once(node, timeout_sec=0.1)
+
+            if not future.done():
+                future.cancel()
+                node.destroy_node()
+                output({
+                    "error": "UnloadNode service call timed out",
+                    "container": container,
+                    "unique_id": unique_id,
+                })
+                return
+
+            node.destroy_node()
+            resp = future.result()
+
+            if not resp.success:
+                output({
+                    "success": False,
+                    "container": container,
+                    "unique_id": unique_id,
+                    "error_message": resp.error_message,
+                })
+                return
+
+            output({
+                "success": True,
+                "container": container,
+                "unique_id": unique_id,
+            })
+
+    except Exception as exc:
+        output({"error": str(exc)})
+
+
 if __name__ == "__main__":
     import sys
     import os

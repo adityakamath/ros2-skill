@@ -141,6 +141,7 @@ from ros2_component import (
     cmd_component_types,
     cmd_component_list,
     cmd_component_load,
+    cmd_component_unload,
 )
 from ros2_pkg import (
     cmd_pkg_list,
@@ -940,6 +941,10 @@ def build_parser():
     p.add_argument("--remap", dest="remap_rules", nargs="*", default=[], help="Remap rules (e.g. /from:=/to)")
     p.add_argument("--log-level",      dest="log_level",      default="", help="Log level for the loaded node")
     p.add_argument("--timeout", type=float, default=5.0, dest="timeout",  help="Service call timeout in seconds (default: 5.0)")
+    p = compsub.add_parser("unload", help="Unload a composable node from a component container")
+    p.add_argument("container",  help="Container node name (e.g. /my_container)")
+    p.add_argument("unique_id",  type=int, help="Unique ID of the component to unload (from component load or component list)")
+    p.add_argument("--timeout",  type=float, default=5.0, dest="timeout", help="Service call timeout in seconds (default: 5.0)")
 
     # ------------------------------------------------------------------
     # daemon
@@ -1122,7 +1127,8 @@ DISPATCH = {
     ("component", "types"): cmd_component_types,
     ("component", "list"):  cmd_component_list,
     ("component", "ls"):    cmd_component_list,
-    ("component", "load"):  cmd_component_load,
+    ("component", "load"):   cmd_component_load,
+    ("component", "unload"): cmd_component_unload,
     # pkg
     ("pkg", "list"):        cmd_pkg_list,
     ("pkg", "ls"):          cmd_pkg_list,
