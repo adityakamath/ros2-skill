@@ -181,7 +181,7 @@ def cmd_component_load(args):
     node_name = getattr(args, 'node_name', '') or ''
     node_namespace = getattr(args, 'node_namespace', '') or ''
     remap_rules = getattr(args, 'remap_rules', None) or []
-    log_level = getattr(args, 'log_level', '') or ''
+    log_level = int(getattr(args, 'log_level', 0) or 0)
 
     try:
         from composition_interfaces.srv import LoadNode

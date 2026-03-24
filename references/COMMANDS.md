@@ -3996,7 +3996,7 @@ Load a composable node into a running component container.
 | `--node-name NAME` | `""` | Override the loaded node's name |
 | `--node-namespace NS` | `""` | Override the loaded node's namespace |
 | `--remap RULE [...]` | `[]` | Remap rules (e.g. `/from:=/to`) |
-| `--log-level LEVEL` | `""` | Log level for the loaded node |
+| `--log-level LEVEL` | `0` | Log level for the loaded node (uint8: 0=unset, 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR, 50=FATAL) |
 | `--timeout SECS` | `5.0` | Service call timeout |
 
 ```bash

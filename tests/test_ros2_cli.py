@@ -1035,11 +1035,11 @@ class TestComponentParsing(unittest.TestCase):
             "/c", "pkg", "pkg::Node",
             "--node-name", "my_node",
             "--node-namespace", "/ns",
-            "--log-level", "debug",
+            "--log-level", "10",
         ])
         self.assertEqual(args.node_name, "my_node")
         self.assertEqual(args.node_namespace, "/ns")
-        self.assertEqual(args.log_level, "debug")
+        self.assertEqual(args.log_level, 10)
 
     def test_component_load_remap_dest(self):
         args = self.parser.parse_args([
@@ -2083,7 +2083,7 @@ class TestComponentLoadLogic(unittest.TestCase):
 
     def _make_args(self, container="/c", package="pkg", plugin="pkg::Node",
                    node_name="", node_namespace="", remap_rules=None,
-                   log_level="", timeout=5.0):
+                   log_level=0, timeout=5.0):
         from unittest.mock import MagicMock
         args = MagicMock()
         args.container = container
