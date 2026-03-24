@@ -4,7 +4,7 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.6] - 2026-03-24
 
-Completed the component command group and hardened agent self-recovery behaviour.
+Completed the component command group, hardened agent self-recovery behaviour, and added vocabulary and rules for bags, camera calibration, log directories, and Nav2 goal preemption.
 
 ### New Commands
 
@@ -14,36 +14,13 @@ Completed the component command group and hardened agent self-recovery behaviour
 - `component standalone <package> <plugin>` — start a fresh container in a tmux session and load the plugin in one step; container named `standalone_<plugin_class>` (e.g. `demo_nodes_cpp::Talker` → `/standalone_talker`)
 - `component kill <session>` — kill a standalone container session (`comp_*` prefix); companion to `run kill` and `launch kill`
 
-### Fixes
+### Changes
 
-- `component standalone` with `--container-type component_container_isolated` now polls the correct service path (`/{name}/_container/list_nodes` instead of `/{name}/list_nodes`)
-- `component standalone` timeout error now distinguishes three states: container alive but slow (retry with longer `--timeout`), service found at alternate path (`container_found_at`), or container crashed
-- All `component standalone` Phase 2 failures now kill the orphaned tmux session automatically so the next retry is not blocked by "session already exists"
-- `--log-level` argument type fixed to `int` to prevent `PyLong_Check` assertion failure in `LoadNode.Request`
-
-### Agent Behaviour
-
-- CLI `hint` key: agent must act on it immediately, never ask for approval
-- tmux session error protocol: autonomous recovery table mapping each error condition to the correct action (kill + retry, retry with `--container-type`, retry with longer `--timeout`)
-- Banned phrase "you may need to…": requires full diagnosis and action before reporting
-- Background-launch commands: forward-looking narration ("Proceeding to launch X") banned; report result only
-- Session kill routing by prefix: `comp_*` → `component kill`, `run_*` → `run kill`, `launch_*` → `launch kill`
-
-### Documentation
-
-- `run kill` corrected to `component kill` everywhere it was used for standalone teardown (EXAMPLES.md, COMMANDS.md, RULES.md, AGENTS.md)
-- New `## component kill` section in COMMANDS.md; vocabulary table updated
-- CLI.md, README.md updated with `kill` subcommand
-
-### Rules & Vocabulary
-
-- #4 Camera calibration vocabulary row: "is camera calibrated / check camera_info / camera TF registration" added to vocabulary table
-- #9 Custom message deep introspection: recursive `interface show` for nested types already enforced in Rule 0 and Rule 1 (confirmed implemented)
-- #10 `--params-file` safety: YAML key pre-verification already enforced in Rule 0 and vocabulary table (confirmed implemented)
-- #11 Bag file vocabulary: `record a bag / play back bag / bag info / bag duration` rows added to vocabulary table; `bag record` and `bag play` map to shell fallback (Rule 2 exception; no CLI command yet)
-- #14 Testing vocabulary: `colcon test / run tests / run test suite` already enforced in vocabulary table (confirmed implemented)
-- L9 Log directory auto-discovery: Step 4 added to Rule 0.1 — resolve log dir as `$ROS_LOG_DIR` → `$ROS_HOME/log/` → `~/.ros/log/`; added to AGENTS.md Session Start
-- SG-9 Nav2 in-flight goal preemption: companion rule added to Rule 9 — check for active `NavigateToPose`/`NavigateThroughPoses` goals and cancel before issuing any new velocity command; added to AGENTS.md Rule 9
+- Fixed `component standalone` container path for `component_container_isolated` (`/{name}/_container`); timeout error now distinguishes alive-but-slow, service at alternate path, and crashed; orphaned sessions cleaned up automatically on failure
+- Fixed `--log-level` argument type to prevent `PyLong_Check` assertion failure
+- Agent rules: act on CLI `hint` key immediately; autonomous tmux session error recovery table; banned "you may need to…"; background-launch narration banned; session kill routing by prefix
+- Bag vocabulary added (`record a bag`, `play back bag`, `bag info`); camera calibration vocabulary row added; log directory resolution added to session-start rules; Nav2 in-flight goal preemption added as companion to Rule 9
+- Documentation: `run kill` corrected to `component kill` everywhere; COMMANDS.md, EXAMPLES.md, CLI.md, README.md updated
 
 ---
 
@@ -66,45 +43,12 @@ Comprehensive self-reliance review. Added introspection commands, hardened safet
 - `pkg executables <package>` — list executable files provided by a package
 - `pkg xml <package>` — output the `package.xml` manifest for a package
 
-### Skill
+### Changes
 
-- `publish-until` deceleration zone is now auto-computed from kinematics (`v_cmd² / 2a_max`); per-axis fallbacks: `lin.x=0.125 m/s`, `lin.y=0.1 m/s`, `ang.z=0.375 rad/s`. Manual `--slow-last` still overrides. Result includes `"decel_zone"` with computed values.
-- `publish-until` scans for proximity sensors (`LaserScan`, `Range`, `PointCloud2`) before motions estimated > 5 s; reports found topics in output, skips silently if none
-- Velocity-limit scan extended to four sources: node params, URDF joint limits, ros2_control hardware interface limits, and `controller_manager` YAML config
-- `ConditionMonitor` auto-matches publisher QoS (BEST_EFFORT / RELIABLE) to prevent silent odom dropout
-- Vague quantity defaults: "a bit" = 0.1 m / 5°, "nearby" = 0.5 m; act on defaults, note assumption
-- Already-at-target short-circuit: skip motion if remaining ≤ 0.05 m or ≤ 3°
-- Conditional/branching task sequences: retry limits per failure type, fallback chains, escalation format
-
-### Rules
-
-- `estop` is a hard preemption — first and only action on any motion exit, before any diagnosis
-- QoS and monitor field checks are mandatory pre-flight; never attempt `publish-until` if publisher count is 0
-- Motion ceilings: > 50 m or > 3600° requires explicit user confirmation
-- Any new command during active motion: estop first, verify, then handle
-- `publish-until` > 30 s segmented into max-30 s chunks with estop + odom check between
-- Simulated clock re-verified before every timed command (not just session start)
-- TF pre-flight: `tf list` + `tf echo` staleness check + `tf validate` cycle detection before spatial ops
-- Proximity sensor discovery before long motions (> 5 s); real-time obstacle avoidance is platform-specific
-- Odometry `frame_id` checked on first use; non-canonical frames noted in report
-- Node crash monitoring for commands > 10 s; estop + escalate if controller or odom node disappears
-
-### Fixes
-
-- `scale_twist_velocity` — if/elif guards to correctly handle Twist vs TwistStamped
-- `cmd_actions_details` — missing None guard added
-- `cmd_version` — reports `rclpy_available`
-- Unique per-topic node names to prevent collision on concurrent commands
-- 440-line module docstring removed from `ros2_cli.py`
-
-### Tests
-
-- 14 new unit tests: estop Twist/TwistStamped branching, `ros2_context` shutdown, `ConditionMonitor` QoS auto-matching, TF monitor missing-frame error
-- 16 new unit tests: `TestPkgParsing` (parser + dispatch wiring for all 5 pkg entries including `ls` alias) and `TestPkgLogic` (mocked `ament_index_python` — list sorting, prefix found/not-found, executables executable-bit filtering, empty lib dir, xml content, xml missing file)
-
-### Documentation
-
-- `AGENTS.md` added — condensed operational guide covering session-start protocol, core rules, motion workflow, safety, and troubleshooting
+- `publish-until` deceleration zone auto-computed from kinematics; proximity sensor scan before long motions; velocity-limit scan extended to four sources; QoS auto-matching in `ConditionMonitor`
+- Rules: `estop` is a hard preemption; QoS + monitor field pre-flight mandatory; motion ceilings; `publish-until` > 30 s segmented; simulated clock re-verified before every timed command; TF staleness + cycle detection pre-flight; node crash monitoring for commands > 10 s
+- Fixes: `scale_twist_velocity` Twist/TwistStamped branching; `cmd_actions_details` None guard; `cmd_version` reports `rclpy_available`; unique per-topic node names
+- `AGENTS.md` added — condensed operational guide covering session-start, core rules, movement, and safety
 
 ---
 
