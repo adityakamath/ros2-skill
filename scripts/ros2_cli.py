@@ -958,13 +958,13 @@ def build_parser():
                    help="Container executable to use (default: component_container)")
     p.add_argument("--node-name",      dest="node_name",      default="",
                    help="Override the loaded node's name")
-    p.add_argument("--node-namespace", dest="node_namespace",  default="",
+    p.add_argument("--node-namespace", dest="node_namespace", default="",
                    help="Override the loaded node's namespace")
     p.add_argument("--remap",          dest="remap_rules",    nargs="*", default=[],
                    help="Remap rules (e.g. /from:=/to)")
     p.add_argument("--log-level",      dest="log_level",      type=int, default=0,
                    help="Log level for the loaded node (uint8: 0=unset, 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR, 50=FATAL)")
-    p.add_argument("--timeout",        type=float, default=10.0,
+    p.add_argument("--timeout",        dest="timeout", type=float, default=10.0,
                    help="Total timeout for container start + component load (default: 10.0s)")
 
     # ------------------------------------------------------------------
