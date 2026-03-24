@@ -214,6 +214,10 @@ MINIMAL_ARGS = [
     ("bag",      "info",     ["bag", "info", "/path/to/bag"]),
     # component
     ("component","types",    ["component", "types"]),
+    ("component","list",     ["component", "list"]),
+    ("component","ls",       ["component", "ls"]),
+    ("component","load",     ["component", "load", "/ComponentManager", "demo_nodes_cpp", "demo_nodes_cpp::Talker"]),
+    ("component","unload",   ["component", "unload", "/ComponentManager", "1"]),
     # pkg
     ("pkg",       "list",        ["pkg", "list"]),
     ("pkg",       "ls",          ["pkg", "ls"]),
