@@ -193,6 +193,9 @@ python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes
 ```
 Nodes in `unconfigured` or `inactive` state silently fail when their topics or services are used. Activate them before proceeding.
 
+**Step 5 — Note the log directory (no command required):**
+ROS 2 node logs for this session reside in: `$ROS_LOG_DIR` → `$ROS_HOME/log/` → `~/.ros/log/` (default). Store this path. When diagnosing failures, individual node log files here can be read directly even without a live graph.
+
 ---
 
 ## Output Format
@@ -395,6 +398,12 @@ If velocity ≥ 0.01 on any axis: send `estop`, verify it took effect, wait 0.5 
 **Sequential moves:** the confirmed final stationary position from the prior move serves as the baseline for the next move. Still re-run the velocity check and hz check before each new command.
 
 **Long-motion segmentation (expected duration > 30 s):** break into max-30 s segments. Between segments: estop → verify stopped → `topics hz` → re-record baseline → issue next segment for remaining distance/angle.
+
+**Nav2 goal preemption (SG-9):** before issuing any new velocity command, check for an active Nav2 goal:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py actions list
+```
+If a `NavigateToPose` or `NavigateThroughPoses` goal is in flight: run `actions cancel <goal_id>`, verify status reaches `CANCELED`, then proceed. A live Nav2 path follower re-issues `/cmd_vel` commands every control cycle — any concurrent velocity command is silently overridden. Rule 23 handles estop for in-flight velocity; this check handles the Nav2 action-goal conflict.
 
 ### 10 — Empty discovery: broaden the search, never guess
 

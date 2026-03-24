@@ -35,6 +35,16 @@ Completed the component command group and hardened agent self-recovery behaviour
 - New `## component kill` section in COMMANDS.md; vocabulary table updated
 - CLI.md, README.md updated with `kill` subcommand
 
+### Rules & Vocabulary
+
+- #4 Camera calibration vocabulary row: "is camera calibrated / check camera_info / camera TF registration" added to vocabulary table
+- #9 Custom message deep introspection: recursive `interface show` for nested types already enforced in Rule 0 and Rule 1 (confirmed implemented)
+- #10 `--params-file` safety: YAML key pre-verification already enforced in Rule 0 and vocabulary table (confirmed implemented)
+- #11 Bag file vocabulary: `record a bag / play back bag / bag info / bag duration` rows added to vocabulary table; `bag record` and `bag play` map to shell fallback (Rule 2 exception; no CLI command yet)
+- #14 Testing vocabulary: `colcon test / run tests / run test suite` already enforced in vocabulary table (confirmed implemented)
+- L9 Log directory auto-discovery: Step 4 added to Rule 0.1 — resolve log dir as `$ROS_LOG_DIR` → `$ROS_HOME/log/` → `~/.ros/log/`; added to AGENTS.md Session Start
+- SG-9 Nav2 in-flight goal preemption: companion rule added to Rule 9 — check for active `NavigateToPose`/`NavigateThroughPoses` goals and cancel before issuing any new velocity command; added to AGENTS.md Rule 9
+
 ---
 
 ## [1.0.5] - 2026-03-21

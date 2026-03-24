@@ -140,6 +140,14 @@ python3 {baseDir}/scripts/ros2_cli.py lifecycle get <node>
 ```
 A node in `unconfigured` or `inactive` state will silently fail when its topics or services are used. Activate required nodes before proceeding.
 
+**Step 4 — Note the log directory (no command required; for diagnostic reference):**
+ROS 2 writes one log file per node for the current run. Resolve the log directory in this order:
+1. `$ROS_LOG_DIR` (if set)
+2. `$ROS_HOME/log/` (if `ROS_HOME` is set)
+3. `~/.ros/log/` (default)
+
+Store this path. When diagnosing failures or silent node behaviour, individual node log files are here and can be read directly — even without a live graph. When the `logs` command group is available, `logs list-runs` makes recent runs discoverable at session start.
+
 **These checks are session-level.** Do not re-run for every command. Re-run only if the user relaunches the robot or if nodes appear/disappear unexpectedly.
 
 **Exception — simulated time re-check before every timed command:**
@@ -568,6 +576,18 @@ topics hz <ODOM_TOPIC> --duration 2
 **Long-motion segmentation to detect stale odom:** For any `publish-until` where the expected duration exceeds 30 s (estimated as `distance_m / linear_speed_m_s` or `angle_deg / angular_speed_deg_s`), break the motion into max-30 s segments. Between segments: send `estop`, verify stopped, run `topics hz <ODOM_TOPIC> --duration 1` to confirm odom is still live, re-record the current position as the new baseline, then issue the next segment for the remaining distance/angle. This ensures odom health is verified at each segment boundary and limits the maximum exposure to a stale-odom silent failure.
 
 **Never issue a new motion command on top of an existing one without stopping first.** Overlapping velocity commands cause unpredictable trajectories and runaway motion.
+
+**Nav2 goal preemption (SG-9) — check before every new motion command:**
+Before issuing any velocity command (`publish-until`, `publish-sequence`, `topics publish`), check whether a Nav2 action goal is currently in flight:
+```bash
+actions list   # look for NavigateToPose or NavigateThroughPoses with an active goal
+```
+If an active Nav2 goal is found:
+1. Run `actions cancel <goal_id>` — use the goal ID from the `actions list` output.
+2. Verify the goal status reaches `CANCELED`: subscribe to the action feedback or re-run `actions list`.
+3. Only then issue the new motion command.
+
+**Why:** Nav2's path follower re-issues velocity commands to `/cmd_vel` on every control cycle. Any concurrent `publish-until` or manual velocity command will be overridden on the next Nav2 cycle — the robot ignores your command silently. Rule 23 handles estop when a new command arrives during in-flight velocity; this rule handles the Nav2 action-goal conflict that Rule 23 alone cannot resolve.
 
 ### Rule 10 — Empty discovery: broaden the search, never guess
 
@@ -1287,6 +1307,7 @@ Motion command received
 | "read odometry / where is the robot / current position / current pose / where am I / robot location / robot coordinates / pose estimate" | Subscribe to Odometry | Find `nav_msgs/msg/Odometry` → subscribe (post-motion: use Rule 8 two-phase protocol) |
 | "read camera / take a picture / capture image / take a photo / snap / grab a frame / screenshot / what does the camera see / show me the view / photograph" | Capture image from camera | Find `sensor_msgs/msg/CompressedImage` (preferred) or `sensor_msgs/msg/Image` → `topics capture-image --topic <topic>` → send via `discord_tools.py send-image` (Rule 26) |
 | "read depth image / depth camera / RGBD / depth frame / depth data" | Subscribe to depth Image | Find `sensor_msgs/msg/Image` with `depth` in topic name → subscribe or capture-image |
+| "is camera calibrated / check camera calibration / verify camera_info / camera TF registration / is the camera aligned / camera frame in TF / is camera ready / check camera info" | Verify camera calibration and TF alignment before any camera-dependent task | `topics find sensor_msgs/msg/CameraInfo` → `topics subscribe <CAMERA_INFO_TOPIC> --max-messages 1 --timeout 2` (verify `K` intrinsic matrix non-zero) → read `header.frame_id` from message, confirm it is present in `tf list` — a camera with zero `K` is uncalibrated; a camera whose `frame_id` is absent from TF produces wrong spatial results — see Rule 0 pre-flight |
 | "read joint states / joint positions / joint angles / encoder values / current joint config / what are the joint positions" | Subscribe to JointState | Find `sensor_msgs/msg/JointState` → subscribe |
 | "read wheel speeds / wheel velocities / wheel odometry" | Subscribe to JointState or Odometry | Find `sensor_msgs/msg/JointState` (check velocity fields) or Odometry twist fields |
 | "read IMU / accelerometer / gyroscope / orientation data / angular velocity / linear acceleration / inertial data" | Subscribe to Imu | Find `sensor_msgs/msg/Imu` → subscribe |
@@ -1342,6 +1363,10 @@ Motion command received
 | "restart launch / restart bringup / restart session X / relaunch X / bounce X / reload X / cycle X" | Restart a tmux launch session | `launch restart <session>` |
 | "open foxglove / start foxglove / visualize robot / foxglove bridge / open the visualizer / open foxglove studio" | Start Foxglove via launch | `launch foxglove` |
 | "start node X / run node X / run executable X / execute X node / spawn X node / bring up node X only" | Run a single node | `run new <package> <executable>` |
+| **— BAG FILES —** | | |
+| "record a bag / capture topics to bag / ros2 bag record / start recording / record ROS data / save a bag / bag record all topics" | Record ROS 2 data to a bag file (shell — Rule 2 exception; no `ros2_cli.py` bag record command yet) | Shell: `ros2 bag record -o <output_dir> <topic1> <topic2>` or `ros2 bag record -a` for all topics |
+| "play back bag / replay bag / replay topics / ros2 bag play / play recorded data / play a bag" | Inspect bag first, then play back | `bag info <file>` to verify contents → Shell: `ros2 bag play <file>` |
+| "bag info / what's in this bag / inspect bag / bag contents / bag topics / how long is the bag / bag duration / bag size / bag message count / bag metadata" | Get bag file metadata — topics, duration, size, message counts | `bag info <file>` |
 | **— PARAMETERS —** | | |
 | "what is X parameter / get X value / current value of X / what's X set to / read X param / what's the current X / show me X" | Get parameter value | `nodes list` → `params get <node:param>` |
 | "what's the max speed / maximum velocity / top speed / speed limit / velocity limit / max linear / max angular" | Get velocity limit parameters | `nodes list` → `params list <node>` per node → find max/limit/vel params → `params get` |
