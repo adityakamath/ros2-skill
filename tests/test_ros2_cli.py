@@ -1006,6 +1006,69 @@ class TestComponentParsing(unittest.TestCase):
         self.assertIn(("component", "types"), D)
         self.assertTrue(callable(D[("component", "types")]))
 
+    def test_component_list_parsing(self):
+        args = self.parser.parse_args(["component", "list"])
+        self.assertEqual(args.command, "component")
+        self.assertEqual(args.subcommand, "list")
+
+    def test_component_ls_alias_parsing(self):
+        args = self.parser.parse_args(["component", "ls"])
+        self.assertEqual(args.subcommand, "ls")
+
+    def test_component_list_timeout_default(self):
+        args = self.parser.parse_args(["component", "list"])
+        self.assertEqual(args.timeout, 5.0)
+
+    def test_component_load_parsing(self):
+        args = self.parser.parse_args([
+            "component", "load",
+            "/my_container", "demo_nodes_cpp", "demo_nodes_cpp::Talker"
+        ])
+        self.assertEqual(args.subcommand, "load")
+        self.assertEqual(args.container, "/my_container")
+        self.assertEqual(args.package_name, "demo_nodes_cpp")
+        self.assertEqual(args.plugin_name, "demo_nodes_cpp::Talker")
+
+    def test_component_load_optional_flags(self):
+        args = self.parser.parse_args([
+            "component", "load",
+            "/c", "pkg", "pkg::Node",
+            "--node-name", "my_node",
+            "--node-namespace", "/ns",
+            "--log-level", "debug",
+        ])
+        self.assertEqual(args.node_name, "my_node")
+        self.assertEqual(args.node_namespace, "/ns")
+        self.assertEqual(args.log_level, "debug")
+
+    def test_component_load_remap_dest(self):
+        args = self.parser.parse_args([
+            "component", "load", "/c", "pkg", "pkg::Node",
+            "--remap", "/from:=/to",
+        ])
+        self.assertEqual(args.remap_rules, ["/from:=/to"])
+
+    def test_component_unload_parsing(self):
+        args = self.parser.parse_args(["component", "unload", "/my_container", "42"])
+        self.assertEqual(args.subcommand, "unload")
+        self.assertEqual(args.container, "/my_container")
+        self.assertEqual(args.unique_id, 42)
+
+    def test_component_unload_unique_id_is_int(self):
+        args = self.parser.parse_args(["component", "unload", "/c", "7"])
+        self.assertIsInstance(args.unique_id, int)
+
+    def test_component_dispatch_new_entries(self):
+        D = self.ros2_cli.DISPATCH
+        for key in [
+            ("component", "list"),
+            ("component", "ls"),
+            ("component", "load"),
+            ("component", "unload"),
+        ]:
+            self.assertIn(key, D, f"Missing dispatch entry: {key}")
+            self.assertTrue(callable(D[key]))
+
 
 class TestPkgParsing(unittest.TestCase):
     """Parser argument and DISPATCH wiring tests for the pkg subcommands."""
@@ -1951,6 +2014,226 @@ class TestComponentTypesOutputValidation(unittest.TestCase):
         # Good package still enumerated despite bad_pkg failing
         self.assertEqual(result["total"], 1)
         self.assertIn("good_pkg", result["packages"])
+
+
+class TestComponentListLogic(unittest.TestCase):
+    """Pure-logic tests for cmd_component_list (mocked ROS 2)."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_component
+        cls.ros2_component = ros2_component
+
+    def _run_no_containers(self):
+        from unittest.mock import MagicMock, patch
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = []
+        captured = []
+        mock_srv = MagicMock()
+        mock_srv.ListNodes = MagicMock()
+        mock_srv.ListNodes.Request = MagicMock(return_value=MagicMock())
+        with patch("ros2_component.ros2_context") as ctx, \
+             patch("ros2_component.ROS2CLI", return_value=mock_node), \
+             patch("ros2_component.output", side_effect=captured.append), \
+             patch.dict("sys.modules", {"composition_interfaces.srv": mock_srv}):
+            ctx.return_value.__enter__ = MagicMock(return_value=None)
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            args = MagicMock(timeout=5.0)
+            self.ros2_component.cmd_component_list(args)
+        return captured[0]
+
+    def test_no_containers_returns_empty_list(self):
+        result = self._run_no_containers()
+        self.assertEqual(result["containers"], [])
+        self.assertEqual(result["total_containers"], 0)
+        self.assertEqual(result["total_components"], 0)
+
+    def test_no_containers_has_hint(self):
+        result = self._run_no_containers()
+        self.assertIn("hint", result)
+
+    def test_output_has_required_keys(self):
+        result = self._run_no_containers()
+        for key in ("containers", "total_containers", "total_components"):
+            self.assertIn(key, result)
+
+    def test_composition_interfaces_import_error(self):
+        from unittest.mock import patch
+        captured = []
+        with patch.dict("sys.modules", {"composition_interfaces.srv": None}), \
+             patch("ros2_component.output", side_effect=captured.append):
+            args = MagicMock(timeout=5.0)
+            self.ros2_component.cmd_component_list(args)
+        self.assertEqual(len(captured), 1)
+        self.assertIn("error", captured[0])
+        self.assertIn("hint", captured[0])
+
+
+class TestComponentLoadLogic(unittest.TestCase):
+    """Pure-logic tests for cmd_component_load (mocked ROS 2)."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_component
+        cls.ros2_component = ros2_component
+
+    def _make_args(self, container="/c", package="pkg", plugin="pkg::Node",
+                   node_name="", node_namespace="", remap_rules=None,
+                   log_level="", timeout=5.0):
+        from unittest.mock import MagicMock
+        args = MagicMock()
+        args.container = container
+        args.package_name = package
+        args.plugin_name = plugin
+        args.node_name = node_name
+        args.node_namespace = node_namespace
+        args.remap_rules = remap_rules or []
+        args.log_level = log_level
+        args.timeout = timeout
+        return args
+
+    def _run(self, resp_success, full_node_name="", unique_id=1, error_message="",
+             svc_available=True, future_done=True):
+        from unittest.mock import MagicMock, patch
+        mock_resp = MagicMock()
+        mock_resp.success = resp_success
+        mock_resp.full_node_name = full_node_name
+        mock_resp.unique_id = unique_id
+        mock_resp.error_message = error_message
+
+        mock_future = MagicMock()
+        mock_future.done.return_value = future_done
+        mock_future.result.return_value = mock_resp
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = svc_available
+        mock_client.call_async.return_value = mock_future
+
+        mock_node = MagicMock()
+        mock_node.create_client.return_value = mock_client
+
+        mock_srv = MagicMock()
+        mock_srv.LoadNode = MagicMock()
+        mock_srv.LoadNode.Request = MagicMock(return_value=MagicMock())
+
+        captured = []
+        with patch("ros2_component.ros2_context") as ctx, \
+             patch("ros2_component.ROS2CLI", return_value=mock_node), \
+             patch("ros2_component.output", side_effect=captured.append), \
+             patch.dict("sys.modules", {"composition_interfaces.srv": mock_srv}):
+            ctx.return_value.__enter__ = MagicMock(return_value=None)
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            self.ros2_component.cmd_component_load(self._make_args())
+        return captured[0]
+
+    def test_successful_load_has_required_keys(self):
+        result = self._run(True, full_node_name="/c/talker", unique_id=1)
+        self.assertTrue(result["success"])
+        for key in ("container", "package_name", "plugin_name", "full_node_name", "unique_id"):
+            self.assertIn(key, result)
+
+    def test_failed_load_returns_success_false_with_error_message(self):
+        result = self._run(False, error_message="Plugin not found")
+        self.assertFalse(result["success"])
+        self.assertIn("error_message", result)
+        self.assertEqual(result["error_message"], "Plugin not found")
+
+    def test_service_unavailable_returns_error_with_hint(self):
+        result = self._run(True, svc_available=False)
+        self.assertIn("error", result)
+        self.assertIn("hint", result)
+
+    def test_import_error_returns_error_and_hint(self):
+        from unittest.mock import patch
+        captured = []
+        with patch.dict("sys.modules", {"composition_interfaces.srv": None}), \
+             patch("ros2_component.output", side_effect=captured.append):
+            self.ros2_component.cmd_component_load(self._make_args())
+        self.assertIn("error", captured[0])
+        self.assertIn("hint", captured[0])
+
+
+class TestComponentUnloadLogic(unittest.TestCase):
+    """Pure-logic tests for cmd_component_unload (mocked ROS 2)."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_component
+        cls.ros2_component = ros2_component
+
+    def _make_args(self, container="/c", unique_id=1, timeout=5.0):
+        from unittest.mock import MagicMock
+        args = MagicMock()
+        args.container = container
+        args.unique_id = unique_id
+        args.timeout = timeout
+        return args
+
+    def _run(self, resp_success, error_message="", svc_available=True, future_done=True):
+        from unittest.mock import MagicMock, patch
+        mock_resp = MagicMock()
+        mock_resp.success = resp_success
+        mock_resp.error_message = error_message
+
+        mock_future = MagicMock()
+        mock_future.done.return_value = future_done
+        mock_future.result.return_value = mock_resp
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = svc_available
+        mock_client.call_async.return_value = mock_future
+
+        mock_node = MagicMock()
+        mock_node.create_client.return_value = mock_client
+
+        mock_srv = MagicMock()
+        mock_srv.UnloadNode = MagicMock()
+        mock_srv.UnloadNode.Request = MagicMock(return_value=MagicMock())
+
+        captured = []
+        with patch("ros2_component.ros2_context") as ctx, \
+             patch("ros2_component.ROS2CLI", return_value=mock_node), \
+             patch("ros2_component.output", side_effect=captured.append), \
+             patch.dict("sys.modules", {"composition_interfaces.srv": mock_srv}):
+            ctx.return_value.__enter__ = MagicMock(return_value=None)
+            ctx.return_value.__exit__ = MagicMock(return_value=False)
+            self.ros2_component.cmd_component_unload(self._make_args())
+        return captured[0]
+
+    def test_successful_unload_has_required_keys(self):
+        result = self._run(True)
+        self.assertTrue(result["success"])
+        for key in ("container", "unique_id"):
+            self.assertIn(key, result)
+
+    def test_failed_unload_returns_success_false_with_error_message(self):
+        result = self._run(False, error_message="Component not found")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error_message"], "Component not found")
+
+    def test_unique_id_preserved_in_output(self):
+        result = self._run(True)
+        self.assertEqual(result["unique_id"], 1)
+
+    def test_service_unavailable_returns_error_with_hint(self):
+        result = self._run(True, svc_available=False)
+        self.assertIn("error", result)
+        self.assertIn("hint", result)
+
+    def test_import_error_returns_error_and_hint(self):
+        from unittest.mock import patch
+        captured = []
+        with patch.dict("sys.modules", {"composition_interfaces.srv": None}), \
+             patch("ros2_component.output", side_effect=captured.append):
+            self.ros2_component.cmd_component_unload(self._make_args())
+        self.assertIn("error", captured[0])
+        self.assertIn("hint", captured[0])
 
 
 class TestResolveField(unittest.TestCase):
