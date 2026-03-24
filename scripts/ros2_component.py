@@ -131,6 +131,7 @@ def cmd_component_list(args):
                     _rclpy.spin_once(node, timeout_sec=0.1)
 
                 if not future.done():
+                    future.cancel()
                     results.append({
                         "container": container,
                         "error": "ListNodes call timed out",
@@ -148,6 +149,8 @@ def cmd_component_list(args):
                     "component_count": len(components),
                     "components": components,
                 })
+
+            node.destroy_node()
 
         total_components = sum(
             len(r.get("components", [])) for r in results

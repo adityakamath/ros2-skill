@@ -924,8 +924,12 @@ def build_parser():
     compsub = comp.add_subparsers(dest="subcommand")
 
     compsub.add_parser("types", help="List all registered rclcpp composable node types (no graph required)")
-    compsub.add_parser("list", help="List all running component containers and their loaded components")
-    compsub.add_parser("ls",   help="Alias for list")
+    p = compsub.add_parser("list", help="List all running component containers and their loaded components")
+    p.add_argument("--timeout", type=float, default=5.0, dest="timeout",
+                   help="Seconds to wait per container service (default: 5.0)")
+    p = compsub.add_parser("ls", help="Alias for list")
+    p.add_argument("--timeout", type=float, default=5.0, dest="timeout",
+                   help="Seconds to wait per container service (default: 5.0)")
 
     # ------------------------------------------------------------------
     # daemon
