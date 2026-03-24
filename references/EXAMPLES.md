@@ -579,7 +579,25 @@ python3 scripts/ros2_cli.py pkg xml <PACKAGE>
 
 # List all registered composable node types
 python3 scripts/ros2_cli.py component types
+```
 
+### Component containers
+
+```bash
+# List all running containers and their loaded components
+component list
+
+# Load a composable node into a container
+component load /my_container demo_nodes_cpp demo_nodes_cpp::Talker
+
+# Load with overridden node name
+component load /my_container demo_nodes_cpp demo_nodes_cpp::Talker --node-name my_talker
+
+# Unload a component by its unique_id (from component list or component load output)
+component unload /my_container 1
+```
+
+```bash
 # Inspect bag metadata: duration, topics, message counts, storage format
 python3 scripts/ros2_cli.py bag info /path/to/my_bag
 python3 scripts/ros2_cli.py bag info /path/to/my_bag/metadata.yaml

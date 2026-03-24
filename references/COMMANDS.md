@@ -106,8 +106,12 @@ python3 {baseDir}/scripts/ros2_cli.py version --help
 # bag (no live ROS 2 graph required)
 python3 {baseDir}/scripts/ros2_cli.py bag info --help
 
-# component (no live ROS 2 graph required)
-python3 {baseDir}/scripts/ros2_cli.py component types --help
+# component
+python3 {baseDir}/scripts/ros2_cli.py component types --help        # no live graph required
+python3 {baseDir}/scripts/ros2_cli.py component list --help
+python3 {baseDir}/scripts/ros2_cli.py component ls --help
+python3 {baseDir}/scripts/ros2_cli.py component load --help
+python3 {baseDir}/scripts/ros2_cli.py component unload --help
 
 # pkg (no live ROS 2 graph required)
 python3 {baseDir}/scripts/ros2_cli.py pkg list --help
@@ -3941,6 +3945,100 @@ Error (`ament_index_python` not installed):
 
 ---
 
+## component list
+
+List all running component containers and their loaded components. Discovers containers by scanning the live graph for `composition_interfaces/srv/ListNodes` services.
+
+**ROS 2 CLI equivalent:** `ros2 component list`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECS` | `5.0` | Seconds to wait per container service |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py component list
+python3 {baseDir}/scripts/ros2_cli.py component ls
+```
+
+Output:
+```json
+{
+  "containers": [
+    {
+      "container": "/my_container",
+      "component_count": 2,
+      "components": [
+        {"unique_id": 1, "full_node_name": "/my_container/talker"},
+        {"unique_id": 2, "full_node_name": "/my_container/listener"}
+      ]
+    }
+  ],
+  "total_containers": 1,
+  "total_components": 2
+}
+```
+
+No containers running:
+```json
+{"containers": [], "total_containers": 0, "total_components": 0, "hint": "No component containers found. Start one with: ros2 run rclcpp_components component_container"}
+```
+
+---
+
+## component load `<container>` `<package_name>` `<plugin_name>` [options]
+
+Load a composable node into a running component container.
+
+**ROS 2 CLI equivalent:** `ros2 component load <container> <package> <plugin>`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--node-name NAME` | `""` | Override the loaded node's name |
+| `--node-namespace NS` | `""` | Override the loaded node's namespace |
+| `--remap RULE [...]` | `[]` | Remap rules (e.g. `/from:=/to`) |
+| `--log-level LEVEL` | `""` | Log level for the loaded node |
+| `--timeout SECS` | `5.0` | Service call timeout |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py component load /my_container demo_nodes_cpp demo_nodes_cpp::Talker
+python3 {baseDir}/scripts/ros2_cli.py component load /my_container demo_nodes_cpp demo_nodes_cpp::Talker --node-name my_talker
+```
+
+Output:
+```json
+{
+  "success": true,
+  "container": "/my_container",
+  "package_name": "demo_nodes_cpp",
+  "plugin_name": "demo_nodes_cpp::Talker",
+  "full_node_name": "/my_container/talker",
+  "unique_id": 1
+}
+```
+
+---
+
+## component unload `<container>` `<unique_id>` [options]
+
+Unload a composable node from a component container by its unique ID (from `component load` or `component list`).
+
+**ROS 2 CLI equivalent:** `ros2 component unload <container> <unique_id>`
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECS` | `5.0` | Service call timeout |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py component unload /my_container 1
+```
+
+Output:
+```json
+{"success": true, "container": "/my_container", "unique_id": 1}
+```
+
+---
+
 ## daemon status
 
 Check whether the ROS 2 daemon is running.
@@ -4215,6 +4313,11 @@ Maps user intent phrases to the correct ros2-skill command sequence. When a phra
 | User intent | Correct approach | Notes |
 |---|---|---|
 | "run X", "start node X", "launch X as a node" | `run new <package> <executable>` | Standalone process — node runs in its own OS process |
+| "load component X into container Y", "load X into component container" | `component load <container> <package> <plugin>` | Intra-process component — shares address space with container |
+| "list running containers and components" | `component list` | Shows all containers and their loaded component IDs and names |
+| "unload component X", "remove component with ID N" | `component unload <container> <unique_id>` | Removes a component without killing the container |
+
+**Key distinction:** `run new` creates a standalone OS process. `component load` inserts a composable node into an already-running container (`rclcpp::ComponentManager`) — lower IPC overhead, same address space. Use `component list` to discover available containers before loading.
 
 ---
 
