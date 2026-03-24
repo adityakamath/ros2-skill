@@ -4057,6 +4057,8 @@ Run a composable node in its own standalone container. Starts a fresh `rclcpp_co
 | `--log-level LEVEL` | `0` | Log level for the loaded node (uint8: 0=unset, 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR, 50=FATAL) |
 | `--timeout SECS` | `10.0` | Total timeout for container start + component load |
 
+> **Optional output key:** `warning` is present when a local workspace is detected but not yet built — the command still proceeds.
+
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py component standalone demo_nodes_cpp demo_nodes_cpp::Talker
 ```
@@ -4070,9 +4072,20 @@ python3 {baseDir}/scripts/ros2_cli.py component standalone demo_nodes_cpp demo_n
   "container_type": "component_container",
   "package_name": "demo_nodes_cpp",
   "plugin_name": "demo_nodes_cpp::Talker",
-  "full_node_name": "/standalone_talker/talker",
+  "full_node_name": "/talker",
   "unique_id": 1,
   "status": "running"
+}
+```
+
+> **Note:** `full_node_name` is returned verbatim from the `LoadNode` service. With `component_container` (default) the node runs in the global namespace (e.g. `/talker`). With `component_container_isolated` it is namespaced under the container (e.g. `/standalone_talker/talker`).
+
+**Output (session already exists):**
+```json
+{
+  "error": "Session 'comp_demo_nodes_cpp_standalone_talker' already exists",
+  "suggestion": "Use 'run kill comp_demo_nodes_cpp_standalone_talker' to kill it first",
+  "session": "comp_demo_nodes_cpp_standalone_talker"
 }
 ```
 
