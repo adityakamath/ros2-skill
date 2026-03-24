@@ -139,6 +139,7 @@ from ros2_bag import (
 )
 from ros2_component import (
     cmd_component_types,
+    cmd_component_list,
 )
 from ros2_pkg import (
     cmd_pkg_list,
@@ -923,6 +924,8 @@ def build_parser():
     compsub = comp.add_subparsers(dest="subcommand")
 
     compsub.add_parser("types", help="List all registered rclcpp composable node types (no graph required)")
+    compsub.add_parser("list", help="List all running component containers and their loaded components")
+    compsub.add_parser("ls",   help="Alias for list")
 
     # ------------------------------------------------------------------
     # daemon
@@ -1103,6 +1106,8 @@ DISPATCH = {
     ("bag", "info"): cmd_bag_info,
     # component
     ("component", "types"): cmd_component_types,
+    ("component", "list"):  cmd_component_list,
+    ("component", "ls"):    cmd_component_list,
     # pkg
     ("pkg", "list"):        cmd_pkg_list,
     ("pkg", "ls"):          cmd_pkg_list,

@@ -9,7 +9,7 @@ service API, which is not reliably discoverable via rclpy on all RMW
 implementations; they will be added when subprocess delegation is permitted.
 """
 
-from ros2_utils import output
+from ros2_utils import output, ROS2CLI, ros2_context
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +69,97 @@ def cmd_component_types(args):
         result["warnings"] = errors
 
     output(result)
+
+
+def cmd_component_list(args):
+    """List all running component containers and their loaded components.
+
+    Discovers containers by scanning for composition_interfaces/srv/ListNodes
+    services on the live graph, then calls each one.
+    """
+    import time as _time
+    import rclpy as _rclpy
+
+    timeout = getattr(args, 'timeout', 5.0)
+
+    try:
+        from composition_interfaces.srv import ListNodes
+    except ImportError:
+        output({
+            "error": "composition_interfaces is not installed",
+            "hint": "Install with: sudo apt install ros-$ROS_DISTRO-composition-interfaces",
+        })
+        return
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+
+            # Discover all containers by finding ListNodes services
+            all_services = node.get_service_names_and_types()
+            containers = []
+            for svc_name, svc_types in all_services:
+                if "composition_interfaces/srv/ListNodes" in svc_types:
+                    if svc_name.endswith("/list_nodes"):
+                        containers.append(svc_name[: -len("/list_nodes")])
+
+            if not containers:
+                output({
+                    "containers": [],
+                    "total_containers": 0,
+                    "total_components": 0,
+                    "hint": "No component containers found. Start one with: ros2 run rclcpp_components component_container",
+                })
+                return
+
+            results = []
+            for container in sorted(containers):
+                svc_name = f"{container}/list_nodes"
+                client = node.create_client(ListNodes, svc_name)
+
+                if not client.wait_for_service(timeout_sec=timeout):
+                    results.append({
+                        "container": container,
+                        "error": f"Service {svc_name} not available within {timeout}s",
+                        "components": [],
+                    })
+                    continue
+
+                future = client.call_async(ListNodes.Request())
+                end = _time.time() + timeout
+                while _time.time() < end and not future.done():
+                    _rclpy.spin_once(node, timeout_sec=0.1)
+
+                if not future.done():
+                    results.append({
+                        "container": container,
+                        "error": "ListNodes call timed out",
+                        "components": [],
+                    })
+                    continue
+
+                resp = future.result()
+                components = [
+                    {"unique_id": uid, "full_node_name": name}
+                    for uid, name in zip(resp.unique_ids, resp.full_node_names)
+                ]
+                results.append({
+                    "container": container,
+                    "component_count": len(components),
+                    "components": components,
+                })
+
+        total_components = sum(
+            len(r.get("components", [])) for r in results
+        )
+        output({
+            "containers": results,
+            "total_containers": len(results),
+            "total_components": total_components,
+        })
+
+    except Exception as exc:
+        output({"error": str(exc)})
 
 
 if __name__ == "__main__":
