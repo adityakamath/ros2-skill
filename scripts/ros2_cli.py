@@ -142,6 +142,7 @@ from ros2_component import (
     cmd_component_list,
     cmd_component_load,
     cmd_component_unload,
+    cmd_component_standalone,
 )
 from ros2_pkg import (
     cmd_pkg_list,
@@ -945,6 +946,26 @@ def build_parser():
     p.add_argument("container",  help="Container node name (e.g. /my_container)")
     p.add_argument("unique_id",  type=int, help="Unique ID of the component to unload (from component load or component list)")
     p.add_argument("--timeout",  type=float, default=5.0, dest="timeout", help="Service call timeout in seconds (default: 5.0)")
+    p = compsub.add_parser(
+        "standalone",
+        help="Run a composable node in its own standalone container (tmux session)",
+    )
+    p.add_argument("package_name", help="Package containing the component plugin")
+    p.add_argument("plugin_name",  help="Fully-qualified plugin class name (e.g. demo_nodes_cpp::Talker)")
+    p.add_argument("--container-type", dest="container_type",
+                   choices=["component_container", "component_container_mt", "component_container_isolated"],
+                   default="component_container",
+                   help="Container executable to use (default: component_container)")
+    p.add_argument("--node-name",      dest="node_name",      default="",
+                   help="Override the loaded node's name")
+    p.add_argument("--node-namespace", dest="node_namespace",  default="",
+                   help="Override the loaded node's namespace")
+    p.add_argument("--remap",          dest="remap_rules",    nargs="*", default=[],
+                   help="Remap rules (e.g. /from:=/to)")
+    p.add_argument("--log-level",      dest="log_level",      type=int, default=0,
+                   help="Log level for the loaded node (uint8: 0=unset, 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR, 50=FATAL)")
+    p.add_argument("--timeout",        type=float, default=10.0,
+                   help="Total timeout for container start + component load (default: 10.0s)")
 
     # ------------------------------------------------------------------
     # daemon
@@ -1129,6 +1150,7 @@ DISPATCH = {
     ("component", "ls"):    cmd_component_list,
     ("component", "load"):   cmd_component_load,
     ("component", "unload"): cmd_component_unload,
+    ("component", "standalone"): cmd_component_standalone,
     # pkg
     ("pkg", "list"):        cmd_pkg_list,
     ("pkg", "ls"):          cmd_pkg_list,
