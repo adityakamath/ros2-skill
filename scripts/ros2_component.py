@@ -9,7 +9,19 @@ service API, which is not reliably discoverable via rclpy on all RMW
 implementations; they will be added when subprocess delegation is permitted.
 """
 
-from ros2_utils import output, ROS2CLI, ros2_context
+from ros2_utils import (
+    output,
+    ROS2CLI,
+    ros2_context,
+    check_tmux,
+    generate_session_name,
+    session_exists,
+    source_local_ws,
+    quote_path,
+    run_cmd,
+    check_session_alive,
+    save_session,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +343,208 @@ def cmd_component_unload(args):
 
     except Exception as exc:
         output({"error": str(exc)})
+
+
+def cmd_component_standalone(args):
+    """Run a composable node in its own standalone container (tmux session).
+
+    Phase 1: starts rclcpp_components/<container_type> in a tmux session,
+    renaming the container node to a predictable name derived from the plugin.
+    Phase 2: polls for the container's ListNodes service to appear, then
+    calls LoadNode to insert the plugin.
+
+    Returns session name, container path, and loaded component info.
+    """
+    import time as _time
+    import rclpy as _rclpy
+
+    package_name   = args.package_name
+    plugin_name    = args.plugin_name
+    container_type = getattr(args, 'container_type', 'component_container')
+    node_name      = getattr(args, 'node_name', '') or ''
+    node_namespace = getattr(args, 'node_namespace', '') or ''
+    remap_rules    = getattr(args, 'remap_rules', None) or []
+    log_level      = int(getattr(args, 'log_level', 0) or 0)
+    timeout        = getattr(args, 'timeout', 10.0)
+
+    # ── tmux check ──────────────────────────────────────────────────────────
+    if not check_tmux():
+        output({"error": "tmux is not installed. Install with: sudo apt install tmux"})
+        return
+
+    # ── composition_interfaces import check ─────────────────────────────────
+    try:
+        from composition_interfaces.srv import LoadNode, ListNodes
+    except ImportError:
+        output({
+            "error": "composition_interfaces is not installed",
+            "hint": "Install with: sudo apt install ros-$ROS_DISTRO-composition-interfaces",
+        })
+        return
+
+    # ── derive container node name from plugin class name ───────────────────
+    # e.g. "demo_nodes_cpp::Talker" → "talker" → "standalone_talker"
+    plugin_class        = plugin_name.split("::")[-1].lower()
+    safe_class          = "".join(c if c.isalnum() or c == '_' else '_' for c in plugin_class)
+    container_node_name = f"standalone_{safe_class}"
+    container_path      = f"/{container_node_name}"
+
+    # ── session name ─────────────────────────────────────────────────────────
+    session_name = generate_session_name("comp", package_name, container_node_name)
+
+    if session_exists(session_name):
+        output({
+            "error": f"Session '{session_name}' already exists",
+            "suggestion": f"Use 'run kill {session_name}' to kill it first",
+            "session": session_name,
+        })
+        return
+
+    # ── workspace sourcing ───────────────────────────────────────────────────
+    ws_path, ws_status = source_local_ws()
+    if ws_status == "invalid":
+        output({
+            "error": "ROS2_LOCAL_WS is set but path does not exist",
+            "suggestion": "Unset ROS2_LOCAL_WS or set a valid path",
+        })
+        return
+    warning = None
+    if ws_status == "not_built":
+        warning = "Local workspace found but not built. Build with 'colcon build' first."
+    elif ws_status == "not_found":
+        ws_path = None
+
+    # ── Phase 1: start container in tmux ────────────────────────────────────
+    ros_cmd = (
+        f"ros2 run rclcpp_components {container_type} "
+        f"--ros-args -r __node:={container_node_name}"
+    )
+    quoted_ws = quote_path(ws_path) if ws_path else None
+    if quoted_ws:
+        tmux_cmd = (
+            f"tmux new-session -d -s {session_name} "
+            f"'bash -c \"source {quoted_ws} && {ros_cmd}\" 2>&1'"
+        )
+    else:
+        tmux_cmd = f"tmux new-session -d -s {session_name} '{ros_cmd} 2>&1'"
+
+    _, stderr, rc = run_cmd(tmux_cmd, timeout=15)
+    if rc != 0:
+        output({
+            "error": f"Failed to start container: {stderr}",
+            "session": session_name,
+            "command": ros_cmd,
+        })
+        return
+
+    if not check_session_alive(session_name):
+        output({
+            "error": "Container session started but immediately exited",
+            "session": session_name,
+            "hint": "Check package is installed: ros2 pkg list | grep rclcpp_components",
+        })
+        return
+
+    # ── Phase 2: wait for container service, then load ───────────────────────
+    list_svc = f"{container_path}/list_nodes"
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+
+            # Poll for the container's list_nodes service
+            deadline = _time.time() + timeout
+            container_ready = False
+            while _time.time() < deadline:
+                names_and_types = node.get_service_names_and_types()
+                if any(svc == list_svc for svc, _ in names_and_types):
+                    container_ready = True
+                    break
+                _rclpy.spin_once(node, timeout_sec=0.2)
+
+            if not container_ready:
+                node.destroy_node()
+                output({
+                    "error": f"Container service not available after {timeout}s: {list_svc}",
+                    "session": session_name,
+                    "hint": "Container may have crashed. Check with: run list",
+                })
+                return
+
+            # Call LoadNode
+            load_svc = f"{container_path}/load_node"
+            client = node.create_client(LoadNode, load_svc)
+            if not client.wait_for_service(timeout_sec=3.0):
+                node.destroy_node()
+                output({
+                    "error": f"LoadNode service not available: {load_svc}",
+                    "session": session_name,
+                })
+                return
+
+            request = LoadNode.Request()
+            request.package_name   = package_name
+            request.plugin_name    = plugin_name
+            request.node_name      = node_name
+            request.node_namespace = node_namespace
+            request.log_level      = log_level
+            request.remap_rules    = list(remap_rules)
+
+            future = client.call_async(request)
+            end = _time.time() + timeout
+            while _time.time() < end and not future.done():
+                _rclpy.spin_once(node, timeout_sec=0.1)
+
+            if not future.done():
+                future.cancel()
+                node.destroy_node()
+                output({
+                    "error": "LoadNode service call timed out",
+                    "session": session_name,
+                    "container": container_path,
+                })
+                return
+
+            node.destroy_node()
+            resp = future.result()
+
+            if not resp.success:
+                output({
+                    "success": False,
+                    "session": session_name,
+                    "container": container_path,
+                    "package_name": package_name,
+                    "plugin_name": plugin_name,
+                    "error_message": resp.error_message,
+                })
+                return
+
+            result = {
+                "success": True,
+                "session": session_name,
+                "container": container_path,
+                "container_type": container_type,
+                "package_name": package_name,
+                "plugin_name": plugin_name,
+                "full_node_name": resp.full_node_name,
+                "unique_id": resp.unique_id,
+                "status": "running",
+            }
+            if warning:
+                result["warning"] = warning
+            output(result)
+
+            save_session(session_name, {
+                "type": "component_standalone",
+                "package_name": package_name,
+                "plugin_name": plugin_name,
+                "container": container_path,
+                "container_type": container_type,
+                "command": ros_cmd,
+            })
+
+    except Exception as exc:
+        output({"error": f"Standalone launch failed: {exc}", "session": session_name})
 
 
 if __name__ == "__main__":
