@@ -140,6 +140,7 @@ from ros2_bag import (
 from ros2_component import (
     cmd_component_types,
     cmd_component_list,
+    cmd_component_load,
 )
 from ros2_pkg import (
     cmd_pkg_list,
@@ -930,6 +931,15 @@ def build_parser():
     p = compsub.add_parser("ls", help="Alias for list")
     p.add_argument("--timeout", type=float, default=5.0, dest="timeout",
                    help="Seconds to wait per container service (default: 5.0)")
+    p = compsub.add_parser("load", help="Load a composable node into a component container")
+    p.add_argument("container",    help="Container node name (e.g. /my_container)")
+    p.add_argument("package_name", help="Package containing the plugin (e.g. demo_nodes_cpp)")
+    p.add_argument("plugin_name",  help="Fully-qualified plugin class name (e.g. demo_nodes_cpp::Talker)")
+    p.add_argument("--node-name",      dest="node_name",      default="", help="Override the loaded node's name")
+    p.add_argument("--node-namespace", dest="node_namespace", default="", help="Override the loaded node's namespace")
+    p.add_argument("--remap",          nargs="*", default=[],             help="Remap rules (e.g. /from:=/to)")
+    p.add_argument("--log-level",      dest="log_level",      default="", help="Log level for the loaded node")
+    p.add_argument("--timeout", type=float, default=5.0, dest="timeout",  help="Service call timeout in seconds (default: 5.0)")
 
     # ------------------------------------------------------------------
     # daemon
@@ -1112,6 +1122,7 @@ DISPATCH = {
     ("component", "types"): cmd_component_types,
     ("component", "list"):  cmd_component_list,
     ("component", "ls"):    cmd_component_list,
+    ("component", "load"):  cmd_component_load,
     # pkg
     ("pkg", "list"):        cmd_pkg_list,
     ("pkg", "ls"):          cmd_pkg_list,

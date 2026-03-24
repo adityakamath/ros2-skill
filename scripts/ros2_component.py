@@ -165,6 +165,97 @@ def cmd_component_list(args):
         output({"error": str(exc)})
 
 
+def cmd_component_load(args):
+    """Load a composable node into a running component container.
+
+    Calls composition_interfaces/srv/LoadNode on the target container.
+    Returns the assigned unique_id and full_node_name on success.
+    """
+    import time as _time
+    import rclpy as _rclpy
+
+    timeout = getattr(args, 'timeout', 5.0)
+    container = args.container
+    package_name = args.package_name
+    plugin_name = args.plugin_name
+    node_name = getattr(args, 'node_name', '') or ''
+    node_namespace = getattr(args, 'node_namespace', '') or ''
+    remap_rules = getattr(args, 'remap', None) or []
+    log_level = getattr(args, 'log_level', '') or ''
+
+    try:
+        from composition_interfaces.srv import LoadNode
+    except ImportError:
+        output({
+            "error": "composition_interfaces is not installed",
+            "hint": "Install with: sudo apt install ros-$ROS_DISTRO-composition-interfaces",
+        })
+        return
+
+    svc_name = f"{container}/load_node"
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+
+            client = node.create_client(LoadNode, svc_name)
+            if not client.wait_for_service(timeout_sec=timeout):
+                node.destroy_node()
+                output({
+                    "error": f"Container service not available: {svc_name}",
+                    "hint": f"Is the container node '{container}' running? Check with: nodes list",
+                })
+                return
+
+            request = LoadNode.Request()
+            request.package_name = package_name
+            request.plugin_name = plugin_name
+            request.node_name = node_name
+            request.node_namespace = node_namespace
+            request.log_level = log_level
+            request.remap_rules = list(remap_rules)
+
+            future = client.call_async(request)
+            end = _time.time() + timeout
+            while _time.time() < end and not future.done():
+                _rclpy.spin_once(node, timeout_sec=0.1)
+
+            node.destroy_node()
+
+            if not future.done():
+                future.cancel()
+                output({
+                    "error": "LoadNode service call timed out",
+                    "container": container,
+                    "package_name": package_name,
+                    "plugin_name": plugin_name,
+                })
+                return
+
+            resp = future.result()
+            if not resp.success:
+                output({
+                    "success": False,
+                    "container": container,
+                    "package_name": package_name,
+                    "plugin_name": plugin_name,
+                    "error_message": resp.error_message,
+                })
+                return
+
+            output({
+                "success": True,
+                "container": container,
+                "package_name": package_name,
+                "plugin_name": plugin_name,
+                "full_node_name": resp.full_node_name,
+                "unique_id": resp.unique_id,
+            })
+
+    except Exception as exc:
+        output({"error": str(exc)})
+
+
 if __name__ == "__main__":
     import sys
     import os
