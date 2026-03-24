@@ -388,7 +388,14 @@ def cmd_component_standalone(args):
     plugin_class        = plugin_name.split("::")[-1].lower()
     safe_class          = "".join(c if c.isalnum() or c == '_' else '_' for c in plugin_class)
     container_node_name = f"standalone_{safe_class}"
-    container_path      = f"/{container_node_name}"
+
+    # component_container_isolated spawns two nodes: the outer managed node
+    # at /{name} and the actual container at /{name}/_container.  Composition
+    # services (load_node, list_nodes) live on the inner _container node.
+    if container_type == "component_container_isolated":
+        container_path = f"/{container_node_name}/_container"
+    else:
+        container_path = f"/{container_node_name}"
 
     # ── session name ─────────────────────────────────────────────────────────
     session_name = generate_session_name("comp", package_name, container_node_name)
@@ -464,12 +471,63 @@ def cmd_component_standalone(args):
                 _rclpy.spin_once(node, timeout_sec=0.2)
 
             if not container_ready:
+                # Before hard-failing, check whether the container process
+                # is actually alive but just slow (common on RPi), or whether
+                # its services ended up at a different path (e.g. the caller
+                # used component_container_isolated without --container-type).
+                all_svcs_now = node.get_service_names_and_types()
+                all_nodes    = node.get_node_names_and_namespaces()
                 node.destroy_node()
-                output({
-                    "error": f"Container service not available after {timeout}s: {list_svc}",
-                    "session": session_name,
-                    "hint": "Container may have crashed. Check with: run list",
-                })
+
+                # Look for any list_nodes service that contains our node name
+                alt_path = None
+                for svc_name, svc_types in all_svcs_now:
+                    if (svc_name.endswith("/list_nodes")
+                            and container_node_name in svc_name
+                            and "composition_interfaces/srv/ListNodes" in svc_types):
+                        alt_path = svc_name[: -len("/list_nodes")]
+                        break
+
+                # Check whether the container node itself is alive in the graph
+                container_node_alive = any(
+                    container_node_name in name for name, _ns in all_nodes
+                )
+
+                if alt_path and alt_path != container_path:
+                    output({
+                        "error": f"Container service not found at expected path after {timeout}s",
+                        "expected_path": container_path,
+                        "container_found_at": alt_path,
+                        "session": session_name,
+                        "hint": (
+                            "Container started at a different path — it may be "
+                            "component_container_isolated. Re-run with "
+                            "--container-type component_container_isolated."
+                            if container_type != "component_container_isolated"
+                            else (
+                                "Container started but the component may not have loaded. "
+                                "Check with: component list"
+                            )
+                        ),
+                    })
+                elif container_node_alive:
+                    output({
+                        "error": f"Container service not available after {timeout}s: {list_svc}",
+                        "container_started": True,
+                        "session": session_name,
+                        "hint": (
+                            f"Container process is running but its services are not yet ready. "
+                            f"Try a longer --timeout (current: {timeout}s) "
+                            f"or wait and check: component list"
+                        ),
+                    })
+                else:
+                    output({
+                        "error": f"Container service not available after {timeout}s: {list_svc}",
+                        "container_started": False,
+                        "session": session_name,
+                        "hint": "Container process not found — it may have crashed. Check with: run list",
+                    })
                 return
 
             # Call LoadNode

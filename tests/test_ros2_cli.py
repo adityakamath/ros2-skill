@@ -2309,7 +2309,9 @@ class TestComponentStandaloneLogic(unittest.TestCase):
 
     def _run(self, resp_success=True, full_node_name="/talker",
              unique_id=1, error_message="",
-             tmux_ok=True, session_alive=True, container_ready=True):
+             tmux_ok=True, session_alive=True, container_ready=True,
+             container_node_alive=False, alt_svc_path=None,
+             args_override=None):
         from unittest.mock import MagicMock, patch
 
         mock_resp = MagicMock()
@@ -2329,8 +2331,27 @@ class TestComponentStandaloneLogic(unittest.TestCase):
         list_svc = "/standalone_talker/list_nodes"
         mock_node = MagicMock()
         mock_node.create_client.return_value = mock_client
-        mock_node.get_service_names_and_types.return_value = (
-            [(list_svc, ["composition_interfaces/srv/ListNodes"])] if container_ready else []
+
+        # When container_ready, the primary poll finds the service immediately.
+        # When not ready, the primary poll returns nothing; subsequent re-scan
+        # may return an alt_svc_path (e.g. for component_container_isolated).
+        if container_ready:
+            mock_node.get_service_names_and_types.return_value = [
+                (list_svc, ["composition_interfaces/srv/ListNodes"])
+            ]
+        elif alt_svc_path:
+            # First call (poll loop) returns empty; second call (re-scan) returns alt path
+            mock_node.get_service_names_and_types.side_effect = [
+                [],
+                [(alt_svc_path + "/list_nodes",
+                  ["composition_interfaces/srv/ListNodes"])],
+            ]
+        else:
+            mock_node.get_service_names_and_types.return_value = []
+
+        # node name visibility for "is the container process alive?" check
+        mock_node.get_node_names_and_namespaces.return_value = (
+            [("standalone_talker", "/")] if container_node_alive else []
         )
 
         mock_srv = MagicMock()
@@ -2338,6 +2359,7 @@ class TestComponentStandaloneLogic(unittest.TestCase):
         mock_srv.LoadNode.Request = MagicMock(return_value=MagicMock())
         mock_srv.ListNodes        = MagicMock()
 
+        args = args_override if args_override is not None else self._make_args()
         captured = []
         with patch("ros2_component.check_tmux",         return_value=True), \
              patch("ros2_component.session_exists",      return_value=False), \
@@ -2352,7 +2374,7 @@ class TestComponentStandaloneLogic(unittest.TestCase):
              patch.dict("sys.modules", {"composition_interfaces.srv": mock_srv}):
             ctx.return_value.__enter__ = MagicMock(return_value=None)
             ctx.return_value.__exit__  = MagicMock(return_value=False)
-            self.ros2_component.cmd_component_standalone(self._make_args())
+            self.ros2_component.cmd_component_standalone(args)
         return captured[0]
 
     def test_successful_standalone_has_required_keys(self):
@@ -2390,9 +2412,112 @@ class TestComponentStandaloneLogic(unittest.TestCase):
         result = self._run(True, tmux_ok=False)
         self.assertIn("error", result)
 
-    def test_container_not_ready_returns_error(self):
-        result = self._run(True, container_ready=False)
+    def test_container_not_ready_node_alive_reports_container_started(self):
+        """Timeout with container node alive → container_started: True in error."""
+        result = self._run(container_ready=False, container_node_alive=True)
         self.assertIn("error", result)
+        self.assertTrue(result.get("container_started"))
+
+    def test_container_not_ready_node_dead_reports_container_not_started(self):
+        """Timeout with container node absent → container_started: False in error."""
+        result = self._run(container_ready=False, container_node_alive=False)
+        self.assertIn("error", result)
+        self.assertFalse(result.get("container_started"))
+
+    def test_container_not_ready_alt_path_detected(self):
+        """Timeout with service at alternate path → container_found_at reported.
+
+        Uses timeout=0 so the poll loop exits immediately, then the re-scan
+        finds the service at the _container sub-path (component_container_isolated
+        layout) and reports it via container_found_at.
+        """
+        from unittest.mock import MagicMock, patch
+
+        alt_container = "/standalone_talker/_container"
+        alt_list_svc  = f"{alt_container}/list_nodes"
+
+        mock_node = MagicMock()
+        mock_node.create_client.return_value = MagicMock()
+        # Poll loop (timeout=0) doesn't call get_service_names_and_types at all;
+        # the re-scan call returns the alt service path.
+        mock_node.get_service_names_and_types.return_value = [
+            (alt_list_svc, ["composition_interfaces/srv/ListNodes"])
+        ]
+        mock_node.get_node_names_and_namespaces.return_value = []
+
+        mock_srv = MagicMock()
+        mock_srv.LoadNode         = MagicMock()
+        mock_srv.LoadNode.Request = MagicMock(return_value=MagicMock())
+        mock_srv.ListNodes        = MagicMock()
+
+        # timeout=0 guarantees the poll while-loop exits before the first
+        # get_service_names_and_types call in the loop body, so the only
+        # call to that method comes from the re-scan block.
+        args = self._make_args(timeout=0)
+        captured = []
+        with patch("ros2_component.check_tmux",         return_value=True), \
+             patch("ros2_component.session_exists",      return_value=False), \
+             patch("ros2_component.source_local_ws",     return_value=(None, "not_found")), \
+             patch("ros2_component.run_cmd",             return_value=("", "", 0)), \
+             patch("ros2_component.check_session_alive", return_value=True), \
+             patch("ros2_component.save_session"), \
+             patch("ros2_component.ros2_context") as ctx, \
+             patch("ros2_component.ROS2CLI",             return_value=mock_node), \
+             patch("rclpy.spin_once"), \
+             patch("ros2_component.output",              side_effect=captured.append), \
+             patch.dict("sys.modules", {"composition_interfaces.srv": mock_srv}):
+            ctx.return_value.__enter__ = MagicMock(return_value=None)
+            ctx.return_value.__exit__  = MagicMock(return_value=False)
+            self.ros2_component.cmd_component_standalone(args)
+        result = captured[0]
+        self.assertIn("error", result)
+        self.assertIn("container_found_at", result)
+        self.assertEqual(result["container_found_at"], alt_container)
+
+    def test_isolated_container_path_uses_container_suffix(self):
+        """component_container_isolated → container field ends with /_container."""
+        args = self._make_args(container_type="component_container_isolated")
+        # For isolated type the list_svc is at /standalone_talker/_container/list_nodes
+        from unittest.mock import MagicMock, patch
+        isolated_svc = "/standalone_talker/_container/list_nodes"
+        mock_resp = MagicMock()
+        mock_resp.success        = True
+        mock_resp.full_node_name = "/talker"
+        mock_resp.unique_id      = 1
+        mock_future = MagicMock()
+        mock_future.done.return_value   = True
+        mock_future.result.return_value = mock_resp
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = True
+        mock_client.call_async.return_value       = mock_future
+        mock_node = MagicMock()
+        mock_node.create_client.return_value = mock_client
+        mock_node.get_service_names_and_types.return_value = [
+            (isolated_svc, ["composition_interfaces/srv/ListNodes"])
+        ]
+        mock_node.get_node_names_and_namespaces.return_value = []
+        mock_srv = MagicMock()
+        mock_srv.LoadNode         = MagicMock()
+        mock_srv.LoadNode.Request = MagicMock(return_value=MagicMock())
+        mock_srv.ListNodes        = MagicMock()
+        captured = []
+        with patch("ros2_component.check_tmux",         return_value=True), \
+             patch("ros2_component.session_exists",      return_value=False), \
+             patch("ros2_component.source_local_ws",     return_value=(None, "not_found")), \
+             patch("ros2_component.run_cmd",             return_value=("", "", 0)), \
+             patch("ros2_component.check_session_alive", return_value=True), \
+             patch("ros2_component.save_session"), \
+             patch("ros2_component.ros2_context") as ctx, \
+             patch("ros2_component.ROS2CLI",             return_value=mock_node), \
+             patch("rclpy.spin_once"), \
+             patch("ros2_component.output",              side_effect=captured.append), \
+             patch.dict("sys.modules", {"composition_interfaces.srv": mock_srv}):
+            ctx.return_value.__enter__ = MagicMock(return_value=None)
+            ctx.return_value.__exit__  = MagicMock(return_value=False)
+            self.ros2_component.cmd_component_standalone(args)
+        result = captured[0]
+        self.assertTrue(result["success"])
+        self.assertEqual(result["container"], "/standalone_talker/_container")
 
     def test_failed_load_returns_success_false(self):
         result = self._run(False, error_message="Plugin not found")
