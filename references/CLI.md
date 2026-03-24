@@ -42,7 +42,7 @@ All commands output JSON. See [`COMMANDS.md`](COMMANDS.md) for the full referenc
 | Multicast | `send`, `receive` |
 | Interface | `list`, `show`, `proto`, `packages`, `package` |
 | Bag | `info` |
-| Component | `types` |
+| Component | `types`, `list`, `ls`, `load`, `unload` |
 | Pkg | `list`, `prefix`, `executables`, `xml` |
 | Daemon | `status`, `start`, `stop` |
 | Launch | `new`, `list`, `kill`, `restart`, `foxglove` |

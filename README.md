@@ -75,7 +75,7 @@ ros2-skill/
 │   ├── ros2_launch.py         # Launch file session management (tmux)
 │   ├── ros2_run.py            # Executable session management (tmux)
 │   ├── ros2_bag.py            # Bag file utilities (info)
-│   ├── ros2_component.py      # Composable node utilities (types)
+│   ├── ros2_component.py      # Composable node utilities (types, list, load, unload)
 │   ├── ros2_pkg.py            # Package utilities (list, prefix, executables, xml)
 │   ├── ros2_daemon.py         # ROS 2 daemon management
 │   └── discord_tools.py       # Discord integration
