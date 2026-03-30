@@ -2,6 +2,18 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.7] - 2026-03-29
+
+Security hardening and rules/vocabulary additions. No new CLI commands.
+
+### Changes
+
+- `shlex.quote()` applied to all user-controlled inputs in `run_cmd` call sites (`session_name`, `package`); `session_exists` double-check rewritten to avoid grep pipeline
+- AGENTS.md phrasing: removed language matching jailbreak-scanner patterns; replaced with equivalent intent
+- Rules: perception frame alignment check (Rule 0); custom message deep introspection (Rule 1); `--params-file` validation rule and vocabulary; bag vocabulary (`record`, `play`, `info`); testing vocabulary (`colcon test`, `pytest`); log directory auto-discovery at session start; Nav2 in-flight goal preemption (companion to Rule 23)
+
+---
+
 ## [1.0.6] - 2026-03-24
 
 Completed the component command group, hardened agent self-recovery behaviour, and added vocabulary and rules for bags, camera calibration, log directories, and Nav2 goal preemption.

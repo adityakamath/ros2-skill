@@ -9,6 +9,7 @@ import importlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -496,7 +497,7 @@ def package_exists(package, force_refresh=False):
 
 def get_package_prefix(package):
     """Get the prefix path for a package."""
-    stdout, _, rc = run_cmd(f"ros2 pkg prefix {package}")
+    stdout, _, rc = run_cmd(f"ros2 pkg prefix {shlex.quote(package)}")
     if rc == 0 and stdout:
         return stdout.strip()
     return None
@@ -516,27 +517,27 @@ def generate_session_name(session_type, package, name):
 
 def session_exists(session_name):
     """Check if a tmux session exists."""
-    check_cmd = f"tmux has-session -t {session_name} 2>/dev/null"
+    check_cmd = f"tmux has-session -t {shlex.quote(session_name)} 2>/dev/null"
     stdout, stderr, rc = run_cmd(check_cmd)
-    # Also check if there's any tmux session with a similar name (partial match)
     if rc == 0:
         return True
     # Double-check with list-sessions to handle edge cases
-    list_cmd = f"tmux list-sessions -F '#{{session_name}}' 2>/dev/null | grep -e '^{session_name}$'"
-    stdout, _, rc = run_cmd(list_cmd)
-    return rc == 0
+    stdout, _, rc = run_cmd("tmux list-sessions -F '#{session_name}' 2>/dev/null")
+    if rc != 0:
+        return False
+    return session_name in stdout.strip().split('\n')
 
 
 def kill_session(session_name):
     """Kill a tmux session."""
-    kill_cmd = f"tmux kill-session -t {session_name}"
+    kill_cmd = f"tmux kill-session -t {shlex.quote(session_name)}"
     stdout, stderr, rc = run_cmd(kill_cmd)
     return rc == 0
 
 
 def check_session_alive(session_name):
     """Check if session has a running process (not just empty shell)."""
-    pid_cmd = f"tmux list-panes -t {session_name} -F '#{{pane_pid}}' 2>/dev/null | head -1"
+    pid_cmd = f"tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -1"
     pid_out, _, _ = run_cmd(pid_cmd)
     
     if not pid_out:
@@ -643,12 +644,12 @@ def list_sessions(prefix):
     for session in filtered_sessions:
         info = {"session": session}
         
-        pane_cmd = f"tmux list-panes -t {session} -F '#{{pane_title}}' 2>/dev/null"
+        pane_cmd = f"tmux list-panes -t {shlex.quote(session)} -F '#{{pane_title}}' 2>/dev/null"
         pane_out, _, _ = run_cmd(pane_cmd)
         if pane_out:
             info["command"] = pane_out.strip()
-        
-        check_cmd = f"tmux has-session -t {session} 2>/dev/null && echo 'running' || echo 'stopped'"
+
+        check_cmd = f"tmux has-session -t {shlex.quote(session)} 2>/dev/null && echo 'running' || echo 'stopped'"
         status, _, _ = run_cmd(check_cmd)
         info["status"] = status.strip() if status else "unknown"
         
