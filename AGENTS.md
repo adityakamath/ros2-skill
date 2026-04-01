@@ -196,6 +196,12 @@ Nodes in `unconfigured` or `inactive` state silently fail when their topics or s
 **Step 5 — Note the log directory (no command required):**
 ROS 2 node logs for this session reside in: `$ROS_LOG_DIR` → `$ROS_HOME/log/` → `~/.ros/log/` (default). Store this path. When diagnosing failures, individual node log files here can be read directly even without a live graph.
 
+**Step 6 — Capture graph snapshot:**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py context
+```
+Returns topics (capped at 50), services, actions, and nodes in one call. Store the result — reference it during task planning instead of re-running separate discovery commands. Use `--limit 0` for the full topic list.
+
 ---
 
 ## Output Format
@@ -288,6 +294,14 @@ Never construct message payloads from memory. Always:
 python3 {baseDir}/scripts/ros2_cli.py interface proto <msg_type>
 ```
 Copy the output. Modify only the fields required by the task.
+
+**Nested types:** if any field in the template is itself a non-primitive message type (not `bool`, `int*`, `float*`, `string`, `byte`), run `interface show <nested_type>` on it recursively until all leaf fields are primitives. Silently malformed nested fields produce no error — the message is accepted and the payload is wrong.
+
+**Camera / depth topics:** before using any camera or depth image, verify calibration and TF alignment:
+1. `topics find sensor_msgs/msg/CameraInfo` — find the paired `camera_info` topic
+2. `topics subscribe <CAMERA_INFO_TOPIC> --max-messages 1 --timeout 2` — confirm `K` matrix is non-zero (calibrated)
+3. Read `header.frame_id` from the message; confirm it appears in `tf list`
+A camera with a zero `K` matrix is uncalibrated. A camera whose `frame_id` is missing from TF produces wrong spatial results silently. Both conditions must pass before using the camera for any task.
 
 ### 3 — Never ask the user for names the robot can provide
 

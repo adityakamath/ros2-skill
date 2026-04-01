@@ -77,8 +77,9 @@ if not _ROS_AVAILABLE:
 # ---------------------------------------------------------------------------
 
 MINIMAL_ARGS = [
-    # version / estop
+    # version / context / estop
     ("version",  None,               ["version"]),
+    ("context",  None,               ["context"]),
     ("estop",    None,               ["estop"]),
     # topics — canonical
     ("topics",   "list",             ["topics", "list"]),

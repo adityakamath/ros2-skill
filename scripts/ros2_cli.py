@@ -19,6 +19,7 @@ from ros2_utils import (  # noqa: F401 – intentional re-exports
     output,
     parse_node_param,
     ROS2CLI,
+    ros2_context,
 )
 
 # ---------------------------------------------------------------------------
@@ -186,6 +187,60 @@ def cmd_version(args):
     output({"version": "2", "distro": distro, "domain_id": domain_id, "rclpy_available": rclpy_available})
 
 
+def cmd_context(args):
+    """Compact session-start graph summary: topics, services, actions, nodes."""
+    limit = getattr(args, "limit", 50) or 50
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            all_topics = node.get_topic_names()
+            all_services = node.get_service_names()
+            all_topic_types = node.get_topic_names_and_types()
+            node_info = node.get_node_names_and_namespaces()
+
+        topic_names = [n for n, _ in all_topics]
+        topic_types = [t[0] if t else "" for _, t in all_topics]
+
+        # Derive actions from topic names containing /_action/
+        actions = []
+        seen = set()
+        for name, _ in all_topic_types:
+            if '/_action/' in name:
+                action_name = name.split('/_action/')[0]
+                if action_name not in seen:
+                    seen.add(action_name)
+                    actions.append(action_name)
+
+        service_names = [n for n, _ in all_services]
+        node_names = [f"{ns.rstrip('/')}/{n}" for n, ns in node_info]
+
+        total_topics = len(topic_names)
+        truncated = limit > 0 and total_topics > limit
+        if truncated:
+            topic_names = topic_names[:limit]
+            topic_types = topic_types[:limit]
+
+        result = {
+            "topics": topic_names,
+            "topic_types": topic_types,
+            "services": service_names,
+            "actions": actions,
+            "nodes": node_names,
+            "counts": {
+                "topics": total_topics,
+                "services": len(service_names),
+                "actions": len(actions),
+                "nodes": len(node_names),
+            },
+        }
+        if truncated:
+            result["topics_truncated"] = True
+            result["topics_shown"] = limit
+        output(result)
+    except Exception as e:
+        output({"error": str(e)})
+
+
 # ---------------------------------------------------------------------------
 # Parser helpers
 # ---------------------------------------------------------------------------
@@ -223,6 +278,10 @@ def build_parser():
 
     sub.add_parser("version", help="Detect ROS 2 version")
 
+    p = sub.add_parser("context", help="Compact session-start summary: topics, services, actions, nodes")
+    p.add_argument("--limit", type=int, default=50,
+                   help="Max topics to return (default: 50; 0 = unlimited)")
+
     estop = sub.add_parser("estop", help="Emergency stop for mobile robots (publishes zero velocity)")
     estop.add_argument("--topic", dest="topic", default=None,
                        help="Custom velocity topic (default: auto-detect)")
@@ -232,8 +291,12 @@ def build_parser():
     # ------------------------------------------------------------------
     topics = sub.add_parser("topics", help="Topic operations")
     tsub = topics.add_subparsers(dest="subcommand")
-    tsub.add_parser("list", help="List all topics")
-    tsub.add_parser("ls", help="Alias for list")
+    p = tsub.add_parser("list", help="List all topics")
+    p.add_argument("--limit", type=int, default=0,
+                   help="Max topics to return (default: 0 = unlimited)")
+    p = tsub.add_parser("ls", help="Alias for list")
+    p.add_argument("--limit", type=int, default=0,
+                   help="Max topics to return (default: 0 = unlimited)")
     p = tsub.add_parser("type", help="Get topic message type")
     p.add_argument("topic", help="Topic name (e.g. /cmd_vel)")
     p = tsub.add_parser("details", help="Get topic details")
@@ -1006,6 +1069,7 @@ def build_parser():
 
 DISPATCH = {
     ("version", None): cmd_version,
+    ("context", None): cmd_context,
     ("estop", None): cmd_estop,
     # topics — canonical
     ("topics", "list"): cmd_topics_list,

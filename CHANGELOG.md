@@ -2,15 +2,20 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.7] - 2026-03-29
+## [1.0.7] - 2026-04-01
 
-Security hardening and rules/vocabulary additions. No new CLI commands.
+Session-start context snapshot, topic list capping, security hardening, and agent rules audit.
+
+### New Commands
+
+- `context` — compact session-start graph snapshot: topics (capped at 50), services, actions, and nodes in a single call; use at session start instead of four separate discovery commands
 
 ### Changes
 
-- `shlex.quote()` applied to all user-controlled inputs in `run_cmd` call sites (`session_name`, `package`); `session_exists` double-check rewritten to avoid grep pipeline
-- AGENTS.md phrasing: removed language matching jailbreak-scanner patterns; replaced with equivalent intent
-- Rules: perception frame alignment check (Rule 0); custom message deep introspection (Rule 1); `--params-file` validation rule and vocabulary; bag vocabulary (`record`, `play`, `info`); testing vocabulary (`colcon test`, `pytest`); log directory auto-discovery at session start; Nav2 in-flight goal preemption (companion to Rule 23)
+- `topics list` / `topics ls`: `--limit N` flag added (default 0 = unlimited); output includes `truncated: true` and `total` when a limit is applied
+- `shlex.quote()` applied to all user-controlled inputs in `run_cmd` call sites; `session_exists` grep pipeline replaced with Python list check
+- AGENTS.md: removed phrasing matching jailbreak-scanner patterns; added camera/depth `camera_info` + TF frame pre-flight to Rule 2; added nested `interface show` recursion note to Rule 2; added `context` graph snapshot to Session Start Step 6
+- Rules: `context` command added to Rule 0.1 Step 5 (RULES.md) and Session Start Step 6 (AGENTS.md)
 
 ---
 

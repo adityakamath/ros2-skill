@@ -164,7 +164,15 @@ def cmd_topics_list(args):
             for name, types in topics:
                 topic_list.append(name)
                 type_list.append(types[0] if types else "")
-            result = {"topics": topic_list, "types": type_list, "count": len(topic_list)}
+        limit = getattr(args, "limit", 0) or 0
+        total = len(topic_list)
+        if limit > 0 and total > limit:
+            topic_list = topic_list[:limit]
+            type_list = type_list[:limit]
+            result = {"topics": topic_list, "types": type_list, "count": limit,
+                      "total": total, "truncated": True}
+        else:
+            result = {"topics": topic_list, "types": type_list, "count": total}
         output(result)
     except Exception as e:
         output({"error": str(e)})

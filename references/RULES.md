@@ -148,6 +148,12 @@ ROS 2 writes one log file per node for the current run. Resolve the log director
 
 Store this path. When diagnosing failures or silent node behaviour, individual node log files are here and can be read directly — even without a live graph. When the `logs` command group is available, `logs list-runs` makes recent runs discoverable at session start.
 
+**Step 5 — Capture a compact graph snapshot (`context`):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py context
+```
+Returns topics, services, actions, and nodes in a single call. Use this to pre-load graph state at session start rather than running four separate discovery commands. Topics are capped at 50 by default (`--limit 0` for unlimited). Store the output; reference it during task planning to avoid redundant discovery round-trips.
+
 **These checks are session-level.** Do not re-run for every command. Re-run only if the user relaunches the robot or if nodes appear/disappear unexpectedly.
 
 **Exception — simulated time re-check before every timed command:**

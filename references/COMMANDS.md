@@ -736,6 +736,50 @@ Commands that provide parity with the standard `ros2` CLI.
 
 ---
 
+## context
+
+Compact session-start graph snapshot: topics, services, actions, and nodes in a single call.
+
+**Use at session start** (Rule 0.1 Step 5) to pre-load graph state rather than running four separate discovery commands.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--limit N` | `50` | Max topics to return. Use `--limit 0` for the full list. |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py context
+python3 {baseDir}/scripts/ros2_cli.py context --limit 0      # full topic list
+python3 {baseDir}/scripts/ros2_cli.py context --limit 100
+```
+
+Output (normal):
+```json
+{
+  "topics": ["/cmd_vel", "/odom", "/scan"],
+  "topic_types": ["geometry_msgs/msg/Twist", "nav_msgs/msg/Odometry", "sensor_msgs/msg/LaserScan"],
+  "services": ["/robot_state_publisher/get_parameters"],
+  "actions": ["/navigate_to_pose"],
+  "nodes": ["/robot_state_publisher", "/controller_manager"],
+  "counts": {"topics": 3, "services": 1, "actions": 1, "nodes": 2}
+}
+```
+
+Output (truncated — more than 50 topics):
+```json
+{
+  "topics": ["...", "..."],
+  "topic_types": ["...", "..."],
+  "services": ["..."],
+  "actions": [],
+  "nodes": ["..."],
+  "counts": {"topics": 87, "services": 42, "actions": 0, "nodes": 12},
+  "topics_truncated": true,
+  "topics_shown": 50
+}
+```
+
+---
+
 ## version
 
 Detect the ROS 2 version and distro name.
@@ -761,17 +805,33 @@ List all active topics with their message types.
 
 **ROS 2 CLI equivalent:** `ros2 topic list -t`
 
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--limit N` | `0` (unlimited) | Cap number of topics returned. Adds `truncated: true` and `total` when applied. |
+
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py topics list
 python3 {baseDir}/scripts/ros2_cli.py topics ls
+python3 {baseDir}/scripts/ros2_cli.py topics list --limit 50
 ```
 
-Output:
+Output (normal):
 ```json
 {
   "topics": ["/turtle1/cmd_vel", "/turtle1/pose", "/rosout"],
   "types": ["geometry_msgs/Twist", "turtlesim/Pose", "rcl_interfaces/msg/Log"],
   "count": 3
+}
+```
+
+Output (truncated):
+```json
+{
+  "topics": ["/cmd_vel", "/odom"],
+  "types": ["geometry_msgs/msg/Twist", "nav_msgs/msg/Odometry"],
+  "count": 2,
+  "total": 87,
+  "truncated": true
 }
 ```
 
