@@ -41,11 +41,16 @@ python3 {baseDir}/scripts/ros2_cli.py doctor               # DDS/graph health
 python3 {baseDir}/scripts/ros2_cli.py daemon status        # is the ROS daemon running?
 python3 {baseDir}/scripts/ros2_cli.py daemon start         # start it if not running
 
-# --- Package discovery (no graph required) ---
+# --- Package discovery and scaffolding (no graph required) ---
 python3 {baseDir}/scripts/ros2_cli.py pkg list                    # all installed packages
 python3 {baseDir}/scripts/ros2_cli.py pkg prefix <pkg>            # install prefix
 python3 {baseDir}/scripts/ros2_cli.py pkg executables <pkg>       # launchable executables
 python3 {baseDir}/scripts/ros2_cli.py pkg xml <pkg>               # package manifest
+python3 {baseDir}/scripts/ros2_cli.py pkg create <name> \
+    [--build-type ament_cmake|ament_python|cmake] \
+    [--dependencies rclcpp std_msgs] \
+    [--node-name my_node] [--library-name my_lib] \
+    [--destination-directory /path]                               # scaffold new package
 
 # --- Introspection — always do this before acting ---
 python3 {baseDir}/scripts/ros2_cli.py nodes list
@@ -330,6 +335,8 @@ Never ask the user to diagnose a failure. Work through this sequence autonomousl
 
 For rule violations specifically: halt → self-correct → retry → report in **one line**.
 
+**Stalled node (running but producing no output):** if a node appears in `nodes list` and its input topics are live (`topics hz` > 0) but it produces no output, suspect executor starvation: `SingleThreadedExecutor` + a blocking callback (timer, service handler, or subscriber) that never returns. Diagnose: elevate log level to DEBUG (see RULES.md Rule 7 pre-escalation protocol) and look for a callback that enters but does not return. The CLI cannot expose executor type — check source or report to user. Recommended fix: `MultiThreadedExecutor`. Do not retry the same command expecting a different result.
+
 ### 7 — Resolve intent before asking. Never ask what you can infer.
 
 When a user request is ambiguous or incomplete, resolve it yourself — then act. Only ask when genuine ambiguity remains after all options are exhausted.
@@ -350,7 +357,20 @@ When a user request is ambiguous or incomplete, resolve it yourself — then act
 3. `<name>.py`
 4. If multiple files match and the intent is genuinely unclear — only then ask.
 
-**Launch package discovery** — when the package is unknown (user says "run the bringup", "launch navigation"): use keyword inference to find the right package. Use `ros2 pkg list` + `ros2 pkg files <package>` as Rule 25 last-resort exceptions until `launch list <keyword>` is available (Wave 5).
+**Launch parameter flags** — when the user supplies params at launch time, use the right flag:
+
+| User intent | Flag | Notes |
+|---|---|---|
+| Set specific param values | `--param key:=value,key2:=value2` | Comma-separated, any separator (`:=`, `=`, `:`) accepted |
+| Load a YAML config file or directory | `--config-path /path/to/config.yaml` | Directory → all `.yaml`/`.yml` files loaded alphabetically |
+| Apply a saved preset | `--preset <name>` | Reads `.presets/<name>.json`; lowest priority — positional and `--param` override |
+| Override individual preset values | `--preset <name> --param key:=override` | `--param` wins; combined with positional = full three-tier stack |
+
+**Priority order (ROS 2 last-wins):** positional args > `--param` > `--preset`. Always pass them on the same command — never issue a separate `params set` before launching.
+
+**Duplicate detection** — `launch new` checks for a running session with the same package + launch file before starting. If one exists, the response returns `warning` and `existing_session`. Act on it: kill the existing session first (`launch kill <session>`), then retry. Do not launch in parallel unless the user explicitly asks for a second instance.
+
+**Launch package discovery** — when the package is unknown (user says "run the bringup", "launch navigation"): use `launch list <keyword>` to search installed packages, then `launch new <package> <file>` with the result.
 
 | User says... | Search for packages/files containing... |
 |---|---|
@@ -413,6 +433,13 @@ If velocity ≥ 0.01 on any axis: send `estop`, verify it took effect, wait 0.5 
 
 **Long-motion segmentation (expected duration > 30 s):** break into max-30 s segments. Between segments: estop → verify stopped → `topics hz` → re-record baseline → issue next segment for remaining distance/angle.
 
+**Servo / control-loop task (≥ 10 Hz velocity publishing):** before starting, check CPU scheduling for the control node:
+```bash
+chrt -p $(pgrep -f <NODE_BINARY_NAME>)      # check scheduling policy
+cat /sys/devices/system/cpu/isolated         # check isolated CPUs (empty = none)
+```
+If `SCHED_OTHER` is reported instead of `SCHED_FIFO` or `SCHED_RR`, note it in the pre-task summary — the node may exhibit jitter under load. Use the binary name from `pkg executables <package>` (not the ROS node name). These are advisory checks only — do not block the task.
+
 **Nav2 goal preemption (SG-9):** before issuing any new velocity command, check for an active Nav2 goal:
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py actions list
@@ -435,6 +462,8 @@ When `topics find`, `services find`, or `actions find` returns empty:
 Use topic, service, action, node, and TF frame names exactly as returned — including leading slashes, namespace prefixes, and suffixes. Never strip or add a namespace. If multiple topics of the same type exist, use context keywords to select, then first result, without asking.
 
 **Multi-robot exception:** if topics from multiple distinct robot namespaces are found and no context clue identifies which robot, ask once: *"Which robot?"* — then lock in that namespace for the task.
+
+**Namespace filtering (multi-robot / "use namespace /robot1"):** no `--namespace` flag exists. Apply namespace context by running `topics list` / `nodes list` / `services list` / `actions list` and filtering returned names to those prefixed with the requested namespace (e.g. `/robot1/`). Use only the filtered, fully-qualified names for all subsequent commands in the task.
 
 ### 12 — Run independent discovery commands in parallel
 
@@ -630,7 +659,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics qos-check <topic>
 
 ### 38 — Discover launch files by keyword with `launch list <keyword>`
 
-When the user asks to "launch the navigation stack" or "start the robot", but the exact package/file is unknown, use `launch list <keyword>` to search all installed packages. It returns package names and full file paths matching the keyword. Then use `launch run <package> <file>` with the result.
+When the user asks to "launch the navigation stack" or "start the robot", but the exact package/file is unknown, use `launch list <keyword>` to search all installed packages. It returns package names and full file paths matching the keyword. Then use `launch new <package> <file>` with the result.
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py launch list <keyword>

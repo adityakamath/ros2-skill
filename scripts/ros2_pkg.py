@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """ROS 2 package commands.
 
-Implements pkg list, prefix, executables, and xml using ament_index_python.
-No rclpy.init() or running ROS 2 graph required — reads from the ament
-resource index and the filesystem only.
+Implements pkg list, prefix, executables, xml, and create using
+ament_index_python (for introspection) and subprocess (for create).
+No rclpy.init() or running ROS 2 graph required.
 """
 
 import os
 import pathlib
+import subprocess
 
 from ros2_utils import output
 
@@ -139,6 +140,71 @@ def cmd_pkg_xml(args):
         output({"package": args.package, "path": str(xml_path), "xml": content})
     except Exception as exc:
         output({"error": f"Failed to read package.xml: {exc}"})
+
+
+def cmd_pkg_create(args):
+    """Create a new ROS 2 package scaffold via 'ros2 pkg create'.
+
+    Delegates to the ros2 CLI so the generated CMakeLists.txt / setup.py
+    always matches the installed ROS 2 distro templates.  No graph required.
+    """
+    cmd_parts = ["ros2", "pkg", "create", args.package_name]
+
+    if args.build_type:
+        cmd_parts += ["--build-type", args.build_type]
+    if args.dependencies:
+        cmd_parts += ["--dependencies"] + args.dependencies
+    if args.destination_directory:
+        cmd_parts += ["--destination-directory", args.destination_directory]
+    if args.license:
+        cmd_parts += ["--license", args.license]
+    if args.maintainer_name:
+        cmd_parts += ["--maintainer-name", args.maintainer_name]
+    if args.maintainer_email:
+        cmd_parts += ["--maintainer-email", args.maintainer_email]
+    if args.description:
+        cmd_parts += ["--description", args.description]
+    if getattr(args, 'node_name', None):
+        cmd_parts += ["--node-name", args.node_name]
+    if getattr(args, 'library_name', None):
+        cmd_parts += ["--library-name", args.library_name]
+
+    try:
+        proc = subprocess.run(
+            cmd_parts,
+            capture_output=True, text=True, timeout=60,
+        )
+    except FileNotFoundError:
+        output({"error": "ros2 command not found — is ROS 2 sourced?",
+                "command": " ".join(cmd_parts)})
+        return
+    except subprocess.TimeoutExpired:
+        output({"error": "pkg create timed out after 60 seconds",
+                "command": " ".join(cmd_parts)})
+        return
+    except Exception as exc:
+        output({"error": str(exc)})
+        return
+
+    if proc.returncode != 0:
+        output({
+            "error": (proc.stderr.strip() or proc.stdout.strip()
+                      or "pkg create failed with no error message"),
+            "command": " ".join(cmd_parts),
+        })
+        return
+
+    destination = os.path.abspath(args.destination_directory or os.getcwd())
+    output({
+        "success": True,
+        "package": args.package_name,
+        "build_type": args.build_type or "ament_cmake",
+        "dependencies": args.dependencies or [],
+        "destination": destination,
+        "package_path": os.path.join(destination, args.package_name),
+        "command": " ".join(cmd_parts),
+        "output": proc.stdout.strip(),
+    })
 
 
 if __name__ == "__main__":

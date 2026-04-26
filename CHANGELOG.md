@@ -4,11 +4,16 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [1.0.7] - 2026-04-01
 
-Session-start context snapshot, topic list capping, security hardening, and agent rules audit.
+Session-start context snapshot, topic list capping, launch parameter and config support, package scaffolding, security hardening, and agent rules audit.
 
 ### New Commands
 
 - `context` — compact session-start graph snapshot: topics (capped at 50), services, actions, and nodes in a single call; use at session start instead of four separate discovery commands
+- `launch new --param key:=value[,key2:=value2]` — inject inline parameters at launch time; lower priority than positional args, higher than `--preset`
+- `launch new --config-path PATH` — forward a YAML file (or directory of YAML files, loaded alphabetically) to launched nodes via `--ros-args --params-file`; paths with spaces and special characters are safely quoted
+- `launch new --preset NAME` — apply a saved parameter preset from `.presets/{name}.json` before launch (lowest priority; positional and `--param` args override)
+- `launch new` duplicate detection — warns when the same package + launch file is already running in another session; returns `existing_session` and a `hint` to kill or restart instead
+- `pkg create <name>` — scaffold a new ROS 2 package via `ros2 pkg create`; supports `--build-type`, `--dependencies`, `--destination-directory`, `--license`, `--maintainer-name`, `--maintainer-email`, `--description`, `--node-name`, `--library-name`
 
 ### Changes
 
@@ -16,6 +21,19 @@ Session-start context snapshot, topic list capping, security hardening, and agen
 - `shlex.quote()` applied to all user-controlled inputs in `run_cmd` call sites; `session_exists` grep pipeline replaced with Python list check
 - AGENTS.md: removed phrasing matching jailbreak-scanner patterns; added camera/depth `camera_info` + TF frame pre-flight to Rule 2; added nested `interface show` recursion note to Rule 2; added `context` graph snapshot to Session Start Step 6
 - Rules: `context` command added to Rule 0.1 Step 5 (RULES.md) and Session Start Step 6 (AGENTS.md)
+- Rules: executor starvation diagnostic added to Rule 7 (stalled node + `SingleThreadedExecutor` + `ReentrantCallbackGroup` starvation pattern)
+- Rules: real-time scheduling advisory check added to Rule 0 pre-flight table for servo/control-loop tasks (`chrt`, isolated CPUs)
+- Rules: namespace filtering vocabulary added (multi-robot / "use namespace /robot1" — filter returned names by prefix; no `--namespace` flag)
+- SKILL.md: rewritten to agentskills.io format (251 lines, up from 76); added `allowed-tools: ["Bash", "Read"]`, `triggers` list, session start checklist, common operations quick reference, and progressive disclosure table (when to load each reference file)
+
+### Fixes
+
+- `launch new`: arg priority was inverted — `--preset` was winning over `--param` due to incorrect prepend order; fixed to single-pass build: `[preset] + [--param] + [positional]` (positional wins, as intended)
+- `launch restart`: params and preset were re-applied on restart even though they were already expanded into `launch_args`; fixed to pass `params=None, preset=None` on restart
+- `launch new`: config file paths were embedded unquoted in the tmux shell string; fixed with `shlex.quote()` to prevent injection via paths containing spaces or special characters
+- `launch new`: session-already-exists error message contained a literal `{session_name}` string (missing `f` prefix); fixed
+- `_parse_param_str`: bare args with no separator (e.g. `foo`) were silently dropped; now passed through to the arg validator which reports them explicitly
+- `pkg create`: `package_path` in output used an unresolved relative path from `os.getcwd()`; fixed to always emit an absolute path via `os.path.abspath()`
 
 ---
 

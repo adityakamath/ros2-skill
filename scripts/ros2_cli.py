@@ -151,6 +151,7 @@ from ros2_pkg import (
     cmd_pkg_prefix,
     cmd_pkg_executables,
     cmd_pkg_xml,
+    cmd_pkg_create,
 )
 from ros2_daemon import (
     cmd_daemon_status,
@@ -442,18 +443,6 @@ def build_parser():
                    help="Publish topic message type (auto-detected)")
     p.add_argument("--monitor-msg-type", dest="monitor_msg_type", default=None,
                    help="Monitor topic message type (auto-detected)")
-    p = tsub.add_parser("publish-continuous",
-                        help="Alias for publish "
-                             "(use topics publish --duration / --timeout instead)")
-    p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
-    p.add_argument("msg", nargs="?", help="JSON message to publish")
-    p.add_argument("--msg-type", dest="msg_type", default=None,
-                   help="Message type (auto-detected if not provided)")
-    p.add_argument("--duration", "--timeout", dest="duration", type=float, default=None,
-                   help="Publish repeatedly for this many seconds")
-    p.add_argument("--rate", type=float, default=10.0,
-                   help="Publish rate in Hz (default: 10)")
-
     # ------------------------------------------------------------------
     # services
     # ------------------------------------------------------------------
@@ -905,7 +894,18 @@ def build_parser():
     p = lsub.add_parser("new", help="Run a ROS 2 launch file")
     p.add_argument("package", help="Package name containing the launch file")
     p.add_argument("launch_file", help="Launch file name (without path)")
-    p.add_argument("args", nargs="*", help="Additional launch arguments")
+    p.add_argument("args", nargs="*", help="Additional launch arguments (name:=value)")
+    p.add_argument("--param", dest="params",
+                   help="Inline parameters as comma-separated key:=value pairs "
+                        "(e.g. --param use_sim_time:=true,robot_name:=my_robot)")
+    p.add_argument("--config-path",
+                   help="Path to a YAML config file or directory of YAML files; "
+                        "files are forwarded to launched nodes via --ros-args --params-file. "
+                        "When a directory is given, all .yaml/.yml files are loaded in "
+                        "alphabetical order (last file wins on duplicate keys).")
+    p.add_argument("--preset",
+                   help="Parameter preset name to apply (saved via 'params preset-save'); "
+                        "preset values have lower priority than explicit args and --param")
     p.add_argument("--timeout", type=float, default=30.0, help="Timeout for launch to start (default: 30)")
 
     p = lsub.add_parser("list", help="List running launch sessions, or search for launch files by keyword")
@@ -1060,6 +1060,29 @@ def build_parser():
     p = pkgsub.add_parser("xml", help="Output the package.xml of a package")
     p.add_argument("package", help="Package name (e.g. std_msgs)")
 
+    p = pkgsub.add_parser("create", help="Create a new ROS 2 package scaffold")
+    p.add_argument("package_name", help="Name of the new package")
+    p.add_argument("--build-type",
+                   choices=["ament_cmake", "ament_python", "cmake"],
+                   default=None,
+                   help="Build system type (default: ament_cmake)")
+    p.add_argument("--dependencies", nargs="*", metavar="DEP",
+                   help="Package dependencies to declare (space-separated)")
+    p.add_argument("--destination-directory", metavar="DIR",
+                   help="Directory to create the package in (default: current directory)")
+    p.add_argument("--license", metavar="SPDX",
+                   help="SPDX license identifier (e.g. Apache-2.0, MIT)")
+    p.add_argument("--maintainer-name", metavar="NAME",
+                   help="Maintainer name for package.xml")
+    p.add_argument("--maintainer-email", metavar="EMAIL",
+                   help="Maintainer email for package.xml")
+    p.add_argument("--description", metavar="TEXT",
+                   help="One-line package description for package.xml")
+    p.add_argument("--node-name", metavar="NODE", dest="node_name", default=None,
+                   help="Node name to use in generated source stubs (ament_cmake / ament_python)")
+    p.add_argument("--library-name", metavar="LIB", dest="library_name", default=None,
+                   help="Library name to use in generated CMakeLists.txt stubs (ament_cmake only)")
+
     return parser
 
 
@@ -1082,7 +1105,6 @@ DISPATCH = {
     ("topics", "publish"): cmd_topics_publish,
     ("topics", "publish-sequence"): cmd_topics_publish_sequence,
     ("topics", "publish-until"): cmd_topics_publish_until,
-    ("topics", "publish-continuous"): cmd_topics_publish,
     ("topics", "hz"): cmd_topics_hz,
     ("topics", "find"): cmd_topics_find,
     ("topics", "capture-image"): cmd_topics_capture_image,
@@ -1225,6 +1247,7 @@ DISPATCH = {
     ("pkg", "prefix"):      cmd_pkg_prefix,
     ("pkg", "executables"): cmd_pkg_executables,
     ("pkg", "xml"):         cmd_pkg_xml,
+    ("pkg", "create"):      cmd_pkg_create,
     # daemon
     ("daemon", "status"): cmd_daemon_status,
     ("daemon", "start"):  cmd_daemon_start,

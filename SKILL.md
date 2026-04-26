@@ -1,9 +1,26 @@
 ---
 name: ros2-skill
-description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), diagnostics, battery, system health checks, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
+description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), diagnostics, battery, system health checks, TF frames, bags, logs, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
+version: "1.0.7"
 license: Apache-2.0
-compatibility: "Requires python3, rclpy, and ROS 2 environment sourced"
-user-invokable: true
+compatibility: "python3, rclpy, ROS 2 environment sourced"
+allowed-tools: ["Bash", "Read"]
+triggers:
+  - "ros2"
+  - "robot.*topic|topic.*robot"
+  - "publish.*topic|subscribe.*topic|listen.*topic"
+  - "move.*robot|drive.*robot|robot.*move|robot.*drive"
+  - "navigate|nav2|send.*goal|waypoint"
+  - "ros2_control|controller.*manager|controller.*switch"
+  - "lifecycle.*node|node.*lifecycle"
+  - "TF.*frame|transform.*frame|frame.*transform"
+  - "ros.*param|parameter.*ros"
+  - "launch.*ros|ros.*launch"
+  - "bag.*record|bag.*play|ros.*bag"
+  - "ros.*log|node.*log"
+  - "estop|emergency.*stop|stop.*robot"
+  - "camera.*ros|ros.*camera|capture.*image.*robot"
+  - "ros.*doctor|health.*check.*ros"
 metadata:
   openclaw:
     emoji: "🤖"
@@ -13,63 +30,255 @@ metadata:
     category: "robotics"
     tags: ["ros2", "robotics", "rclpy"]
   author: ["adityakamath", "lpigeon"]
-  version: "1.0.5"
 ---
 
 # ROS 2 Skill
 
-Controls and monitors ROS 2 robots directly via rclpy. This skill provides a unified JSON interface for standard ROS 2 operations and agent-optimized workflows like closed-loop movement and image capture.
+Provides a structured JSON interface to a live ROS 2 robot. All commands output JSON. Every skill invocation follows three mandatory phases: **introspect → act → verify**. Never skip any phase.
 
-## 🚀 Capabilities
+## Entry Point
 
-- **Introspection:** List and find topics, nodes, services, and actions.
-- **Data Access:** Subscribe to any topic, capture camera images, and monitor diagnostics/battery.
-- **Interactions:** Call services and send action goals with feedback monitoring.
-- **Movement:** Agent-optimized `publish-until` (closed-loop with odom) and `publish-sequence` (timed).
-- **Configuration:** Get/set parameters, use presets, and manage lifecycle nodes.
-- **System:** Run `ros2 doctor`, manage `launch` files via tmux, and control `ros2_control` hardware.
-- **Packages:** List installed packages, resolve prefix paths, enumerate executables, and read `package.xml` manifests — no live graph required.
+**Always use `ros2_cli.py`. Never call `ros2` directly or run submodules directly.**
 
-## 🏗️ Architecture
-
-- **Entry Point:** `scripts/ros2_cli.py` — **this is the only file you should ever run directly.**
-- **Interface:** Agent → `ros2_cli.py` → rclpy → ROS 2 Graph
-- **Format:** All commands output JSON. Errors contain `{"error": "..."}`.
-
-> ⚠️ **Internal modules — do not run directly.**
-> All `scripts/ros2_*.py` files other than `ros2_cli.py` are **internal
-> implementation modules**, not standalone scripts. Running one directly
-> prints an error to stderr and exits with code 1 — it performs no ROS
-> operation. Always invoke commands through `ros2_cli.py`:
-> ```bash
-> python3 scripts/ros2_cli.py <command> [subcommand] [args]
-> python3 scripts/ros2_cli.py --help   # list all commands
-> ```
-
-## 📚 Documentation Reference
-
-To maintain performance and accuracy, this skill uses **Progressive Disclosure**:
-
-1. **[references/RULES.md](references/RULES.md) (CRITICAL):** Mandatory Agent Behaviour Rules (0–26), Safety Protocols, and Decision Frameworks. **These are hard constraints — not guidelines. Read and follow before performing any robot action. Violation = immediate halt, self-correct, retry.**
-2. **[references/COMMANDS.md](references/COMMANDS.md):** Full technical reference for all CLI subcommands, flags, and JSON payload structures.
-3. **[references/EXAMPLES.md](references/EXAMPLES.md):** Practical walkthroughs for common tasks like "Move N meters" or "Capture Camera Image".
-4. **[references/CLI.md](references/CLI.md):** Direct CLI usage reference for debugging and development. Not needed during normal agent operation.
-
-## 🛠️ Setup & Preconditions
-
-### 1. Source ROS 2
 ```bash
-source /opt/ros/${ROS_DISTRO}/setup.bash
+python3 {baseDir}/scripts/ros2_cli.py <command> [subcommand] [args]
+python3 {baseDir}/scripts/ros2_cli.py --help           # list all commands
+python3 {baseDir}/scripts/ros2_cli.py <command> --help # list subcommands
 ```
 
-### 2. Verify Connection
-Before any operation, verify the ROS 2 environment is active:
+`{baseDir}` is the path to the skill root directory. Resolve it from the skill metadata before running any command.
+
+---
+
+## Session Start Checklist
+
+Run once per session before the first task. Takes seconds. Catches the most common silent failures.
+
 ```bash
-python3 scripts/ros2_cli.py version
+# Step 1 — health check
+python3 {baseDir}/scripts/ros2_cli.py doctor
+
+# Step 2 — daemon
+python3 {baseDir}/scripts/ros2_cli.py daemon status
+python3 {baseDir}/scripts/ros2_cli.py daemon start      # if not running
+
+# Step 3 — simulated time (if applicable)
+python3 {baseDir}/scripts/ros2_cli.py topics find rosgraph_msgs/msg/Clock
+
+# Step 4 — lifecycle nodes (if present)
+python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes
+
+# Step 5 — log directory (no command — note for diagnostics)
+# Resolve: $ROS_LOG_DIR → $ROS_HOME/log/ → ~/.ros/log/
+
+# Step 6 — graph snapshot
+python3 {baseDir}/scripts/ros2_cli.py context          # topics (cap 50), services, actions, nodes
 ```
 
-### 3. Safety First
-Always check for velocity limits and active nodes before issuing movement commands. If a command hangs or the robot moves unsafely, use:
+Stop and tell the user if Step 1 reports critical failures. Re-run Step 3 before every timed command in simulation.
+
+---
+
+## Critical Rules
+
+Read [`references/RULES.md`](references/RULES.md) in full before the first action. These are hard constraints — not guidelines. Key principles:
+
+1. **Discover before acting.** Never hardcode topic, node, service, action, or TF frame names. Always query the live system first. Use `topics find <type>`, `nodes list`, `services list`, `actions list`, `tf list`.
+
+2. **Get the payload template.** Before publishing or calling: `interface proto <msg_type>`. Copy the output. Modify only the fields the task requires. For non-primitive nested fields, run `interface show <nested_type>` recursively until all leaf fields are primitives.
+
+3. **Verify every effect.** A zero-error CLI response means the request was delivered — not that the effect occurred. Always follow up: `params get`, `control list-controllers`, subscribe to confirm, etc.
+
+4. **Diagnose before reporting.** On any error: introspect → self-correct → retry → report. Never ask the user to interpret an error you can check with the CLI.
+
+5. **Safety is non-negotiable.** Velocity limits, pre-motion odom checks, and post-motion verify are mandatory. Never bypass them.
+
+6. **Context discovery is parallel.** When discovering multiple independent facts (velocity topic, odom topic, limits, controller state), issue all commands simultaneously — never sequentially.
+
+---
+
+## Common Operations
+
+### Introspection
+
 ```bash
-python3 scripts/ros2_cli.py estop
+python3 {baseDir}/scripts/ros2_cli.py context                             # session-start graph snapshot
+python3 {baseDir}/scripts/ros2_cli.py topics list [--limit N]             # list topics (cap at N)
+python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist # find velocity topic
+python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry   # find odom topic
+python3 {baseDir}/scripts/ros2_cli.py topics type <topic>                 # confirm exact type
+python3 {baseDir}/scripts/ros2_cli.py topics details <topic>              # publisher count + QoS
+python3 {baseDir}/scripts/ros2_cli.py topics hz <topic>                   # confirm topic is live
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+python3 {baseDir}/scripts/ros2_cli.py services list
+python3 {baseDir}/scripts/ros2_cli.py actions list
+python3 {baseDir}/scripts/ros2_cli.py tf list                             # discover TF frames
 ```
+
+### Publishing
+
+```bash
+# Get payload template first — always
+python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
+
+# Single publish
+python3 {baseDir}/scripts/ros2_cli.py topics publish <topic> '<json>'
+
+# Closed-loop movement (Euclidean distance)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
+  '{"linear":{"x":0.2},"angular":{"z":0}}' \
+  --monitor <odom_topic> --field pose.pose.position --euclidean --delta 1.0 --timeout 60
+
+# Closed-loop rotation (sign of --rotate MUST match sign of angular.z)
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
+  '{"linear":{"x":0},"angular":{"z":0.5}}' \
+  --monitor <odom_topic> --rotate 90 --degrees --timeout 30
+
+# Subscribe (read sensor data)
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <topic> --max-messages 1 --timeout 5
+```
+
+### Services and Actions
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py services details <service>          # request/response fields
+python3 {baseDir}/scripts/ros2_cli.py services call <service> '<json>'
+python3 {baseDir}/scripts/ros2_cli.py actions details <action>            # goal/result/feedback fields
+python3 {baseDir}/scripts/ros2_cli.py actions send <action> '<json>' --timeout 60
+python3 {baseDir}/scripts/ros2_cli.py actions cancel <goal_id>
+```
+
+### Parameters
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py params list <node>
+python3 {baseDir}/scripts/ros2_cli.py params describe <node:param>        # type, range, read-only
+python3 {baseDir}/scripts/ros2_cli.py params get <node:param>
+python3 {baseDir}/scripts/ros2_cli.py params set <node:param> <value>
+```
+
+### Controllers and Lifecycle
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py control list-controllers
+python3 {baseDir}/scripts/ros2_cli.py control list-hardware-components
+python3 {baseDir}/scripts/ros2_cli.py control switch-controllers --activate <name> --deactivate <name>
+python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes
+python3 {baseDir}/scripts/ros2_cli.py lifecycle get <node>
+python3 {baseDir}/scripts/ros2_cli.py lifecycle set <node> activate
+```
+
+### Camera and Images
+
+```bash
+# Always verify camera_info + TF before using camera data
+python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CameraInfo
+python3 {baseDir}/scripts/ros2_cli.py topics subscribe <camera_info_topic> --max-messages 1 --timeout 2
+# Confirm K matrix is non-zero and frame_id is in tf list before proceeding
+python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg
+```
+
+### Diagnostics and Health
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py doctor                              # full DDS/graph health check
+python3 {baseDir}/scripts/ros2_cli.py doctor hello                        # DDS multicast test
+python3 {baseDir}/scripts/ros2_cli.py topics diag                         # subscribe /diagnostics
+python3 {baseDir}/scripts/ros2_cli.py topics battery                      # battery state
+```
+
+### Launch
+
+```bash
+# Find a launch file by keyword
+python3 {baseDir}/scripts/ros2_cli.py launch list <keyword>
+
+# Start a launch file (duplicate detection runs automatically)
+python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file>
+
+# With inline params (higher priority than --preset, lower than positional args)
+python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> --param use_sim_time:=true,robot_name:=my_bot
+
+# With a YAML config file or directory (forwarded via --ros-args --params-file)
+python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> --config-path /path/to/config.yaml
+
+# With a saved parameter preset (lowest priority — positional and --param override)
+python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> --preset my_preset
+
+# Manage sessions
+python3 {baseDir}/scripts/ros2_cli.py launch list                         # running launch sessions
+python3 {baseDir}/scripts/ros2_cli.py launch kill <session>               # stop a session
+python3 {baseDir}/scripts/ros2_cli.py launch restart <session>            # restart with same args
+```
+
+**Priority order** (ROS 2 last-wins): positional args > `--param` > `--preset`. Positional args always win.
+**Duplicate detection**: if the same package + launch file is already running, a warning with `existing_session` is returned instead of launching again.
+
+### Packages, Bags, and TF
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py pkg list                            # installed packages (no graph)
+python3 {baseDir}/scripts/ros2_cli.py pkg prefix <package>                # install prefix
+python3 {baseDir}/scripts/ros2_cli.py pkg executables <package>           # launchable executables
+python3 {baseDir}/scripts/ros2_cli.py pkg xml <package>                   # package.xml contents
+python3 {baseDir}/scripts/ros2_cli.py pkg create <name> [--build-type ament_cmake|ament_python|cmake] \
+    [--dependencies rclcpp std_msgs] [--node-name my_node] [--library-name my_lib] \
+    [--destination-directory /path]                                        # scaffold new package (no graph)
+python3 {baseDir}/scripts/ros2_cli.py bag info <bag_path>                 # bag metadata (no graph)
+python3 {baseDir}/scripts/ros2_cli.py tf list                             # all TF frames
+python3 {baseDir}/scripts/ros2_cli.py tf echo <source_frame> <target_frame>
+```
+
+---
+
+## Output Folders
+
+All outputs are written to hidden folders inside the skill directory. Never use `/tmp`.
+
+| Folder | Contents |
+|---|---|
+| `{baseDir}/.artifacts/` | Captured images, logs, and all generated outputs |
+| `{baseDir}/.presets/` | Saved parameter presets (`params preset-save` / `params preset-load`) |
+| `{baseDir}/.profiles/` | Robot profiles |
+
+---
+
+## Emergency Stop
+
+Send immediately on any unsafe motion or unexpected robot behaviour:
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py estop
+```
+
+After estop: verify velocity ≈ 0 by subscribing `<ODOM_TOPIC> --max-messages 1 --timeout 5`. If velocity is still non-zero after 5 s (10 s for heavy platforms > 20 kg), escalate as critical failure.
+
+---
+
+## Commands Without a Live Graph
+
+These work without ROS running or nodes active:
+
+| Command | Purpose |
+|---|---|
+| `version` | Verify skill is installed and reachable |
+| `daemon status / start / stop` | Manage the ROS 2 daemon |
+| `bag info <file>` | Bag metadata (duration, message counts, per-topic stats) |
+| `component types` | List registered composable node types |
+| `--help` on any command | Inspect flags and subcommands |
+| `pkg list / prefix / executables / xml` | Package introspection |
+| `pkg create <name> [flags]` | Scaffold a new ROS 2 package |
+
+---
+
+## Reference Files
+
+This skill uses **progressive disclosure**. SKILL.md covers the most common operations. Load the files below when the task requires deeper detail.
+
+| File | When to load |
+|---|---|
+| [`references/RULES.md`](references/RULES.md) | **Load before the first action in any session.** Contains all mandatory agent behaviour rules (Rules 0–38), safety protocols, velocity limit discovery, motion error lockout, verification protocols, and the full vocabulary trigger table. 1677 lines — use the section headers to navigate: Rule 0 (pre-flight), Rule 0.1 (session start), Rule 3 (motion), Rule 7 (failure diagnosis), Rule 8 (verification), Rule 9 (motion pre-check). |
+| [`references/COMMANDS.md`](references/COMMANDS.md) | Load when you need the exact flag name, argument format, or JSON output structure for a specific command. 4535 lines — use `--help` on the specific subcommand first; only load this file if `--help` is insufficient or unavailable. |
+| [`references/EXAMPLES.md`](references/EXAMPLES.md) | Load for step-by-step walkthroughs of common tasks (move N meters, capture camera image, send Nav2 goal, etc.). 699 lines. |
+| [`references/CLI.md`](references/CLI.md) | Load for direct `ros2` CLI equivalents and debugging. Not needed during normal agent operation. 90 lines. |
+| [`AGENTS.md`](AGENTS.md) | Load for the full agent operating protocol — condensed rules, session start detail, reporting style, subcommand inference, motion workflows, and multi-robot handling. Load this alongside RULES.md at session start. |
