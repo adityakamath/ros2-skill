@@ -1,7 +1,7 @@
 ---
 name: ros2-skill
 description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), diagnostics, battery, system health checks, TF frames, bags, logs, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
-version: "1.0.8"
+version: "1.0.9"
 license: Apache-2.0
 compatibility: "python3, rclpy, ROS 2 environment sourced"
 allowed-tools: ["Bash", "Read"]
@@ -265,6 +265,31 @@ python3 {baseDir}/scripts/ros2_cli.py launch restart <session>            # rest
 **Priority order** (ROS 2 last-wins): positional args > `--param` > `--preset`. Positional args always win.
 **Duplicate detection**: if the same package + launch file is already running, a warning with `existing_session` is returned instead of launching again.
 
+### Log Introspection
+
+Works without a live ROS 2 graph — reads `~/.ros/log/` (or `$ROS_LOG_DIR`).
+
+```bash
+# Discover available runs (newest first)
+python3 {baseDir}/scripts/ros2_cli.py logs list-runs [--limit 20]
+
+# Query entries with filters (default: latest run, all severities)
+python3 {baseDir}/scripts/ros2_cli.py logs query [--run <id>] [--severity WARN] \
+  [--node <name>] [--after -30s] [--before -5m] [--text <substr>] [--regex <pat>] \
+  [--max 200]
+
+# Incremental tail — only entries since the last call (persists offsets)
+python3 {baseDir}/scripts/ros2_cli.py logs tail [--run <id>] [--initial-lines 50] \
+  [--reset]
+
+# Per-node statistics: totals, severity breakdown, top recurring messages
+python3 {baseDir}/scripts/ros2_cli.py logs node-summary [--run <id>] [--top 5]
+```
+
+**Time filter formats for `--after` / `--before`:** `-30s`, `-5m`, `-2h` (relative to now), epoch float, or ISO datetime (`2026-04-30T10:00:00`).
+
+**`logs tail` workflow:** Call once to seed offsets (returns last ~50 lines); call again during the run to get only new entries. Use `--reset` to re-seed when switching to a new run.
+
 ### Packages, Bags, and TF
 
 ```bash
@@ -315,6 +340,10 @@ These work without ROS running or nodes active:
 | `version` | Verify skill is installed and reachable |
 | `daemon status / start / stop` | Manage the ROS 2 daemon |
 | `bag info <file>` | Bag metadata (duration, message counts, per-topic stats) |
+| `logs list-runs` | List available ROS 2 log runs in the log directory |
+| `logs query` | Filter log entries by severity, node, time, text |
+| `logs tail` | Incremental log reading (new entries since last call) |
+| `logs node-summary` | Per-node log statistics for a run |
 | `component types` | List registered composable node types |
 | `--help` on any command | Inspect flags and subcommands |
 | `pkg list / prefix / executables / xml` | Package introspection |

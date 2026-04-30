@@ -138,6 +138,12 @@ from ros2_interface import (
 from ros2_bag import (
     cmd_bag_info,
 )
+from ros2_logs import (
+    cmd_logs_list_runs,
+    cmd_logs_query,
+    cmd_logs_tail,
+    cmd_logs_node_summary,
+)
 from ros2_component import (
     cmd_component_types,
     cmd_component_list,
@@ -1182,6 +1188,114 @@ def build_parser():
     hb_inner.add_parser("ping", help="Refresh the heartbeat sentinel")
     hb_inner.add_parser("status", help="Check watchdog status")
 
+    # -------------------------------------------------------------------------
+    # logs
+    # -------------------------------------------------------------------------
+    logs = sub.add_parser(
+        "logs",
+        help="ROS 2 log file introspection — no graph required",
+    )
+    logssub = logs.add_subparsers(dest="subcommand")
+
+    # list-runs
+    p = logssub.add_parser(
+        "list-runs",
+        help="List available log runs newest-first",
+    )
+    p.add_argument(
+        "--limit", type=int, default=20, metavar="N",
+        help="Max runs to return (default: 20, 0 = no limit)",
+    )
+    p.add_argument(
+        "--log-dir", dest="log_dir", default=None, metavar="DIR",
+        help="Override log directory (default: ~/.ros/log or $ROS_LOG_DIR)",
+    )
+
+    # query
+    p = logssub.add_parser(
+        "query",
+        help="Filter log entries by severity, node, time, text",
+    )
+    p.add_argument(
+        "--run", default=None, metavar="RUN_ID",
+        help="Run ID to query (default: latest)",
+    )
+    p.add_argument(
+        "--severity", default="DEBUG",
+        choices=["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+        help="Minimum severity level (default: DEBUG = all)",
+    )
+    p.add_argument(
+        "--node", default=None, metavar="NAME",
+        help="Filter by node name (substring match)",
+    )
+    p.add_argument(
+        "--after", default=None, metavar="TIME",
+        help="Lower time bound: -30s | -5m | -1h | epoch-float | ISO datetime",
+    )
+    p.add_argument(
+        "--before", default=None, metavar="TIME",
+        help="Upper time bound: same formats as --after",
+    )
+    p.add_argument(
+        "--text", default=None, metavar="SUBSTR",
+        help="Plain-text substring to match in message",
+    )
+    p.add_argument(
+        "--regex", default=None, metavar="PATTERN",
+        help="Python regex to match in message (case-insensitive)",
+    )
+    p.add_argument(
+        "--max", type=int, default=200, metavar="N",
+        help="Max entries to return (default: 200)",
+    )
+    p.add_argument(
+        "--log-dir", dest="log_dir", default=None, metavar="DIR",
+        help="Override log directory",
+    )
+
+    # tail
+    p = logssub.add_parser(
+        "tail",
+        help="Incremental tail — new entries since last call",
+    )
+    p.add_argument(
+        "--run", default=None, metavar="RUN_ID",
+        help="Run ID to tail (default: latest)",
+    )
+    p.add_argument(
+        "--initial-lines", dest="initial_lines", type=int, default=50,
+        metavar="N",
+        help="Lines from end to return on first call (default: 50)",
+    )
+    p.add_argument(
+        "--reset", action="store_true",
+        help="Discard saved offsets and re-seed from the tail of the file",
+    )
+    p.add_argument(
+        "--log-dir", dest="log_dir", default=None, metavar="DIR",
+        help="Override log directory",
+    )
+
+    # node-summary
+    p = logssub.add_parser(
+        "node-summary",
+        help="Per-node statistics: totals, severity breakdown, top messages",
+    )
+    p.add_argument(
+        "--run", default=None, metavar="RUN_ID",
+        help="Run ID to analyse (default: latest)",
+    )
+    p.add_argument(
+        "--top", type=int, default=5, metavar="N",
+        help="Number of top recurring message patterns to return per node "
+             "(default: 5)",
+    )
+    p.add_argument(
+        "--log-dir", dest="log_dir", default=None, metavar="DIR",
+        help="Override log directory",
+    )
+
     return parser
 
 
@@ -1351,6 +1465,11 @@ DISPATCH = {
     ("daemon", "status"): cmd_daemon_status,
     ("daemon", "start"):  cmd_daemon_start,
     ("daemon", "stop"):   cmd_daemon_stop,
+    # logs
+    ("logs", "list-runs"):    cmd_logs_list_runs,
+    ("logs", "query"):        cmd_logs_query,
+    ("logs", "tail"):         cmd_logs_tail,
+    ("logs", "node-summary"): cmd_logs_node_summary,
     # safety
     ("safety", "show"):         cmd_safety_show,
     ("safety", "enable"):       cmd_safety_enable,

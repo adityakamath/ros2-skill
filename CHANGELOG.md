@@ -2,6 +2,44 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.9] - 2026-04-30
+
+Log file introspection command group (L1–L4). Works without a live ROS 2 graph —
+reads directly from `~/.ros/log/` (or `$ROS_LOG_DIR`). Pure Python stdlib, no new dependencies.
+
+### New Files
+
+- `scripts/ros2_logs.py` — log introspection module: run discovery, log-line parser,
+  incremental-tail offset tracking, per-node statistics
+
+### New Commands
+
+- `logs list-runs [--limit N] [--log-dir DIR]`
+  List available ROS 2 log runs newest-first. Returns run_id, path, file count,
+  total size, started_at, last_modified.
+
+- `logs query [--run ID] [--severity LEVEL] [--node NAME] [--after TIME] [--before TIME] [--text SUBSTR] [--regex PAT] [--max N] [--log-dir DIR]`
+  Multi-dimensional filter over all log files in a run. Severity: DEBUG | INFO | WARN | ERROR | FATAL.
+  Time filters accept -30s / -5m / -2h (relative), epoch float, or ISO datetime.
+  Returns total_matched + capped entries list with time_iso fields.
+
+- `logs tail [--run ID] [--initial-lines N] [--reset] [--log-dir DIR]`
+  Incremental log reading — only entries written since the last call.
+  Persists per-file byte offsets to `.artifacts/logs_tail_state.json`.
+  First call (or `--reset`) seeds offsets from the tail of existing files
+  (~--initial-lines from the end, default 50).
+
+- `logs node-summary [--run ID] [--top N] [--log-dir DIR]`
+  Per-node statistics: total message count, severity breakdown (DEBUG/INFO/WARN/ERROR/FATAL),
+  top N recurring message patterns (numbers/hex normalised), first/last timestamps.
+  Nodes sorted by message volume descending. Includes global aggregate counts.
+
+### No-Graph Commands Table
+
+All four `logs` commands added to the "Commands Without a Live Graph" table in SKILL.md.
+
+---
+
 ## [1.0.8] - 2026-04-30
 
 AG-7 Safety Validator: code-level enforcement of velocity limits, geofence constraints,
