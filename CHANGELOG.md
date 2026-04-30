@@ -2,6 +2,62 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.8] - 2026-04-30
+
+AG-7 Safety Validator: code-level enforcement of velocity limits, geofence constraints,
+command allow/blocklists, and heartbeat watchdog. No longer relies solely on prompt rules.
+
+### New Files
+
+- `scripts/ros2_safety.py` — safety validator core: config load/save, velocity checks,
+  geofence checks, command filter, validate_publish aggregator, all `safety` command handlers
+- `scripts/ros2_watchdog.py` — standalone heartbeat watchdog process (~80 lines); launched
+  in a detached tmux session; fires estop once and exits on sentinel timeout
+
+### New Commands
+
+- `safety show` — print full active safety config and config file path
+- `safety enable / disable` — toggle the global safety switch (disable warns loudly)
+- `safety set-velocity --linear N --angular N` — update norm ceilings (m/s, rad/s)
+- `safety set-velocity --axis linear_y_max --value N` — set per-axis limit
+- `safety set-geofence --mode circle --cx X --cy Y --radius M` — configure circle geofence
+- `safety set-geofence --mode rectangle --xmin/--xmax/--ymin/--ymax` — configure rectangle geofence
+- `safety geofence enable / disable` — toggle geofence without touching other config
+- `safety block <command> [subcommand]` — append to blocklist; auto-enables command filter
+- `safety unblock <command> [subcommand]` — remove from blocklist
+- `safety validate --topic T --msg-type MT --msg JSON` — dry-run check; reports action without publishing
+- `safety reset [--yes]` — restore all defaults
+- `safety heartbeat start [--timeout N] [--poll N]` — arm the watchdog
+- `safety heartbeat stop` — kill the watchdog and disable heartbeat in config
+- `safety heartbeat ping` — manually refresh the sentinel file
+- `safety heartbeat status` — report watchdog session state and sentinel age
+
+### Safety Hook Points
+
+- `topics publish` — `validate_publish()` called after msg parsed, before publish loop
+- `topics publish-sequence` — all messages validated upfront before the loop starts
+- `topics publish-until` — `validate_publish()` called after type resolution, before loop start
+- `actions send` — geofence check applied to any goal with `pose.pose.position` path
+- `ros2_cli.py main()` — `check_command()` applied at dispatch before every handler call
+
+### Config
+
+- `{skill_root}/.presets/safety.json` — auto-created on first `safety show` if absent
+- Defaults: velocity enabled (0.5 m/s linear, 1.0 rad/s angular), geofence off,
+  command filter off, heartbeat off
+- Partial configs are valid (missing keys fall back to defaults); malformed JSON falls
+  back silently to defaults — a broken config never disables the skill
+
+### Agent Protocol
+
+- AGENTS.md: added "Safety Validator Response Protocol" section with mandatory rules for
+  `blocked`/`capped`/`warning` responses and heartbeat management
+- RULES.md Rule 0.1: added Step 6 — `safety show` at session start before motion commands
+- SKILL.md: added "Safety Validator" command reference section with all subcommands and
+  violation mode explanations
+
+---
+
 ## [1.0.7] - 2026-04-01
 
 Session-start context snapshot, topic list capping, launch parameter and config support, package scaffolding, security hardening, and agent rules audit.

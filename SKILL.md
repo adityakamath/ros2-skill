@@ -1,7 +1,7 @@
 ---
 name: ros2-skill
 description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), diagnostics, battery, system health checks, TF frames, bags, logs, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
-version: "1.0.7"
+version: "1.0.8"
 license: Apache-2.0
 compatibility: "python3, rclpy, ROS 2 environment sourced"
 allowed-tools: ["Bash", "Read"]
@@ -177,6 +177,57 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe <camera_info_topic> --max
 # Confirm K matrix is non-zero and frame_id is in tf list before proceeding
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg
 ```
+
+### Safety Validator
+
+The safety validator enforces velocity limits, geofence constraints, and command allow/blocklists
+at code level — independent of the prompt-level rules in RULES.md. Config lives in
+`{baseDir}/.presets/safety.json`. Defaults apply if the file doesn't exist.
+
+```bash
+# Inspect and configure
+python3 {baseDir}/scripts/ros2_cli.py safety show                         # show active config + path
+python3 {baseDir}/scripts/ros2_cli.py safety enable                       # re-enable globally
+python3 {baseDir}/scripts/ros2_cli.py safety disable                      # disable all checks (warns)
+
+# Velocity limits (default: linear 0.5 m/s norm, angular 1.0 rad/s norm)
+python3 {baseDir}/scripts/ros2_cli.py safety set-velocity --linear 0.3 --angular 0.8
+python3 {baseDir}/scripts/ros2_cli.py safety set-velocity --axis angular_z_max --value 0.5
+
+# Geofence (off by default — must be explicitly enabled)
+python3 {baseDir}/scripts/ros2_cli.py safety set-geofence --mode circle --cx 0 --cy 0 --radius 5
+python3 {baseDir}/scripts/ros2_cli.py safety set-geofence --mode rectangle --xmin -3 --xmax 3 --ymin -3 --ymax 3
+python3 {baseDir}/scripts/ros2_cli.py safety geofence enable
+python3 {baseDir}/scripts/ros2_cli.py safety geofence disable
+
+# Command blocklist
+python3 {baseDir}/scripts/ros2_cli.py safety block topics publish         # block publish subcommand
+python3 {baseDir}/scripts/ros2_cli.py safety block launch                 # block all launch subcommands
+python3 {baseDir}/scripts/ros2_cli.py safety unblock topics publish
+
+# Dry-run check (does not publish)
+python3 {baseDir}/scripts/ros2_cli.py safety validate \
+    --topic /cmd_vel --msg-type geometry_msgs/msg/Twist \
+    --msg '{"linear":{"x":1.5},"angular":{"z":0}}'
+
+# Heartbeat watchdog (dead man's switch — off by default)
+python3 {baseDir}/scripts/ros2_cli.py safety heartbeat start --timeout 5  # arm watchdog
+python3 {baseDir}/scripts/ros2_cli.py safety heartbeat ping               # refresh sentinel
+python3 {baseDir}/scripts/ros2_cli.py safety heartbeat status             # check if running
+python3 {baseDir}/scripts/ros2_cli.py safety heartbeat stop               # disarm
+
+# Reset to defaults
+python3 {baseDir}/scripts/ros2_cli.py safety reset --yes
+```
+
+**`on_violation` modes** (set in safety.json `velocity_limits.on_violation`):
+- `"reject"` (default) — block the command; agent must stop.
+- `"cap"` — clamp velocity proportionally; command executes at reduced speed.
+- `"warn"` — execute unchanged; add `safety_warning` to output.
+
+**When the agent receives `"blocked": true`**: stop immediately, report `reason` and `limits`
+verbatim to the user, do not retry or work around. Only permitted next actions: ask the user
+to relax limits with `safety set-velocity`, or stop the task.
 
 ### Diagnostics and Health
 

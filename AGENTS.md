@@ -828,6 +828,52 @@ Mismatched signs (e.g. `--rotate 90` with `angular.z: -0.5`) = monitor waits for
 
 ---
 
+## Safety Validator Response Protocol
+
+The safety validator enforces limits at code level before any publish or action call. These
+responses are mandatory — not guidelines.
+
+### `"blocked": true`
+
+Any command that returns `"blocked": true` is a hard constraint violation.
+
+1. **Stop immediately.** Do not retry the same command with the same or similar payload.
+2. **Report to user verbatim.** Include the `"reason"` field and `"limits"` if present.
+3. **Do not reframe or dismiss** the block ("it's just a small overage", etc.).
+4. **Do not work around it** by splitting velocity into multiple smaller publishes, using a
+   different topic, calling a launch file, or any other circumvention.
+5. **Permitted next actions only:**
+   - Ask the user if they want to relax the limit: `safety set-velocity --linear <new>`
+   - Or stop the task and wait for user instruction.
+
+### `"safety_capped": true`
+
+The command executed with a capped velocity (on_violation = "cap").
+
+1. Include the `"capped"` field in your report so the user knows what was actually sent.
+2. Note the deviation from the requested velocity in one line.
+3. Continue normally — the command succeeded.
+
+### `"safety_warning": ...`
+
+The command executed unchanged but exceeded configured limits (on_violation = "warn").
+
+1. Log the warning in the session summary.
+2. No action required unless the user asked to be notified.
+
+### Heartbeat watchdog
+
+When the heartbeat is enabled (`safety heartbeat start`), motion commands automatically
+refresh the sentinel. If your session goes idle for more than `timeout_s` seconds without
+a motion command or explicit `safety heartbeat ping`, the watchdog fires an estop.
+
+- Arm once at session start when instructed: `safety heartbeat start --timeout 5`
+- Keep-alive during long-running operations: `safety heartbeat ping`
+- Check status: `safety heartbeat status`
+- Disarm: `safety heartbeat stop`
+
+---
+
 ## When Things Go Wrong
 
 | Symptom | Likely cause | Fix |

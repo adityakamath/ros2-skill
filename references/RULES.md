@@ -63,6 +63,7 @@ This rule exists because:
 | Set a parameter | 1. `nodes list` to discover the node name<br>2. `params list <node>` to discover the parameter name (never assume it)<br>3. `params describe <node:param>` to confirm type (int/float/bool/string), valid range, and read-only status — **never set a parameter without this; wrong type silently truncates or is rejected**<br>4. `params set <node:param> <value>` with value matching the confirmed type; verify with `params get` after (Rule 8) |
 | Get / list / dump parameters | `nodes list` to discover the node name; `params list <node>` to discover parameter names |
 | Load parameters from a YAML file (`params load` or `--params-file` in launch) | 1. `nodes list` to confirm the target node is running.<br>2. `params list <node>` to get the current parameter names on that node.<br>3. Compare YAML file keys against the discovered names — **any YAML key that does not match a declared parameter is silently ignored; no error is raised.** Verify every key you intend to set is present in `params list` output before loading.<br>4. For each YAML key you will set, `params describe <node:param>` to confirm type — a YAML string loaded into an integer parameter silently fails or truncates.<br>5. After loading: `params get <node:param>` on each key to verify values were applied (Rule 8). |
+| Run a servo / control-loop task (any node publishing velocity commands at ≥ 10 Hz) | Check CPU scheduling policy for the control node: `chrt -p $(pgrep -f <NODE_BINARY_NAME>)` — if output shows `scheduling policy: SCHED_OTHER`, the node lacks real-time priority and may exhibit jitter or periodic latency spikes under load. Optionally check isolated CPUs: `cat /sys/devices/system/cpu/isolated` — if empty, no cores are isolated for real-time use. Both checks are **advisory only**: report findings in the pre-task summary; do not block the task. Use the binary name from `pkg executables <package>` — not the ROS node name (e.g. use `controller_manager` not `/controller_manager`). |
 
 **Parameter introspection is mandatory before any movement command.** Velocity limits can live on any node — not just nodes with "controller" in the name. Before publishing velocity, sweep **all four limit sources** in parallel:
 
@@ -153,6 +154,15 @@ Store this path. When diagnosing failures or silent node behaviour, individual n
 python3 {baseDir}/scripts/ros2_cli.py context
 ```
 Returns topics, services, actions, and nodes in a single call. Use this to pre-load graph state at session start rather than running four separate discovery commands. Topics are capped at 50 by default (`--limit 0` for unlimited). Store the output; reference it during task planning to avoid redundant discovery round-trips.
+
+**Step 6 — Check safety config (if motion commands are planned):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py safety show
+```
+Review `velocity_limits` (linear_max_norm, angular_max_norm, per_axis) and whether `geofence` and
+`command_filter` are enabled. The safety validator enforces these limits at code level — they
+cannot be overridden by prompt instructions. If the limits are tighter than the task requires,
+tell the user and ask to adjust with `safety set-velocity`. Do not attempt to work around limits.
 
 **These checks are session-level.** Do not re-run for every command. Re-run only if the user relaunches the robot or if nodes appear/disappear unexpectedly.
 
@@ -476,6 +486,12 @@ services call <SET_LOGGER_LEVEL_SERVICE> '{"logger_name": "", "level": 10}'
 services call <SET_LOGGER_LEVEL_SERVICE> '{"logger_name": "", "level": 20}'
 ```
 Use `logger_name: ""` to affect the root logger, or specify the node's fully qualified logger name (e.g., `"my_controller"`) to narrow the scope. **Only escalate to the user if debug-level output still does not identify the cause.**
+
+**Stalled node — executor starvation check:**
+If a node appears in `nodes list` and its input topics are actively publishing (`topics hz <input_topic>` > 0) but the node produces no output, check for a known starvation pattern: `SingleThreadedExecutor` combined with a `ReentrantCallbackGroup`. A long-running callback (timer, service handler, or subscriber) occupies the single executor thread and blocks all other callbacks from firing — including downstream publishers, other timers, and response handlers. The ROS 2 CLI cannot expose executor type directly. Diagnose in order:
+1. Use the pre-escalation log-level elevation above — look for a callback that enters (log line at function entry) but never returns (no corresponding exit or completion log line at DEBUG level).
+2. If the node's source code is accessible, check the executor type in `main()` or in the launch configuration.
+3. **Recommended fix:** replace `SingleThreadedExecutor` with `MultiThreadedExecutor`, or restructure the blocking callback into a non-blocking pattern. Report this as the root cause if confirmed — do not retry the same command expecting a different result.
 
 **Robot not moving — silent controller rejection diagnostic:**
 If odom velocity stays ≈ 0 for more than 2 s after a `publish-until` or `topics publish` command was issued (i.e., commands are being sent but the robot is not responding), apply this diagnostic in order — do not guess:
@@ -1301,6 +1317,8 @@ Motion command received
 | "controller chain / how controllers connect / view controller chain / controller dependencies / controller pipeline" | View controller chain | `control view-controller-chains` |
 | "what's the QoS of X / reliability of X / durability of X / is X transient local / best effort or reliable" | Check QoS profile | `topics details <topic>` (read QoS fields) |
 | "what namespace is X in / what's the prefix of X / robot namespace" | Inspect topic/node namespace | `topics list` or `nodes list` → examine returned names |
+| "use namespace /robot1 / set namespace / restrict to namespace / all commands under /robot1 / work in robot1 namespace" | Apply namespace context for this task | `topics list` → filter results to names with `/robot1` prefix; use only those fully-qualified names for all topic, service, and action commands in this task. No `--namespace` flag exists — filtering is done by inspecting returned names. |
+| "list topics for robot1 / topics in /robot2 namespace / what's publishing under /robot1 / multi-robot topic list / topics per robot" | List topics within a specific robot namespace | `topics list` → filter results by `/robot<N>` prefix; `nodes list` → filter by namespace prefix; report only matching names |
 | **— READING / MONITORING: GENERIC —** | | |
 | "read / listen to / monitor / subscribe to / show me data from / stream / watch / look at / observe / sample / echo / print / dump / what is X publishing / what's on X" | Subscribe to a topic | `topics find <type>` → `topics subscribe <discovered_topic>` |
 | "how fast is X publishing / topic rate / is X active / Hz of X / what's the frequency of X / publish rate of X / messages per second" | Check topic publish rate | `topics hz <topic>` (discover topic first if name not given) |

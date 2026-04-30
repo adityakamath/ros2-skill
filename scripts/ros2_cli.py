@@ -158,6 +158,25 @@ from ros2_daemon import (
     cmd_daemon_start,
     cmd_daemon_stop,
 )
+from ros2_safety import (
+    cmd_safety_show,
+    cmd_safety_enable,
+    cmd_safety_disable,
+    cmd_safety_set_velocity,
+    cmd_safety_set_geofence,
+    cmd_safety_geofence_enable,
+    cmd_safety_geofence_disable,
+    cmd_safety_block,
+    cmd_safety_unblock,
+    cmd_safety_validate,
+    cmd_safety_reset,
+    cmd_safety_heartbeat_start,
+    cmd_safety_heartbeat_stop,
+    cmd_safety_heartbeat_ping,
+    cmd_safety_heartbeat_status,
+    check_command,
+    load_config as _safety_load_config,
+)
 from ros2_control import (
     cmd_control_list_controller_types,
     cmd_control_list_controllers,
@@ -1083,6 +1102,86 @@ def build_parser():
     p.add_argument("--library-name", metavar="LIB", dest="library_name", default=None,
                    help="Library name to use in generated CMakeLists.txt stubs (ament_cmake only)")
 
+    # -------------------------------------------------------------------------
+    # safety
+    # -------------------------------------------------------------------------
+    safety = sub.add_parser("safety", help="Safety validator configuration and dry-run")
+    safetysub = safety.add_subparsers(dest="subcommand")
+
+    safetysub.add_parser("show", help="Show active safety config")
+    safetysub.add_parser("enable", help="Enable safety validator globally")
+    safetysub.add_parser("disable", help="Disable safety validator globally (all checks off)")
+
+    p = safetysub.add_parser("set-velocity", help="Update velocity norm ceilings or per-axis limits")
+    p.add_argument("--linear", type=float, default=None,
+                   help="Linear velocity norm ceiling (m/s)")
+    p.add_argument("--angular", type=float, default=None,
+                   help="Angular velocity norm ceiling (rad/s)")
+    p.add_argument("--axis", default=None,
+                   metavar="AXIS",
+                   help="Per-axis limit key (e.g. linear_y_max, angular_z_max)")
+    p.add_argument("--value", type=float, default=None,
+                   help="Per-axis limit value (m/s or rad/s)")
+    p.add_argument("--on-violation", dest="on_violation", default=None,
+                   choices=["reject", "cap", "warn"],
+                   help="Violation response: reject | cap | warn")
+
+    p = safetysub.add_parser("set-geofence", help="Configure geofence bounds")
+    p.add_argument("--mode", choices=["circle", "rectangle"],
+                   help="Geofence shape")
+    p.add_argument("--cx", type=float, default=None, metavar="X",
+                   help="Circle center X (m)")
+    p.add_argument("--cy", type=float, default=None, metavar="Y",
+                   help="Circle center Y (m)")
+    p.add_argument("--radius", type=float, default=None, metavar="M",
+                   help="Circle radius (m)")
+    p.add_argument("--xmin", type=float, default=None)
+    p.add_argument("--xmax", type=float, default=None)
+    p.add_argument("--ymin", type=float, default=None)
+    p.add_argument("--ymax", type=float, default=None)
+    p.add_argument("--frame", default=None, metavar="FRAME_ID",
+                   help="TF frame (default: map)")
+    p.add_argument("--on-violation", dest="on_violation", default=None,
+                   choices=["reject", "warn"])
+
+    geofencesub = safetysub.add_parser("geofence", help="Enable/disable geofence")
+    geofence_inner = geofencesub.add_subparsers(dest="geofence_subcommand")
+    geofence_inner.add_parser("enable")
+    geofence_inner.add_parser("disable")
+
+    p = safetysub.add_parser("block", help="Add a command to the blocklist")
+    p.add_argument("block_command", metavar="COMMAND",
+                   help="Command group to block (e.g. topics)")
+    p.add_argument("block_subcommand", metavar="SUBCOMMAND", nargs="?",
+                   help="Optional subcommand (e.g. publish)")
+
+    p = safetysub.add_parser("unblock", help="Remove a command from the blocklist")
+    p.add_argument("block_command", metavar="COMMAND")
+    p.add_argument("block_subcommand", metavar="SUBCOMMAND", nargs="?")
+
+    p = safetysub.add_parser("validate", help="Dry-run safety check without publishing")
+    p.add_argument("--topic", required=True, help="Topic name")
+    p.add_argument("--msg", required=True, metavar="JSON",
+                   help="Message JSON to validate")
+    p.add_argument("--msg-type", dest="msg_type", default=None,
+                   help="Message type (used to determine if velocity checks apply)")
+
+    p = safetysub.add_parser("reset", help="Reset safety config to defaults")
+    p.add_argument("--yes", action="store_true",
+                   help="Skip confirmation prompt")
+
+    hbsub = safetysub.add_parser("heartbeat", help="Heartbeat watchdog control")
+    hb_inner = hbsub.add_subparsers(dest="heartbeat_subcommand")
+
+    p = hb_inner.add_parser("start", help="Start the watchdog")
+    p.add_argument("--timeout", type=int, default=None,
+                   help="Timeout seconds (default from config)")
+    p.add_argument("--poll", type=int, default=None,
+                   help="Poll interval seconds (default from config)")
+    hb_inner.add_parser("stop", help="Stop the watchdog")
+    hb_inner.add_parser("ping", help="Refresh the heartbeat sentinel")
+    hb_inner.add_parser("status", help="Check watchdog status")
+
     return parser
 
 
@@ -1252,6 +1351,16 @@ DISPATCH = {
     ("daemon", "status"): cmd_daemon_status,
     ("daemon", "start"):  cmd_daemon_start,
     ("daemon", "stop"):   cmd_daemon_stop,
+    # safety
+    ("safety", "show"):         cmd_safety_show,
+    ("safety", "enable"):       cmd_safety_enable,
+    ("safety", "disable"):      cmd_safety_disable,
+    ("safety", "set-velocity"):  cmd_safety_set_velocity,
+    ("safety", "set-geofence"):  cmd_safety_set_geofence,
+    ("safety", "block"):        cmd_safety_block,
+    ("safety", "unblock"):      cmd_safety_unblock,
+    ("safety", "validate"):     cmd_safety_validate,
+    ("safety", "reset"):        cmd_safety_reset,
 }
 
 
@@ -1297,7 +1406,54 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    key = (args.command, getattr(args, "subcommand", None))
+    command = args.command
+    subcommand = getattr(args, "subcommand", None)
+
+    # ------------------------------------------------------------------
+    # Safety command filter — checked before every handler call.
+    # "safety", "version", "estop", and "doctor" are always permitted.
+    # ------------------------------------------------------------------
+    _sf_ok, _sf_reason, _ = check_command(command, subcommand)
+    if not _sf_ok:
+        from ros2_utils import output as _output
+        _output({
+            "error": "Command blocked by safety configuration",
+            "blocked": True,
+            "command": f"{command} {subcommand or ''}".strip(),
+            "reason": _sf_reason,
+            "hint": "Run 'safety show' to view active restrictions, "
+                    "'safety unblock <command>' to remove a block.",
+        })
+        sys.exit(1)
+
+    # ------------------------------------------------------------------
+    # Special dispatch for safety sub-sub-commands
+    # ------------------------------------------------------------------
+    if command == "safety":
+        if subcommand == "geofence":
+            gf_sub = getattr(args, "geofence_subcommand", None)
+            if gf_sub == "enable":
+                return cmd_safety_geofence_enable(args)
+            elif gf_sub == "disable":
+                return cmd_safety_geofence_disable(args)
+            else:
+                parser.print_help()
+                sys.exit(1)
+        elif subcommand == "heartbeat":
+            hb_sub = getattr(args, "heartbeat_subcommand", None)
+            if hb_sub == "start":
+                return cmd_safety_heartbeat_start(args)
+            elif hb_sub == "stop":
+                return cmd_safety_heartbeat_stop(args)
+            elif hb_sub == "ping":
+                return cmd_safety_heartbeat_ping(args)
+            elif hb_sub == "status":
+                return cmd_safety_heartbeat_status(args)
+            else:
+                parser.print_help()
+                sys.exit(1)
+
+    key = (command, subcommand)
     handler = DISPATCH.get(key)
     if handler:
         handler(args)

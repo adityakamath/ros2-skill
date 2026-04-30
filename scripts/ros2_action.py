@@ -12,6 +12,7 @@ from ros2_utils import (
     ROS2CLI, get_action_type, msg_to_dict, dict_to_msg, output, ros2_context,
 )
 from ros2_topic import TopicSubscriber
+from ros2_safety import check_geofence, safety_heartbeat_touch, load_config as _safety_load_config
 
 
 def _get_action_type_str(node, action):
@@ -70,6 +71,26 @@ def cmd_actions_send(args):
         goal_data = json.loads(args.goal)
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         return output({"error": f"Invalid JSON goal: {e}"})
+
+    # Geofence check — applied to any goal that carries pose.pose.position
+    _sf_cfg = _safety_load_config()
+    if _sf_cfg["enabled"] and _sf_cfg["geofence"]["enabled"]:
+        try:
+            _gf_x = float(goal_data["pose"]["pose"]["position"]["x"])
+            _gf_y = float(goal_data["pose"]["pose"]["position"]["y"])
+            _gf_ok, _gf_reason, _gf_detail = check_geofence(_gf_x, _gf_y, _sf_cfg)
+            if not _gf_ok:
+                return output({
+                    "error": "Action goal blocked by geofence",
+                    "blocked": True,
+                    "goal_position": {"x": _gf_x, "y": _gf_y},
+                    "reason": _gf_reason,
+                    "geofence": _sf_cfg["geofence"],
+                })
+        except (KeyError, TypeError, ValueError):
+            pass  # goal JSON doesn't have pose.pose.position — not a nav goal, skip
+
+    safety_heartbeat_touch()
 
     try:
         from rclpy.action import ActionClient
