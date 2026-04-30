@@ -28,47 +28,39 @@ def _get_meta():
             return None
 
 
+def _load_entry_points(group):
+    """Load entry points for *group*. Returns (eps_list, error_str_or_None)."""
+    meta = _get_meta()
+    if meta is None:
+        return None, "importlib.metadata not available"
+    try:
+        return list(meta.entry_points(group=group)), None
+    except Exception as exc:
+        return None, f"Failed to load {group}: {exc}"
+
+
 def _run_checks(exclude_packages=False):
     """Load and run all ros2doctor checkers via entry points.
 
     Returns (list_of_raw_check_dicts, error_string_or_None).
     Each dict has keys: name, errors (int), warnings (int), and optionally detail.
     """
-    meta = _get_meta()
-    if meta is None:
-        return None, "importlib.metadata not available"
-
-    try:
-        eps = list(meta.entry_points(group="ros2doctor.checks"))
-    except Exception as exc:
-        return None, f"Failed to load ros2doctor checkers: {exc}"
-
+    eps, err = _load_entry_points("ros2doctor.checks")
+    if err:
+        return None, err
     if not eps:
-        return None, (
-            "No ros2doctor checkers found. "
-            "Is ros2doctor installed? Source ROS 2 setup.bash."
-        )
+        return None, "No ros2doctor checkers found. Is ros2doctor installed? Source ROS 2 setup.bash."
 
     results = []
     for ep in eps:
         if exclude_packages and "package" in ep.name.lower():
             continue
         try:
-            checker = ep.load()()
-            result = checker.check()
-            results.append({
-                "name": ep.name,
-                "errors": getattr(result, "error", 0),
-                "warnings": getattr(result, "warning", 0),
-            })
+            result = ep.load()().check()
+            results.append({"name": ep.name, "errors": getattr(result, "error", 0),
+                            "warnings": getattr(result, "warning", 0)})
         except Exception as exc:
-            results.append({
-                "name": ep.name,
-                "errors": 1,
-                "warnings": 0,
-                "detail": str(exc),
-            })
-
+            results.append({"name": ep.name, "errors": 1, "warnings": 0, "detail": str(exc)})
     return results, None
 
 
@@ -77,13 +69,8 @@ def _run_reports(exclude_packages=False):
 
     Returns a list of report dicts: {name, items: [[key, value], ...]}.
     """
-    meta = _get_meta()
-    if meta is None:
-        return []
-
-    try:
-        eps = list(meta.entry_points(group="ros2doctor.report"))
-    except Exception:
+    eps, err = _load_entry_points("ros2doctor.report")
+    if err or not eps:
         return []
 
     reports = []
@@ -91,18 +78,11 @@ def _run_reports(exclude_packages=False):
         if exclude_packages and "package" in ep.name.lower():
             continue
         try:
-            reporter = ep.load()()
-            report = reporter.report()
-            reports.append({
-                "name": getattr(report, "name", ep.name),
-                "items": [
-                    [str(k), str(v)]
-                    for k, v in getattr(report, "items", [])
-                ],
-            })
+            report = ep.load()().report()
+            reports.append({"name": getattr(report, "name", ep.name),
+                            "items": [[str(k), str(v)] for k, v in getattr(report, "items", [])]})
         except Exception:
             pass
-
     return reports
 
 

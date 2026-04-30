@@ -21,6 +21,7 @@ from ros2_utils import (
     get_package_prefix,
     list_sessions,
     kill_session_cmd,
+    fuzzy_match,
 )
 
 
@@ -42,38 +43,6 @@ def _find_executables(package):
     return executables
 
 
-def _fuzzy_match(query, candidates, threshold=0.5):
-    """Fuzzy match query against candidates.
-    
-    Returns list of (candidate, score) tuples sorted by score.
-    """
-    if not query or not candidates:
-        return []
-    
-    query_lower = query.lower().replace('_', '').replace('-', '')
-    
-    matches = []
-    for candidate in candidates:
-        candidate_lower = candidate.lower().replace('_', '').replace('-', '')
-        
-        # Exact substring match (highest score)
-        if query_lower == candidate_lower:
-            matches.append((candidate, 1.0))
-        # Substring contains
-        elif query_lower in candidate_lower or candidate_lower in query_lower:
-            matches.append((candidate, 0.8))
-        # Starts with
-        elif candidate_lower.startswith(query_lower):
-            matches.append((candidate, 0.7))
-        # Contains words
-        elif any(word in candidate_lower for word in query_lower.split()):
-            matches.append((candidate, 0.5))
-    
-    # Sort by score descending
-    matches.sort(key=lambda x: x[1], reverse=True)
-    return matches
-
-
 def _auto_match_executable(user_executable, available_executables):
     """Auto-match user-provided executable against available executables.
     
@@ -87,7 +56,7 @@ def _auto_match_executable(user_executable, available_executables):
         return user_executable, None
     
     # Try fuzzy match
-    matches = _fuzzy_match(user_executable, available_executables)
+    matches = fuzzy_match(user_executable, available_executables)
     if matches and matches[0][1] >= 0.7:
         return matches[0][0], f"Auto-matched '{user_executable}' to '{matches[0][0]}'"
     

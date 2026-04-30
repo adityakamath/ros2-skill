@@ -8,6 +8,16 @@ running ROS 2 graph required.
 
 from ros2_utils import output, get_msg_type, get_srv_type, get_action_type
 
+_INTERFACE_HINT = (
+    "Use formats like std_msgs/msg/String, std_srvs/srv/SetBool, "
+    "nav2_msgs/action/NavigateToPose, or shorthand std_msgs/String"
+)
+
+
+def _resolve_interface_type(type_str):
+    """Try message → service → action resolution. Returns the class or None."""
+    return get_msg_type(type_str) or get_srv_type(type_str) or get_action_type(type_str)
+
 
 def cmd_interface_list(args):
     """List all interface types (messages, services, actions) installed on this system."""
@@ -44,17 +54,9 @@ def cmd_interface_show(args):
 
         # get_msg_type handles /msg/, /srv/, /action/ prefixed strings internally.
         # For shorthand (pkg/Name) it only tries .msg; fallback to srv/action below.
-        cls = get_msg_type(type_str)
+        cls = _resolve_interface_type(type_str)
         if cls is None:
-            cls = get_srv_type(type_str)
-        if cls is None:
-            cls = get_action_type(type_str)
-        if cls is None:
-            output({
-                "error": f"Unknown interface type: {type_str}",
-                "hint": "Use formats like std_msgs/msg/String, std_srvs/srv/SetBool, "
-                        "nav2_msgs/action/NavigateToPose, or shorthand std_msgs/String",
-            })
+            output({"error": f"Unknown interface type: {type_str}", "hint": _INTERFACE_HINT})
             return
 
         if hasattr(cls, "Goal") and hasattr(cls, "Result") and hasattr(cls, "Feedback"):
@@ -93,17 +95,9 @@ def cmd_interface_proto(args):
         from rosidl_runtime_py.convert import message_to_ordereddict
         type_str = args.type_str
 
-        cls = get_msg_type(type_str)
+        cls = _resolve_interface_type(type_str)
         if cls is None:
-            cls = get_srv_type(type_str)
-        if cls is None:
-            cls = get_action_type(type_str)
-        if cls is None:
-            output({
-                "error": f"Unknown interface type: {type_str}",
-                "hint": "Use formats like std_msgs/msg/String, std_srvs/srv/SetBool, "
-                        "nav2_msgs/action/NavigateToPose, or shorthand std_msgs/String",
-            })
+            output({"error": f"Unknown interface type: {type_str}", "hint": _INTERFACE_HINT})
             return
 
         if hasattr(cls, "Goal") and hasattr(cls, "Result") and hasattr(cls, "Feedback"):

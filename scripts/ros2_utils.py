@@ -706,6 +706,30 @@ def kill_session_cmd(session, prefix):
     }
 
 
+def fuzzy_match(query, candidates, threshold=0.5):
+    """Fuzzy match *query* against *candidates*.
+
+    Returns a list of (candidate, score) tuples sorted by score descending.
+    Scores: 1.0 exact, 0.8 substring, 0.7 prefix, 0.5 word match.
+    """
+    if not query or not candidates:
+        return []
+    query_lower = query.lower().replace('_', '').replace('-', '')
+    matches = []
+    for candidate in candidates:
+        c = candidate.lower().replace('_', '').replace('-', '')
+        if query_lower == c:
+            matches.append((candidate, 1.0))
+        elif query_lower in c or c in query_lower:
+            matches.append((candidate, 0.8))
+        elif c.startswith(query_lower):
+            matches.append((candidate, 0.7))
+        elif any(word in c for word in query_lower.split()):
+            matches.append((candidate, 0.5))
+    matches.sort(key=lambda x: x[1], reverse=True)
+    return matches
+
+
 if __name__ == "__main__":
     import sys
     import os

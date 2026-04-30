@@ -441,198 +441,101 @@ def cmd_tf_static(args):
 
 def cmd_tf_euler_from_quaternion(args):
     """Convert quaternion to Euler angles (radians)."""
-    x = args.x
-    y = args.y
-    z = args.z
-    w = args.w
-
-    roll, pitch, yaw = euler_from_quaternion(x, y, z, w)
-
-    output({
-        "quaternion": {"x": x, "y": y, "z": z, "w": w},
-        "euler": {"roll": roll, "pitch": pitch, "yaw": yaw},
-        "unit": "radians"
-    })
+    roll, pitch, yaw = euler_from_quaternion(args.x, args.y, args.z, args.w)
+    output({"quaternion": {"x": args.x, "y": args.y, "z": args.z, "w": args.w},
+            "euler": {"roll": roll, "pitch": pitch, "yaw": yaw}, "unit": "radians"})
 
 
 def cmd_tf_quaternion_from_euler(args):
     """Convert Euler angles to quaternion (radians)."""
-    roll = args.roll
-    pitch = args.pitch
-    yaw = args.yaw
-
-    x, y, z, w = quaternion_from_euler(roll, pitch, yaw)
-
-    output({
-        "euler": {"roll": roll, "pitch": pitch, "yaw": yaw},
-        "quaternion": {"x": x, "y": y, "z": z, "w": w},
-        "unit": "radians"
-    })
+    x, y, z, w = quaternion_from_euler(args.roll, args.pitch, args.yaw)
+    output({"euler": {"roll": args.roll, "pitch": args.pitch, "yaw": args.yaw},
+            "quaternion": {"x": x, "y": y, "z": z, "w": w}, "unit": "radians"})
 
 
 def cmd_tf_euler_from_quaternion_degrees(args):
     """Convert quaternion to Euler angles (degrees)."""
-    x = args.x
-    y = args.y
-    z = args.z
-    w = args.w
-
-    roll, pitch, yaw = euler_from_quaternion(x, y, z, w)
-
-    output({
-        "quaternion": {"x": x, "y": y, "z": z, "w": w},
-        "euler": {
-            "roll": math.degrees(roll),
-            "pitch": math.degrees(pitch),
-            "yaw": math.degrees(yaw)
-        },
-        "unit": "degrees"
-    })
+    roll, pitch, yaw = euler_from_quaternion(args.x, args.y, args.z, args.w)
+    output({"quaternion": {"x": args.x, "y": args.y, "z": args.z, "w": args.w},
+            "euler": {"roll": math.degrees(roll), "pitch": math.degrees(pitch),
+                      "yaw": math.degrees(yaw)}, "unit": "degrees"})
 
 
 def cmd_tf_quaternion_from_euler_degrees(args):
     """Convert Euler angles to quaternion (degrees)."""
-    roll = math.radians(args.roll)
-    pitch = math.radians(args.pitch)
-    yaw = math.radians(args.yaw)
+    x, y, z, w = quaternion_from_euler(
+        math.radians(args.roll), math.radians(args.pitch), math.radians(args.yaw)
+    )
+    output({"euler": {"roll": args.roll, "pitch": args.pitch, "yaw": args.yaw},
+            "quaternion": {"x": x, "y": y, "z": z, "w": w}, "unit": "degrees"})
 
-    x, y, z, w = quaternion_from_euler(roll, pitch, yaw)
 
-    output({
-        "euler": {"roll": args.roll, "pitch": args.pitch, "yaw": args.yaw},
-        "quaternion": {"x": x, "y": y, "z": z, "w": w},
-        "unit": "degrees"
-    })
+def _tf_transform_stamped(args, msg_class, data_attr):
+    """Transform a stamped geometry message (PointStamped or Vector3Stamped).
+
+    *msg_class* is the stamped message class; *data_attr* is the attribute name
+    on both the stamped message and the transformed result ('point' or 'vector').
+    """
+    target, source = args.target, args.source
+    x, y, z = args.x, args.y, args.z
+    timeout = getattr(args, 'timeout', 5.0)
+
+    try:
+        import rclpy
+        from tf2_ros import Buffer, TransformListener
+        import tf2_ros
+        try:
+            import tf2_geometry_msgs  # registers PointStamped/Vector3Stamped type adapters
+        except ImportError:
+            pass
+    except ImportError:
+        return output({
+            "error": "tf2_ros not available",
+            "suggestion": "Install with: sudo apt install ros-{distro}-tf2-ros"
+        })
+
+    with ros2_context():
+        node = rclpy.node.Node(f"tf_transform_{data_attr}")
+        tf_buffer = Buffer()
+        TransformListener(tf_buffer, node)
+        rclpy.spin_once(node, timeout_sec=1.0)
+
+        try:
+            stamped = msg_class()
+            stamped.header.frame_id = source
+            stamped.header.stamp = rclpy.time.Time().to_msg()  # time=0 → latest available
+            field = getattr(stamped, data_attr)
+            field.x, field.y, field.z = x, y, z
+
+            transformed = tf_buffer.transform(
+                stamped, target, timeout=rclpy.duration.Duration(seconds=timeout)
+            )
+            out = getattr(transformed, data_attr)
+            output({
+                "source_frame": source, "target_frame": target,
+                "input": {"x": x, "y": y, "z": z},
+                "output": {"x": out.x, "y": out.y, "z": out.z},
+            })
+        except tf2_ros.LookupException as e:
+            output({"error": f"Transform not found: {e}"})
+        except tf2_ros.ConnectivityException as e:
+            output({"error": f"No path between frames: {e}"})
+        except tf2_ros.ExtrapolationException as e:
+            output({"error": f"Transform extrapolation failed: {e}"})
+        except Exception as e:
+            output({"error": str(e)})
 
 
 def cmd_tf_transform_point(args):
     """Transform a point from source to target frame."""
-    target = args.target
-    source = args.source
-    x = args.x
-    y = args.y
-    z = args.z
-
-    try:
-        import rclpy
-        from tf2_ros import Buffer, TransformListener
-        from geometry_msgs.msg import PointStamped
-        import tf2_ros
-        try:
-            import tf2_geometry_msgs  # registers PointStamped/Vector3Stamped type adapters
-        except ImportError:
-            pass
-    except ImportError:
-        return output({
-            "error": "tf2_ros not available",
-            "suggestion": "Install with: sudo apt install ros-{distro}-tf2-ros"
-        })
-
-    timeout = getattr(args, 'timeout', 5.0)
-
-    with ros2_context():
-        node = rclpy.node.Node("tf_transform_point")
-        tf_buffer = Buffer()
-        tf_listener = TransformListener(tf_buffer, node)
-        rclpy.spin_once(node, timeout_sec=1.0)
-
-        try:
-            point = PointStamped()
-            point.header.frame_id = source
-            point.header.stamp = rclpy.time.Time().to_msg()  # time=0 → latest available
-            point.point.x = x
-            point.point.y = y
-            point.point.z = z
-
-            transformed = tf_buffer.transform(
-                point,
-                target,
-                timeout=rclpy.duration.Duration(seconds=timeout)
-            )
-
-            output({
-                "source_frame": source,
-                "target_frame": target,
-                "input": {"x": x, "y": y, "z": z},
-                "output": {
-                    "x": transformed.point.x,
-                    "y": transformed.point.y,
-                    "z": transformed.point.z
-                }
-            })
-        except tf2_ros.LookupException as e:
-            return output({"error": f"Transform not found: {e}"})
-        except tf2_ros.ConnectivityException as e:
-            return output({"error": f"No path between frames: {e}"})
-        except tf2_ros.ExtrapolationException as e:
-            return output({"error": f"Transform extrapolation failed: {e}"})
-        except Exception as e:
-            return output({"error": str(e)})
+    from geometry_msgs.msg import PointStamped
+    _tf_transform_stamped(args, PointStamped, 'point')
 
 
 def cmd_tf_transform_vector(args):
     """Transform a vector from source to target frame."""
-    target = args.target
-    source = args.source
-    x = args.x
-    y = args.y
-    z = args.z
-
-    try:
-        import rclpy
-        from tf2_ros import Buffer, TransformListener
-        from geometry_msgs.msg import Vector3Stamped
-        import tf2_ros
-        try:
-            import tf2_geometry_msgs  # registers PointStamped/Vector3Stamped type adapters
-        except ImportError:
-            pass
-    except ImportError:
-        return output({
-            "error": "tf2_ros not available",
-            "suggestion": "Install with: sudo apt install ros-{distro}-tf2-ros"
-        })
-
-    timeout = getattr(args, 'timeout', 5.0)
-
-    with ros2_context():
-        node = rclpy.node.Node("tf_transform_vector")
-        tf_buffer = Buffer()
-        tf_listener = TransformListener(tf_buffer, node)
-        rclpy.spin_once(node, timeout_sec=1.0)
-
-        try:
-            vector = Vector3Stamped()
-            vector.header.frame_id = source
-            vector.header.stamp = rclpy.time.Time().to_msg()  # time=0 → latest available
-            vector.vector.x = x
-            vector.vector.y = y
-            vector.vector.z = z
-
-            transformed = tf_buffer.transform(
-                vector,
-                target,
-                timeout=rclpy.duration.Duration(seconds=timeout)
-            )
-
-            output({
-                "source_frame": source,
-                "target_frame": target,
-                "input": {"x": x, "y": y, "z": z},
-                "output": {
-                    "x": transformed.vector.x,
-                    "y": transformed.vector.y,
-                    "z": transformed.vector.z
-                }
-            })
-        except tf2_ros.LookupException as e:
-            return output({"error": f"Transform not found: {e}"})
-        except tf2_ros.ConnectivityException as e:
-            return output({"error": f"No path between frames: {e}"})
-        except tf2_ros.ExtrapolationException as e:
-            return output({"error": f"Transform extrapolation failed: {e}"})
-        except Exception as e:
-            return output({"error": str(e)})
+    from geometry_msgs.msg import Vector3Stamped
+    _tf_transform_stamped(args, Vector3Stamped, 'vector')
 
 
 def _collect_tf_pairs(duration):
@@ -688,6 +591,18 @@ def _build_tree_str(children_map, roots, indent="", prefix=""):
     return "\n".join(lines)
 
 
+def _parse_tf_pairs(pairs):
+    """Parse a (parent, child) pair set into (all_frames, children_map, root_frames)."""
+    all_children = {child for _, child in pairs}
+    all_parents = {parent for parent, _ in pairs}
+    all_frames = sorted(all_parents | all_children)
+    children_map = {}
+    for parent, child in pairs:
+        children_map.setdefault(parent, set()).add(child)
+    root_frames = sorted(all_parents - all_children) or sorted(all_parents)
+    return all_frames, children_map, root_frames
+
+
 def cmd_tf_tree(args):
     """Collect TF transforms and display them as an ASCII tree."""
     duration = getattr(args, 'duration', 2.0)
@@ -701,20 +616,7 @@ def cmd_tf_tree(args):
             "error": f"No TF frames received within {duration}s — is a TF publisher running?"
         })
 
-    # Build parent → children map
-    all_children = {child for _, child in pairs}
-    all_parents = {parent for parent, _ in pairs}
-    all_frames = sorted(all_parents | all_children)
-
-    children_map = {}
-    for parent, child in pairs:
-        children_map.setdefault(parent, set()).add(child)
-
-    # Root frames: appear as parents but never as children
-    root_frames = sorted(all_parents - all_children)
-    if not root_frames:
-        # Fallback: every parent is a root (cycle or disconnected)
-        root_frames = sorted(all_parents)
+    all_frames, children_map, root_frames = _parse_tf_pairs(pairs)
 
     # Build ASCII representation
     root_lines = []
@@ -746,14 +648,9 @@ def cmd_tf_validate(args):
             "error": f"No TF frames received within {duration}s — is a TF publisher running?"
         })
 
-    all_children_set = {child for _, child in pairs}
-    all_parents_set = {parent for parent, _ in pairs}
-    all_frames = sorted(all_parents_set | all_children_set)
-
-    children_map = {}
+    all_frames, children_map, _ = _parse_tf_pairs(pairs)
     parent_map = {}  # child → set of parents
     for parent, child in pairs:
-        children_map.setdefault(parent, set()).add(child)
         parent_map.setdefault(child, set()).add(parent)
 
     issues = []
