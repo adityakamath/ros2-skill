@@ -3428,6 +3428,62 @@ class TestScaleTwistVelocity(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# H1b — Unit tests for _has_velocity_fields (no rclpy required)
+# ---------------------------------------------------------------------------
+
+class TestHasVelocityFields(unittest.TestCase):
+    """Unit tests for _has_velocity_fields — gates zero-burst in publish-sequence."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_topic
+        cls.fn = staticmethod(ros2_topic._has_velocity_fields)
+
+    def test_plain_twist_detected(self):
+        data = {"linear": {"x": 0.5, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.3}}
+        self.assertTrue(self.fn(data))
+
+    def test_twist_stamped_detected(self):
+        data = {"header": {"frame_id": "base_link"},
+                "twist": {"linear": {"x": 0.5, "y": 0.0, "z": 0.0},
+                          "angular": {"x": 0.0, "y": 0.0, "z": 0.3}}}
+        self.assertTrue(self.fn(data))
+
+    def test_partial_twist_linear_only(self):
+        """Only linear key present — still a velocity payload."""
+        self.assertTrue(self.fn({"linear": {"x": 1.0}}))
+
+    def test_partial_twist_angular_only(self):
+        """Only angular key present — still a velocity payload."""
+        self.assertTrue(self.fn({"angular": {"z": 0.5}}))
+
+    def test_non_velocity_string_msg(self):
+        """std_msgs/String has no velocity fields."""
+        self.assertFalse(self.fn({"data": "hello"}))
+
+    def test_non_velocity_pose_msg(self):
+        """Pose message should not be treated as velocity."""
+        data = {"position": {"x": 1.0, "y": 2.0, "z": 0.0},
+                "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}}
+        self.assertFalse(self.fn(data))
+
+    def test_empty_dict(self):
+        self.assertFalse(self.fn({}))
+
+    def test_non_dict_input(self):
+        self.assertFalse(self.fn(None))
+        self.assertFalse(self.fn("twist"))
+        self.assertFalse(self.fn(42))
+
+    def test_twist_stamped_empty_nested_twist(self):
+        """twist key present but no linear/angular inside — not a velocity payload."""
+        self.assertFalse(self.fn({"twist": {"frame_id": "base_link"}}))
+
+
+# ---------------------------------------------------------------------------
 # H1 — Pure-arithmetic decel zone formula tests (no rclpy required)
 # ---------------------------------------------------------------------------
 

@@ -2,132 +2,35 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.9] - 2026-04-30
+## [1.0.7] - 2026-05-01
 
-Log file introspection command group (L1–L4). Works without a live ROS 2 graph —
-reads directly from `~/.ros/log/` (or `$ROS_LOG_DIR`). Pure Python stdlib, no new dependencies.
-
-### New Files
-
-- `scripts/ros2_logs.py` — log introspection module: run discovery, log-line parser,
-  incremental-tail offset tracking, per-node statistics
+Session-start snapshot, topic list capping, launch params/config/preset, package scaffolding, security hardening, rules audit, log introspection, RULES domain split, and auto-hold on motion failure.
 
 ### New Commands
 
-- `logs list-runs [--limit N] [--log-dir DIR]`
-  List available ROS 2 log runs newest-first. Returns run_id, path, file count,
-  total size, started_at, last_modified.
-
-- `logs query [--run ID] [--severity LEVEL] [--node NAME] [--after TIME] [--before TIME] [--text SUBSTR] [--regex PAT] [--max N] [--log-dir DIR]`
-  Multi-dimensional filter over all log files in a run. Severity: DEBUG | INFO | WARN | ERROR | FATAL.
-  Time filters accept -30s / -5m / -2h (relative), epoch float, or ISO datetime.
-  Returns total_matched + capped entries list with time_iso fields.
-
-- `logs tail [--run ID] [--initial-lines N] [--reset] [--log-dir DIR]`
-  Incremental log reading — only entries written since the last call.
-  Persists per-file byte offsets to `.artifacts/logs_tail_state.json`.
-  First call (or `--reset`) seeds offsets from the tail of existing files
-  (~--initial-lines from the end, default 50).
-
-- `logs node-summary [--run ID] [--top N] [--log-dir DIR]`
-  Per-node statistics: total message count, severity breakdown (DEBUG/INFO/WARN/ERROR/FATAL),
-  top N recurring message patterns (numbers/hex normalised), first/last timestamps.
-  Nodes sorted by message volume descending. Includes global aggregate counts.
-
-### No-Graph Commands Table
-
-All four `logs` commands added to the "Commands Without a Live Graph" table in SKILL.md.
-
----
-
-## [1.0.8] - 2026-04-30
-
-AG-7 Safety Validator: code-level enforcement of velocity limits, geofence constraints,
-command allow/blocklists, and heartbeat watchdog. No longer relies solely on prompt rules.
-
-### New Files
-
-- `scripts/ros2_safety.py` — safety validator core: config load/save, velocity checks,
-  geofence checks, command filter, validate_publish aggregator, all `safety` command handlers
-- `scripts/ros2_watchdog.py` — standalone heartbeat watchdog process (~80 lines); launched
-  in a detached tmux session; fires estop once and exits on sentinel timeout
-
-### New Commands
-
-- `safety show` — print full active safety config and config file path
-- `safety enable / disable` — toggle the global safety switch (disable warns loudly)
-- `safety set-velocity --linear N --angular N` — update norm ceilings (m/s, rad/s)
-- `safety set-velocity --axis linear_y_max --value N` — set per-axis limit
-- `safety set-geofence --mode circle --cx X --cy Y --radius M` — configure circle geofence
-- `safety set-geofence --mode rectangle --xmin/--xmax/--ymin/--ymax` — configure rectangle geofence
-- `safety geofence enable / disable` — toggle geofence without touching other config
-- `safety block <command> [subcommand]` — append to blocklist; auto-enables command filter
-- `safety unblock <command> [subcommand]` — remove from blocklist
-- `safety validate --topic T --msg-type MT --msg JSON` — dry-run check; reports action without publishing
-- `safety reset [--yes]` — restore all defaults
-- `safety heartbeat start [--timeout N] [--poll N]` — arm the watchdog
-- `safety heartbeat stop` — kill the watchdog and disable heartbeat in config
-- `safety heartbeat ping` — manually refresh the sentinel file
-- `safety heartbeat status` — report watchdog session state and sentinel age
-
-### Safety Hook Points
-
-- `topics publish` — `validate_publish()` called after msg parsed, before publish loop
-- `topics publish-sequence` — all messages validated upfront before the loop starts
-- `topics publish-until` — `validate_publish()` called after type resolution, before loop start
-- `actions send` — geofence check applied to any goal with `pose.pose.position` path
-- `ros2_cli.py main()` — `check_command()` applied at dispatch before every handler call
-
-### Config
-
-- `{skill_root}/.presets/safety.json` — auto-created on first `safety show` if absent
-- Defaults: velocity enabled (0.5 m/s linear, 1.0 rad/s angular), geofence off,
-  command filter off, heartbeat off
-- Partial configs are valid (missing keys fall back to defaults); malformed JSON falls
-  back silently to defaults — a broken config never disables the skill
-
-### Agent Protocol
-
-- AGENTS.md: added "Safety Validator Response Protocol" section with mandatory rules for
-  `blocked`/`capped`/`warning` responses and heartbeat management
-- RULES.md Rule 0.1: added Step 6 — `safety show` at session start before motion commands
-- SKILL.md: added "Safety Validator" command reference section with all subcommands and
-  violation mode explanations
-
----
-
-## [1.0.7] - 2026-04-01
-
-Session-start context snapshot, topic list capping, launch parameter and config support, package scaffolding, security hardening, and agent rules audit.
-
-### New Commands
-
-- `context` — compact session-start graph snapshot: topics (capped at 50), services, actions, and nodes in a single call; use at session start instead of four separate discovery commands
-- `launch new --param key:=value[,key2:=value2]` — inject inline parameters at launch time; lower priority than positional args, higher than `--preset`
-- `launch new --config-path PATH` — forward a YAML file (or directory of YAML files, loaded alphabetically) to launched nodes via `--ros-args --params-file`; paths with spaces and special characters are safely quoted
-- `launch new --preset NAME` — apply a saved parameter preset from `.presets/{name}.json` before launch (lowest priority; positional and `--param` args override)
-- `launch new` duplicate detection — warns when the same package + launch file is already running in another session; returns `existing_session` and a `hint` to kill or restart instead
-- `pkg create <name>` — scaffold a new ROS 2 package via `ros2 pkg create`; supports `--build-type`, `--dependencies`, `--destination-directory`, `--license`, `--maintainer-name`, `--maintainer-email`, `--description`, `--node-name`, `--library-name`
+- `context` — compact session-start graph snapshot: topics (capped at 50), services, actions, and nodes in one call
+- `launch new --param key:=value` / `--config-path PATH` / `--preset NAME` — inline params, YAML config forwarding, and preset loading; duplicate session detection warns before launching
+- `pkg create <name>` — scaffold a new ROS 2 package; supports `--build-type`, `--dependencies`, `--node-name`, and other `ros2 pkg create` flags
+- `logs list-runs` / `logs query` / `logs tail` / `logs node-summary` — log file introspection without a live graph; reads `~/.ros/log/`; time filters accept relative (`-30s`, `-5m`) and absolute formats
 
 ### Changes
 
-- `topics list` / `topics ls`: `--limit N` flag added (default 0 = unlimited); output includes `truncated: true` and `total` when a limit is applied
-- `shlex.quote()` applied to all user-controlled inputs in `run_cmd` call sites; `session_exists` grep pipeline replaced with Python list check
-- AGENTS.md: removed phrasing matching jailbreak-scanner patterns; added camera/depth `camera_info` + TF frame pre-flight to Rule 2; added nested `interface show` recursion note to Rule 2; added `context` graph snapshot to Session Start Step 6
-- Rules: `context` command added to Rule 0.1 Step 5 (RULES.md) and Session Start Step 6 (AGENTS.md)
-- Rules: executor starvation diagnostic added to Rule 7 (stalled node + `SingleThreadedExecutor` + `ReentrantCallbackGroup` starvation pattern)
-- Rules: real-time scheduling advisory check added to Rule 0 pre-flight table for servo/control-loop tasks (`chrt`, isolated CPUs)
-- Rules: namespace filtering vocabulary added (multi-robot / "use namespace /robot1" — filter returned names by prefix; no `--namespace` flag)
-- SKILL.md: rewritten to agentskills.io format (251 lines, up from 76); added `allowed-tools: ["Bash", "Read"]`, `triggers` list, session start checklist, common operations quick reference, and progressive disclosure table (when to load each reference file)
+- `topics list` / `ls`: `--limit N` flag (default 0 = unlimited); output includes `truncated: true` and `total` when capped
+- `shlex.quote()` applied to all user-controlled shell inputs; `session_exists` grep pipeline replaced with Python list check; AGENTS.md jailbreak-pattern phrasing removed
+- AGENTS.md: camera/depth pre-flight (camera_info + K matrix + TF frame) and nested `interface show` recursion added to Rule 2; `context` snapshot added to Session Start Step 6
+- Rules: executor starvation diagnostic (Rule 7); real-time scheduling advisory (Rule 0); namespace filtering vocabulary
+- `RULES.md` split into five domain files (`RULES-CORE`, `RULES-PREFLIGHT`, `RULES-MOTION`, `RULES-DIAGNOSTICS`, `RULES-REFERENCE`); `RULES.md` becomes a navigation index; AGENTS.md and SKILL.md updated to reference domain files
+- SKILL.md rewritten to agentskills.io format (76 → 251 lines): `allowed-tools`, `triggers`, session start checklist, progressive disclosure table, log introspection command reference
 
 ### Fixes
 
-- `launch new`: arg priority was inverted — `--preset` was winning over `--param` due to incorrect prepend order; fixed to single-pass build: `[preset] + [--param] + [positional]` (positional wins, as intended)
-- `launch restart`: params and preset were re-applied on restart even though they were already expanded into `launch_args`; fixed to pass `params=None, preset=None` on restart
-- `launch new`: config file paths were embedded unquoted in the tmux shell string; fixed with `shlex.quote()` to prevent injection via paths containing spaces or special characters
-- `launch new`: session-already-exists error message contained a literal `{session_name}` string (missing `f` prefix); fixed
-- `_parse_param_str`: bare args with no separator (e.g. `foo`) were silently dropped; now passed through to the arg validator which reports them explicitly
-- `pkg create`: `package_path` in output used an unresolved relative path from `os.getcwd()`; fixed to always emit an absolute path via `os.path.abspath()`
+- `launch new`: `--preset` was winning over `--param` due to inverted prepend order; fixed to `[preset] + [--param] + [positional]`
+- `launch restart`: params and preset were re-applied on restart; fixed to pass `params=None, preset=None`
+- `launch new`: config paths embedded unquoted in tmux shell string; fixed with `shlex.quote()`
+- `launch new`: session-already-exists message contained literal `{session_name}` (missing `f` prefix); fixed
+- `_parse_param_str`: bare args with no separator silently dropped; now passed to arg validator
+- `pkg create`: `package_path` used unresolved relative path; fixed to always emit absolute path
+- `topics publish-sequence`: added `try/finally` auto-hold — on any exit (completion, exception, `KeyboardInterrupt`), publishes 3 zero-velocity messages; Twist/TwistStamped only via `_has_velocity_fields`; Rule 18 updated to cover both `publish-sequence` and `publish-until`
 
 ---
 

@@ -81,7 +81,7 @@ Stop and tell the user if Step 1 reports critical failures. Re-run Step 3 before
 
 ## Critical Rules
 
-Read [`references/RULES.md`](references/RULES.md) in full before the first action. These are hard constraints — not guidelines. Key principles:
+Read the domain-specific rule files from `references/` before the first action. These are hard constraints — not guidelines. Use [`references/RULES.md`](references/RULES.md) as the index to find the right file. At minimum load `RULES-CORE.md` and `RULES-PREFLIGHT.md` before any operation; add `RULES-MOTION.md` for motion tasks and `RULES-DIAGNOSTICS.md` when something fails. Key principles:
 
 1. **Discover before acting.** Never hardcode topic, node, service, action, or TF frame names. Always query the live system first. Use `topics find <type>`, `nodes list`, `services list`, `actions list`, `tf list`.
 
@@ -177,57 +177,6 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe <camera_info_topic> --max
 # Confirm K matrix is non-zero and frame_id is in tf list before proceeding
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg
 ```
-
-### Safety Validator
-
-The safety validator enforces velocity limits, geofence constraints, and command allow/blocklists
-at code level — independent of the prompt-level rules in RULES.md. Config lives in
-`{baseDir}/.presets/safety.json`. Defaults apply if the file doesn't exist.
-
-```bash
-# Inspect and configure
-python3 {baseDir}/scripts/ros2_cli.py safety show                         # show active config + path
-python3 {baseDir}/scripts/ros2_cli.py safety enable                       # re-enable globally
-python3 {baseDir}/scripts/ros2_cli.py safety disable                      # disable all checks (warns)
-
-# Velocity limits (default: linear 0.5 m/s norm, angular 1.0 rad/s norm)
-python3 {baseDir}/scripts/ros2_cli.py safety set-velocity --linear 0.3 --angular 0.8
-python3 {baseDir}/scripts/ros2_cli.py safety set-velocity --axis angular_z_max --value 0.5
-
-# Geofence (off by default — must be explicitly enabled)
-python3 {baseDir}/scripts/ros2_cli.py safety set-geofence --mode circle --cx 0 --cy 0 --radius 5
-python3 {baseDir}/scripts/ros2_cli.py safety set-geofence --mode rectangle --xmin -3 --xmax 3 --ymin -3 --ymax 3
-python3 {baseDir}/scripts/ros2_cli.py safety geofence enable
-python3 {baseDir}/scripts/ros2_cli.py safety geofence disable
-
-# Command blocklist
-python3 {baseDir}/scripts/ros2_cli.py safety block topics publish         # block publish subcommand
-python3 {baseDir}/scripts/ros2_cli.py safety block launch                 # block all launch subcommands
-python3 {baseDir}/scripts/ros2_cli.py safety unblock topics publish
-
-# Dry-run check (does not publish)
-python3 {baseDir}/scripts/ros2_cli.py safety validate \
-    --topic /cmd_vel --msg-type geometry_msgs/msg/Twist \
-    --msg '{"linear":{"x":1.5},"angular":{"z":0}}'
-
-# Heartbeat watchdog (dead man's switch — off by default)
-python3 {baseDir}/scripts/ros2_cli.py safety heartbeat start --timeout 5  # arm watchdog
-python3 {baseDir}/scripts/ros2_cli.py safety heartbeat ping               # refresh sentinel
-python3 {baseDir}/scripts/ros2_cli.py safety heartbeat status             # check if running
-python3 {baseDir}/scripts/ros2_cli.py safety heartbeat stop               # disarm
-
-# Reset to defaults
-python3 {baseDir}/scripts/ros2_cli.py safety reset --yes
-```
-
-**`on_violation` modes** (set in safety.json `velocity_limits.on_violation`):
-- `"reject"` (default) — block the command; agent must stop.
-- `"cap"` — clamp velocity proportionally; command executes at reduced speed.
-- `"warn"` — execute unchanged; add `safety_warning` to output.
-
-**When the agent receives `"blocked": true`**: stop immediately, report `reason` and `limits`
-verbatim to the user, do not retry or work around. Only permitted next actions: ask the user
-to relax limits with `safety set-velocity`, or stop the task.
 
 ### Diagnostics and Health
 
@@ -357,8 +306,13 @@ This skill uses **progressive disclosure**. SKILL.md covers the most common oper
 
 | File | When to load |
 |---|---|
-| [`references/RULES.md`](references/RULES.md) | **Load before the first action in any session.** Contains all mandatory agent behaviour rules (Rules 0–38), safety protocols, velocity limit discovery, motion error lockout, verification protocols, and the full vocabulary trigger table. 1677 lines — use the section headers to navigate: Rule 0 (pre-flight), Rule 0.1 (session start), Rule 3 (motion), Rule 7 (failure diagnosis), Rule 8 (verification), Rule 9 (motion pre-check). |
+| [`references/RULES.md`](references/RULES.md) | **Index only** — maps each rule number to its domain file. Load first to navigate the rule set. |
+| [`references/RULES-CORE.md`](references/RULES-CORE.md) | **Always load** — general agent conduct (Rules 0.5, 1, 2, 4–6, 10–13). Hard constraints that apply to every command. Includes mandatory compliance preamble and Quick Decision Card. |
+| [`references/RULES-PREFLIGHT.md`](references/RULES-PREFLIGHT.md) | **Load at session start and before any action** — full pre-flight introspection protocol (Rule 0), session-start steps 0–6 (Rule 0.1), lifecycle/QoS/publisher checks (Rules 14, 15, 19). |
+| [`references/RULES-MOTION.md`](references/RULES-MOTION.md) | **Load for any motion command** — movement algorithm (Rule 3), pre-motion check + Nav2 preemption (Rule 9), REP-103/105 (Rule 17), estop (Rule 18), decel zone (Rule 20), timeout recovery (Rule 21), command limits (Rules 22–23), sequencing (Rule 24), proximity scan (Rule 25). |
+| [`references/RULES-DIAGNOSTICS.md`](references/RULES-DIAGNOSTICS.md) | **Load when something fails** — failure diagnosis + log-level elevation (Rule 7), post-action verification table (Rule 8), multi-step sequencing (Rule 16), Error Recovery Protocols. |
+| [`references/RULES-REFERENCE.md`](references/RULES-REFERENCE.md) | **Load for command lookup** — full intent→command table (Step 1), sensor search by type (Steps 2–3), message structure (Step 4), velocity limits (Step 5), Launch workflow, Discord image delivery (Rule 26), Setup. |
 | [`references/COMMANDS.md`](references/COMMANDS.md) | Load when you need the exact flag name, argument format, or JSON output structure for a specific command. 4535 lines — use `--help` on the specific subcommand first; only load this file if `--help` is insufficient or unavailable. |
 | [`references/EXAMPLES.md`](references/EXAMPLES.md) | Load for step-by-step walkthroughs of common tasks (move N meters, capture camera image, send Nav2 goal, etc.). 699 lines. |
 | [`references/CLI.md`](references/CLI.md) | Load for direct `ros2` CLI equivalents and debugging. Not needed during normal agent operation. 90 lines. |
-| [`AGENTS.md`](AGENTS.md) | Load for the full agent operating protocol — condensed rules, session start detail, reporting style, subcommand inference, motion workflows, and multi-robot handling. Load this alongside RULES.md at session start. |
+| [`AGENTS.md`](AGENTS.md) | Load for the full agent operating protocol — condensed rules, session start detail, reporting style, subcommand inference, motion workflows, and multi-robot handling. Load alongside the RULES-*.md files at session start. |

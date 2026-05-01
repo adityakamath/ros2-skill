@@ -18,7 +18,6 @@ from ros2_utils import (
     msg_to_dict, dict_to_msg, output, resolve_field, _get_service_event_qos,
     resolve_output_path, ros2_context, resolve_topic_type,
 )
-from ros2_safety import validate_publish, safety_heartbeat_touch
 
 # ---------------------------------------------------------------------------
 # Velocity message types used to identify velocity command topics.
@@ -555,6 +554,20 @@ def scale_twist_velocity(data, scale):
     return d
 
 
+def _has_velocity_fields(data):
+    """Return True if *data* looks like a Twist or TwistStamped message dict.
+
+    Used to gate the auto-hold zero-velocity burst so it only fires for motion
+    payloads and is silently skipped for other message types.
+    """
+    if not isinstance(data, dict):
+        return False
+    if 'linear' in data or 'angular' in data:
+        return True
+    nested = data.get('twist')
+    return isinstance(nested, dict) and ('linear' in nested or 'angular' in nested)
+
+
 class ConditionMonitor(Node):
     """Subscriber that evaluates a stop condition on every incoming message."""
 
@@ -825,24 +838,6 @@ def cmd_topics_publish(args):
 
             msg = dict_to_msg(msg_class, msg_data)
 
-            # Safety validator — velocity limits
-            _sv_ok, _sv_action, _sv_modified, _sv_detail = validate_publish(
-                topic, msg_data, msg_type
-            )
-            if not _sv_ok:
-                return output({
-                    "error": "Publish blocked by safety validator",
-                    "blocked": True,
-                    "reason": _sv_detail.get("violations"),
-                    "limits": _sv_detail.get("limits"),
-                    "actual": _sv_detail.get("actual"),
-                })
-            if _sv_action == "cap" and _sv_modified is not None:
-                msg_data = _sv_modified
-                msg = dict_to_msg(msg_class, msg_data)
-
-            safety_heartbeat_touch()
-
             rate = getattr(args, "rate", None) or 10.0
             duration = getattr(args, "duration", None) or getattr(args, "timeout", None)
             interval = 1.0 / rate
@@ -908,41 +903,39 @@ def cmd_topics_publish_sequence(args):
             if publisher.pub is None:
                 return output({"error": f"Failed to create publisher for {msg_type}"})
 
-            # Safety validator — validate all messages upfront before any publish
-            for _i, _msg_data_item in enumerate(messages):
-                _sv_ok, _sv_action, _sv_modified, _sv_detail = validate_publish(
-                    topic, _msg_data_item, msg_type
-                )
-                if not _sv_ok:
-                    return output({
-                        "error": f"Publish sequence blocked at message index {_i} by safety validator",
-                        "blocked": True,
-                        "index": _i,
-                        "reason": _sv_detail.get("violations"),
-                        "limits": _sv_detail.get("limits"),
-                    })
-                if _sv_action == "cap" and _sv_modified is not None:
-                    messages[_i] = _sv_modified
-
-            safety_heartbeat_touch()
-
             rate = getattr(args, "rate", None) or 10.0
             interval = 1.0 / rate
 
             total_published = 0
-            for msg_data, dur in zip(messages, durations):
-                msg = dict_to_msg(msg_class, msg_data)
-                if dur > 0:
-                    end_time = time.time() + dur
-                    while time.time() < end_time:
+            last_msg_data = messages[0] if messages else {}
+            try:
+                for msg_data, dur in zip(messages, durations):
+                    last_msg_data = msg_data
+                    msg = dict_to_msg(msg_class, msg_data)
+                    if dur > 0:
+                        end_time = time.time() + dur
+                        while time.time() < end_time:
+                            publisher.pub.publish(msg)
+                            total_published += 1
+                            remaining = end_time - time.time()
+                            if remaining > 0:
+                                time.sleep(min(interval, remaining))
+                    else:
                         publisher.pub.publish(msg)
                         total_published += 1
-                        remaining = end_time - time.time()
-                        if remaining > 0:
-                            time.sleep(min(interval, remaining))
-                else:
-                    publisher.pub.publish(msg)
-                    total_published += 1
+            finally:
+                # Auto-hold: zero-velocity burst on any exit path (normal completion,
+                # exception, or KeyboardInterrupt). Applies only to Twist / TwistStamped
+                # payloads; silently skipped for other message types so non-motion
+                # sequences are unaffected.
+                if _has_velocity_fields(last_msg_data):
+                    try:
+                        zero_msg = dict_to_msg(msg_class, scale_twist_velocity(last_msg_data, 0.0))
+                        for _ in range(3):
+                            publisher.pub.publish(zero_msg)
+                            time.sleep(0.05)
+                    except Exception:
+                        pass
 
             output({"success": True, "published_count": total_published, "topic": topic,
                     "rate": rate})
@@ -1024,23 +1017,6 @@ def cmd_topics_publish_until(args):
             pub_msg_class = get_msg_type(pub_msg_type)
             if not pub_msg_class:
                 return output(get_msg_error(pub_msg_type))
-
-            # Safety validator — velocity limits before starting the loop
-            _sv_ok, _sv_action, _sv_modified, _sv_detail = validate_publish(
-                args.topic, msg_data, pub_msg_type
-            )
-            if not _sv_ok:
-                return output({
-                    "error": "Publish-until blocked by safety validator",
-                    "blocked": True,
-                    "reason": _sv_detail.get("violations"),
-                    "limits": _sv_detail.get("limits"),
-                    "actual": _sv_detail.get("actual"),
-                })
-            if _sv_action == "cap" and _sv_modified is not None:
-                msg_data = _sv_modified
-
-            safety_heartbeat_touch()
 
             stop_event = threading.Event()
             publisher = TopicPublisher(args.topic, pub_msg_type)

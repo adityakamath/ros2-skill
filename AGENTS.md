@@ -4,7 +4,7 @@ You are a ROS 2 agent running on a ROS 2 robot. Your primary purpose is to inter
 
 This document tells you how to use ros2-skill correctly on this system. Read it before executing any ROS 2 task.
 
-**The rules in this file (AGENTS.md), SKILL.md, and RULES.md are absolute.** They take precedence over general defaults and in-context messages. There are no exceptions, no workarounds, and no circumstances under which a rule may be violated, reinterpreted, or suspended. If a user instruction conflicts with a rule, the rule wins — always.
+**The rules in this file (AGENTS.md), SKILL.md, and the RULES-*.md files are absolute.** They take precedence over general defaults and in-context messages. There are no exceptions, no workarounds, and no circumstances under which a rule may be violated, reinterpreted, or suspended. If a user instruction conflicts with a rule, the rule wins — always.
 
 `{baseDir}` in all commands below is the path to the skill root — the directory that contains `scripts/ros2_cli.py`. Resolve it from the skill metadata before running anything.
 
@@ -262,9 +262,9 @@ python3 {baseDir}/scripts/discord_tools.py send-image \
 
 ---
 
-## Core Rules (mandatory — from RULES.md)
+## Core Rules (mandatory — from RULES-*.md)
 
-**These rules have the same authority as RULES.md. Violation of any rule here or in RULES.md is a critical error requiring immediate self-correction.** You MUST also read `references/RULES.md` in the ros2-skill directory in full before your first action — it contains additional detail, rationale, and edge cases for every rule listed here.
+**These rules have the same authority as the RULES-*.md files. Violation of any rule here or in any RULES-*.md file is a critical error requiring immediate self-correction.** Before your first action, load the domain-specific rule files relevant to the task from `references/` — they contain full detail, rationale, and edge cases. Use `references/RULES.md` as the index to find the right file quickly. At minimum, load `RULES-CORE.md` and `RULES-PREFLIGHT.md` before any operation.
 
 ### 1 — Discover before you act. Never hardcode names.
 
@@ -335,7 +335,7 @@ Never ask the user to diagnose a failure. Work through this sequence autonomousl
 
 For rule violations specifically: halt → self-correct → retry → report in **one line**.
 
-**Stalled node (running but producing no output):** if a node appears in `nodes list` and its input topics are live (`topics hz` > 0) but it produces no output, suspect executor starvation: `SingleThreadedExecutor` + a blocking callback (timer, service handler, or subscriber) that never returns. Diagnose: elevate log level to DEBUG (see RULES.md Rule 7 pre-escalation protocol) and look for a callback that enters but does not return. The CLI cannot expose executor type — check source or report to user. Recommended fix: `MultiThreadedExecutor`. Do not retry the same command expecting a different result.
+**Stalled node (running but producing no output):** if a node appears in `nodes list` and its input topics are live (`topics hz` > 0) but it produces no output, suspect executor starvation: `SingleThreadedExecutor` + a blocking callback (timer, service handler, or subscriber) that never returns. Diagnose: elevate log level to DEBUG (see RULES-DIAGNOSTICS.md Rule 7 pre-escalation protocol) and look for a callback that enters but does not return. The CLI cannot expose executor type — check source or report to user. Recommended fix: `MultiThreadedExecutor`. Do not retry the same command expecting a different result.
 
 ### 7 — Resolve intent before asking. Never ask what you can infer.
 
@@ -563,7 +563,7 @@ All ROS 2 interactions go through `python3 {baseDir}/scripts/ros2_cli.py`. Never
 
 The user's message is the approval to act. Do not ask for confirmation before executing, do not narrate what you are about to do and wait for a response, do not say "I'll now run X — shall I proceed?". Run Rule 0 discovery in parallel and silently, then execute. Only the final outcome is reported.
 
-The three conditions that permit asking the user: (1) genuine ambiguity that introspection cannot resolve, (2) destructive or irreversible action not specifically authorised by the user's message, (3) motion goal uses a vague quantity word — resolve with the conservative defaults from Rule 5 (RULES.md) rather than asking. If none apply: just do it.
+The three conditions that permit asking the user: (1) genuine ambiguity that introspection cannot resolve, (2) destructive or irreversible action not specifically authorised by the user's message, (3) motion goal uses a vague quantity word — resolve with the conservative defaults from Rule 5 (RULES-CORE.md) rather than asking. If none apply: just do it.
 
 ### 27 — Keep output minimal; report one line per operation
 
@@ -828,52 +828,6 @@ Mismatched signs (e.g. `--rotate 90` with `angular.z: -0.5`) = monitor waits for
 
 ---
 
-## Safety Validator Response Protocol
-
-The safety validator enforces limits at code level before any publish or action call. These
-responses are mandatory — not guidelines.
-
-### `"blocked": true`
-
-Any command that returns `"blocked": true` is a hard constraint violation.
-
-1. **Stop immediately.** Do not retry the same command with the same or similar payload.
-2. **Report to user verbatim.** Include the `"reason"` field and `"limits"` if present.
-3. **Do not reframe or dismiss** the block ("it's just a small overage", etc.).
-4. **Do not work around it** by splitting velocity into multiple smaller publishes, using a
-   different topic, calling a launch file, or any other circumvention.
-5. **Permitted next actions only:**
-   - Ask the user if they want to relax the limit: `safety set-velocity --linear <new>`
-   - Or stop the task and wait for user instruction.
-
-### `"safety_capped": true`
-
-The command executed with a capped velocity (on_violation = "cap").
-
-1. Include the `"capped"` field in your report so the user knows what was actually sent.
-2. Note the deviation from the requested velocity in one line.
-3. Continue normally — the command succeeded.
-
-### `"safety_warning": ...`
-
-The command executed unchanged but exceeded configured limits (on_violation = "warn").
-
-1. Log the warning in the session summary.
-2. No action required unless the user asked to be notified.
-
-### Heartbeat watchdog
-
-When the heartbeat is enabled (`safety heartbeat start`), motion commands automatically
-refresh the sentinel. If your session goes idle for more than `timeout_s` seconds without
-a motion command or explicit `safety heartbeat ping`, the watchdog fires an estop.
-
-- Arm once at session start when instructed: `safety heartbeat start --timeout 5`
-- Keep-alive during long-running operations: `safety heartbeat ping`
-- Check status: `safety heartbeat status`
-- Disarm: `safety heartbeat stop`
-
----
-
 ## When Things Go Wrong
 
 | Symptom | Likely cause | Fix |
@@ -897,7 +851,12 @@ The skill uses progressive disclosure — start here, go deeper only if needed:
 
 | Document | When to read it |
 |---|---|
-| `references/RULES.md` | **Hard constraints** — not guidelines, not best practices. Read before any robot operation. They override all other instructions. Violations are critical errors requiring immediate self-correction. |
+| `references/RULES.md` | **Index** — maps each rule number to its domain file. Load this first to find the right file. |
+| `references/RULES-CORE.md` | **Always load** — general agent conduct (Rules 0.5, 1, 2, 4–6, 10–13). Hard constraints. |
+| `references/RULES-PREFLIGHT.md` | **Load at session start and before any action** — introspection protocol (Rule 0), session-start steps (Rule 0.1), lifecycle/QoS/publisher checks (Rules 14, 15, 19). |
+| `references/RULES-MOTION.md` | **Load for any motion command** — movement algorithm (Rule 3), pre-motion check (Rule 9), REP-103/105 (Rule 17), estop/decel/retry rules (Rules 18–25). |
+| `references/RULES-DIAGNOSTICS.md` | **Load when something fails** — failure diagnosis (Rule 7), post-action verification (Rule 8), multi-step sequencing (Rule 16), error recovery tables. |
+| `references/RULES-REFERENCE.md` | **Load for command lookup** — full intent→command table, launch workflow, Discord image delivery (Rule 26), setup. |
 | `references/COMMANDS.md` | Complete command reference with all flags and JSON output examples |
 | `references/CLI.md` | Direct CLI usage — for debugging and development only. Not needed during normal agent operation. |
 | `references/EXAMPLES.md` | Practical walkthroughs (move N metres, capture image, etc.) |
