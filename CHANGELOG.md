@@ -2,6 +2,29 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [Unreleased]
+
+Quality-of-life pass: two new commands, four code-quality fixes, three test maintenance items.
+
+### New Commands
+
+- `topics echo-once <topic>` — subscribe and return the first message received, then exit; no need to set `--max-messages 1` or a short `--duration`
+- `topics depth-point --topic T --u U --v V` — extract depth at pixel (u, v) from a depth image topic; supports 16UC1 (mm→m) and 32FC1 (native m, NaN-aware) via struct; no numpy or cv2 required; returns `{depth_m, invalid, encoding, width, height}` (implements AG-10)
+
+### Changes
+
+- `topics list` / `ls`: default `--limit` changed from 0 (unlimited) to 50; override with `--limit 0` for the full list; matches the `context` command cap to avoid flooding agent context on dense graphs
+- `params get`: accepts extra positional parameter names — `params get /node key1 key2 key3` issues one `GetParameters` RPC; single-key output is unchanged; multi-key returns `{node, parameters: {key: {value, exists}}, count}`
+- `main()`: unhandled exceptions from any command are now serialised as `{"error": "...", "type": "<ExceptionClass>"}` instead of raw Python tracebacks
+
+### Fixes
+
+- Removed stale `publish-continuous` entry from `MINIMAL_ARGS` in tests (caused 3 `TestExhaustiveParser` failures)
+- `TestFuzzyMatch`: fixed import (`_fuzzy_match` from `ros2_launch` → `fuzzy_match` from `ros2_utils`)
+- Added missing `MINIMAL_ARGS` rows for `pkg create` and all four `logs` commands (`list-runs`, `query`, `tail`, `node-summary`)
+
+---
+
 ## [1.0.7] - 2026-05-01
 
 Session-start snapshot, topic list capping, launch params/config/preset, package scaffolding, security hardening, rules audit, log introspection, RULES domain split, and auto-hold on motion failure.
