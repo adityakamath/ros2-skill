@@ -142,14 +142,17 @@ def cmd_params_get(args):
     if ':' not in full_name or not full_name.split(':', 1)[1]:
         return output({"error": "Use format /node_name:param_name or /node_name param_name (e.g. /turtlesim background_r)"})
 
+    extra_names = list(getattr(args, 'extra_names', []) or [])
+
     try:
         from rcl_interfaces.srv import GetParameters
         with ros2_context():
             node = ROS2CLI()
             node_name, param_name = full_name.split(':', 1)
             node_name = _norm_node(node_name)
+            all_param_names = [param_name] + extra_names
             request = GetParameters.Request()
-            request.names = [param_name] if param_name else []
+            request.names = all_param_names
             result, err = _call_service(
                 node, GetParameters, f"{node_name}/get_parameters",
                 request, args.timeout, getattr(args, 'retries', 1),
@@ -157,11 +160,24 @@ def cmd_params_get(args):
         if err:
             return output(err)
         values = result.values if result.values else []
-        if values and values[0].type != 0:
-            py_val = _param_value_to_python(values[0])
-            output({"name": full_name, "value": str(py_val) if py_val is not None else "", "exists": True})
+
+        if not extra_names:
+            # Single-key: preserve original output format for backward compatibility.
+            if values and values[0].type != 0:
+                py_val = _param_value_to_python(values[0])
+                output({"name": full_name, "value": str(py_val) if py_val is not None else "", "exists": True})
+            else:
+                output({"name": full_name, "value": "", "exists": False})
         else:
-            output({"name": full_name, "value": "", "exists": False})
+            # Multi-key: return a dict of {param_name: {value, exists}}.
+            params_out = {}
+            for pname, pval in zip(all_param_names, values):
+                if pval.type != 0:
+                    py_val = _param_value_to_python(pval)
+                    params_out[pname] = {"value": str(py_val) if py_val is not None else "", "exists": True}
+                else:
+                    params_out[pname] = {"value": "", "exists": False}
+            output({"node": node_name, "parameters": params_out, "count": len(params_out)})
     except Exception as e:
         output({"error": str(e)})
 

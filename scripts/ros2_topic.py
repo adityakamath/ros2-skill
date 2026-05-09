@@ -314,6 +314,47 @@ def cmd_topics_subscribe(args):
         output({"error": str(e)})
 
 
+def cmd_topics_echo_once(args):
+    """Subscribe to a topic and return the first message received, then exit.
+
+    Unlike `subscribe`, this command exits immediately after the first message
+    instead of continuing to collect. Useful for quick one-shot introspection
+    without having to specify --max-messages or short durations.
+    """
+    if not args.topic:
+        return output({"error": "topic argument is required"})
+
+    try:
+        with ros2_context():
+            temp = ROS2CLI("temp")
+            msg_type = resolve_topic_type(temp, args.topic, getattr(args, 'msg_type', None))
+            temp.destroy_node()
+
+            if not msg_type:
+                return output({"error": f"Could not detect message type for topic: {args.topic}"})
+
+            subscriber = TopicSubscriber(args.topic, msg_type)
+            if subscriber.sub is None:
+                return output({"error": f"Could not load message type: {msg_type}"})
+
+            executor = rclpy.executors.SingleThreadedExecutor()
+            executor.add_node(subscriber)
+
+            timeout_sec = getattr(args, 'timeout', 5.0)
+            end_time = time.time() + timeout_sec
+
+            while time.time() < end_time:
+                executor.spin_once(timeout_sec=0.1)
+                with subscriber.lock:
+                    if subscriber.messages:
+                        output({"topic": args.topic, "type": msg_type, "msg": subscriber.messages[0]})
+                        return
+
+            output({"error": f"Timeout after {timeout_sec}s — no message received on {args.topic}"})
+    except Exception as e:
+        output({"error": str(e)})
+
+
 # ---------------------------------------------------------------------------
 # Publisher node
 # ---------------------------------------------------------------------------
@@ -1472,6 +1513,96 @@ def cmd_topics_capture_image(args):
             return output({"error": "Unknown image message type"})
 
         output({"success": True, "path": out_path})
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_topics_depth_point(args):
+    """Extract depth at pixel (u, v) from a depth image topic.
+
+    Supports two common depth encodings without requiring numpy or cv2:
+      16UC1 — 16-bit unsigned int, raw value is millimetres → converted to metres
+      32FC1 — 32-bit float, value is already in metres; NaN means no reading
+
+    Returns:
+      topic, u, v, encoding, width, height, depth_m (None when invalid), invalid (bool)
+    """
+    import struct
+    import math as _math
+
+    try:
+        from sensor_msgs.msg import Image
+    except ImportError as e:
+        return output({"error": f"sensor_msgs not available: {e}"})
+
+    topic = args.topic
+    u = args.u
+    v = args.v
+    timeout = getattr(args, 'timeout', 5.0)
+
+    try:
+        received = {}
+
+        def _cb(msg):
+            if 'msg' not in received:
+                received['msg'] = msg
+
+        with ros2_context():
+            node = rclpy.create_node('depth_point')
+            node.create_subscription(Image, topic, _cb, qos_profile_sensor_data)
+
+            start = time.time()
+            while time.time() - start < timeout:
+                rclpy.spin_once(node, timeout_sec=0.1)
+                if 'msg' in received:
+                    break
+
+            node.destroy_node()
+
+        if 'msg' not in received:
+            return output({"error": f"No depth image received from {topic} within {timeout}s"})
+
+        msg = received['msg']
+        encoding = msg.encoding
+        width = msg.width
+        height = msg.height
+
+        if u < 0 or u >= width or v < 0 or v >= height:
+            return output({
+                "error": f"Pixel ({u}, {v}) out of bounds for {width}×{height} image",
+                "width": width,
+                "height": height,
+            })
+
+        raw = bytes(msg.data)
+
+        if encoding == "16UC1":
+            offset = v * msg.step + u * 2
+            depth_mm = struct.unpack_from('<H', raw, offset)[0]
+            invalid = (depth_mm == 0)
+            depth_m = None if invalid else round(depth_mm / 1000.0, 4)
+        elif encoding == "32FC1":
+            offset = v * msg.step + u * 4
+            depth_m_raw = struct.unpack_from('<f', raw, offset)[0]
+            invalid = _math.isnan(depth_m_raw) or _math.isinf(depth_m_raw)
+            depth_m = None if invalid else round(depth_m_raw, 4)
+        else:
+            return output({
+                "error": f"Unsupported depth encoding '{encoding}'. Expected 16UC1 or 32FC1.",
+                "encoding": encoding,
+                "hint": "Use 'topics type <topic>' to confirm this is a depth image topic.",
+            })
+
+        output({
+            "topic": topic,
+            "u": u,
+            "v": v,
+            "encoding": encoding,
+            "width": width,
+            "height": height,
+            "depth_m": depth_m,
+            "invalid": invalid,
+        })
     except Exception as e:
         output({"error": str(e)})
 

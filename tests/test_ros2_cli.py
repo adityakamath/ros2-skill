@@ -92,7 +92,8 @@ MINIMAL_ARGS = [
     ("topics",   "publish",          ["topics", "publish", "/t", "{}"]),
     ("topics",   "publish-sequence", ["topics", "publish-sequence", "/t", "[]", "[]"]),
     ("topics",   "publish-until",    ["topics", "publish-until", "/t", "{}", "--monitor", "/m", "--field", "x", "--delta", "1"]),
-    ("topics",   "publish-continuous",["topics", "publish-continuous", "/t", "{}"]),
+    ("topics",   "echo-once",        ["topics", "echo-once", "/t"]),
+    ("topics",   "depth-point",      ["topics", "depth-point", "--topic", "/depth", "--u", "320", "--v", "240"]),
     ("topics",   "hz",               ["topics", "hz", "/t"]),
     ("topics",   "find",             ["topics", "find", "std_msgs/msg/String"]),
     ("topics",   "capture-image",    ["topics", "capture-image", "--topic", "/camera/image_raw", "--output", "img.jpg"]),
@@ -213,6 +214,11 @@ MINIMAL_ARGS = [
     ("interface","package",  ["interface", "package", "std_msgs"]),
     # bag
     ("bag",      "info",     ["bag", "info", "/path/to/bag"]),
+    # logs
+    ("logs",     "list-runs",    ["logs", "list-runs"]),
+    ("logs",     "query",        ["logs", "query"]),
+    ("logs",     "tail",         ["logs", "tail"]),
+    ("logs",     "node-summary", ["logs", "node-summary"]),
     # component
     ("component","types",    ["component", "types"]),
     ("component","list",     ["component", "list"]),
@@ -227,6 +233,7 @@ MINIMAL_ARGS = [
     ("pkg",       "prefix",      ["pkg", "prefix", "std_msgs"]),
     ("pkg",       "executables", ["pkg", "executables", "turtlesim"]),
     ("pkg",       "xml",         ["pkg", "xml", "std_msgs"]),
+    ("pkg",       "create",      ["pkg", "create", "my_pkg"]),
     # daemon
     ("daemon",   "status",   ["daemon", "status"]),
     ("daemon",   "start",    ["daemon", "start"]),
@@ -2639,10 +2646,10 @@ class TestFuzzyMatch(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not check_rclpy_available():
-            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
-        from ros2_launch import _fuzzy_match
-        cls._fuzzy_match = staticmethod(_fuzzy_match)
+        # fuzzy_match lives in ros2_utils (public name, no underscore).
+        # ros2_launch re-exports it, but the canonical import is from ros2_utils.
+        from ros2_utils import fuzzy_match
+        cls._fuzzy_match = staticmethod(fuzzy_match)
 
     # ------------------------------------------------------------------
     # Match quality tiers

@@ -32,6 +32,7 @@ from ros2_topic import (
     cmd_topics_details,
     cmd_topics_message,
     cmd_topics_subscribe,
+    cmd_topics_echo_once,
     cmd_topics_publish,
     cmd_topics_publish_sequence,
     cmd_topics_publish_until,
@@ -40,6 +41,7 @@ from ros2_topic import (
     cmd_topics_bw,
     cmd_topics_delay,
     cmd_topics_capture_image,
+    cmd_topics_depth_point,
     cmd_topics_diag_list,
     cmd_topics_diag,
     cmd_topics_battery_list,
@@ -299,11 +301,11 @@ def build_parser():
     topics = sub.add_parser("topics", help="Topic operations")
     tsub = topics.add_subparsers(dest="subcommand")
     p = tsub.add_parser("list", help="List all topics")
-    p.add_argument("--limit", type=int, default=0,
-                   help="Max topics to return (default: 0 = unlimited)")
+    p.add_argument("--limit", type=int, default=50,
+                   help="Max topics to return (default: 50; 0 = unlimited)")
     p = tsub.add_parser("ls", help="Alias for list")
-    p.add_argument("--limit", type=int, default=0,
-                   help="Max topics to return (default: 0 = unlimited)")
+    p.add_argument("--limit", type=int, default=50,
+                   help="Max topics to return (default: 50; 0 = unlimited)")
     p = tsub.add_parser("type", help="Get topic message type")
     p.add_argument("topic", help="Topic name (e.g. /cmd_vel)")
     p = tsub.add_parser("details", help="Get topic details")
@@ -316,6 +318,22 @@ def build_parser():
     p.add_argument("message_type", help="Message type (e.g. geometry_msgs/msg/Twist)")
     _add_subscribe_args(tsub.add_parser("subscribe", help="Subscribe to a topic"))
     _add_subscribe_args(tsub.add_parser("echo", help="Echo topic messages (alias for subscribe)"))
+    p = tsub.add_parser("echo-once", help="Subscribe and return the first message, then exit")
+    p.add_argument("topic", nargs="?", help="Topic name (e.g. /odom)")
+    p.add_argument("--msg-type", dest="msg_type", default=None,
+                   help="Message type (auto-detected if not provided)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Max wait time in seconds (default: 5)")
+    p = tsub.add_parser("depth-point",
+                        help="Read depth at pixel (u, v) from a depth image topic")
+    p.add_argument("--topic", required=True,
+                   help="Depth image topic (e.g. /camera/depth/image_rect_raw)")
+    p.add_argument("--u", type=int, required=True,
+                   help="Pixel column (x), 0-indexed from left")
+    p.add_argument("--v", type=int, required=True,
+                   help="Pixel row (y), 0-indexed from top")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Max wait time in seconds (default: 5)")
     p = tsub.add_parser("capture-image", help="Capture image from ROS 2 topic")
     p.add_argument("--topic", required=True,
                    help="ROS 2 image topic (e.g., /camera/image_raw/compressed)")
@@ -633,10 +651,12 @@ def build_parser():
         p.add_argument("node", help="Node name (e.g. /turtlesim)")
         p.add_argument("--timeout", type=float, default=5.0,
                        help="Timeout in seconds (default: 5)")
-    p = psub.add_parser("get", help="Get parameter value")
+    p = psub.add_parser("get", help="Get one or more parameter values")
     p.add_argument("name", help="/node_name:param_name or just /node_name")
     p.add_argument("param_name", nargs="?", default=None,
                    help="Parameter name (alternative to colon format)")
+    p.add_argument("extra_names", nargs="*", default=[],
+                   help="Additional parameter names to fetch in the same call")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
     p = psub.add_parser("set", help="Set parameter value")
@@ -1216,6 +1236,8 @@ DISPATCH = {
     ("topics", "message-structure"): cmd_topics_message,
     ("topics", "message-struct"): cmd_topics_message,
     ("topics", "subscribe"): cmd_topics_subscribe,
+    ("topics", "echo-once"): cmd_topics_echo_once,
+    ("topics", "depth-point"): cmd_topics_depth_point,
     ("topics", "publish"): cmd_topics_publish,
     ("topics", "publish-sequence"): cmd_topics_publish_sequence,
     ("topics", "publish-until"): cmd_topics_publish_until,
@@ -1422,7 +1444,10 @@ def main():
     key = (command, subcommand)
     handler = DISPATCH.get(key)
     if handler:
-        handler(args)
+        try:
+            handler(args)
+        except Exception as e:
+            output({"error": str(e), "type": type(e).__name__})
     else:
         parser.print_help()
         sys.exit(1)
