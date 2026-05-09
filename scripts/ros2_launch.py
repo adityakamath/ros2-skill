@@ -128,13 +128,22 @@ def _get_launch_arguments(package, launch_file):
     
     args = []
     if rc == 0 and stdout:
-        # Parse output - typically shows args in format "arg_name (default value)"
+        # Parse --show-args output.  ROS 2 Humble+ format:
+        #   Arguments for the launch file:
+        #   'arg_name':
+        #       default: 'value'
+        #       description: '...'
+        # Indented lines are metadata; only unindented non-header lines are arg names.
         for line in stdout.split('\n'):
-            line = line.strip()
-            if line and not line.startswith(' '):
-                # Extract arg name (before space or parenthesis)
-                arg = line.split(' ')[0].split('(')[0].strip()
-                if arg and arg not in args:
+            # Use the RAW line for the indentation check (before any strip).
+            if not line or line[0] in (' ', '\t'):
+                continue
+            stripped = line.strip()
+            # Remove surrounding quotes and trailing colon: 'arg': → arg
+            arg = stripped.rstrip(':').strip("'\"")
+            # Skip the section header line
+            if arg and 'Arguments for the launch file' not in arg:
+                if arg not in args:
                     args.append(arg)
     
     _launch_args_cache[cache_key] = args
@@ -142,59 +151,36 @@ def _get_launch_arguments(package, launch_file):
 
 
 def _validate_launch_args(user_args, available_args):
-    """Validate and resolve user-provided args against real available launch args.
+    """Validate user-provided args against the launch file's declared args.
 
-    Rules:
-    - Always check available_args (fetched from --show-args) first.
-    - Exact match → use as-is.
-    - No exact match → fuzzy match against available_args only.
-      If a good fuzzy match is found → use the matched name, notify user.
-    - No match at all → drop the argument, notify user. Never pass an invented arg.
+    All args are ALWAYS passed through unchanged — this function only adds
+    informational notices about args that are not in the declared list.
+    The ROS 2 launch system is the authoritative validator; we must not drop
+    or rename args here.
 
     Returns:
-        validated_args: list of args to actually pass to ros2 launch
-        notices: list of human-readable messages about what was changed/dropped
+        validated_args: same as user_args (passed through unmodified)
+        notices: list of informational messages about unrecognised arg names
     """
     notices = []
-    validated = []
 
     for arg in user_args:
-        # Split "name:=value" or "name=value" or bare "name"
         if ':=' in arg:
-            arg_name, arg_value = arg.split(':=', 1)
-            fmt = lambda n, v: f"{n}:={v}"
+            arg_name = arg.split(':=', 1)[0]
         elif '=' in arg:
-            arg_name, arg_value = arg.split('=', 1)
-            fmt = lambda n, v: f"{n}={v}"
+            arg_name = arg.split('=', 1)[0]
         else:
             arg_name = arg
-            arg_value = None
-            fmt = lambda n, v: n
 
-        # 1. Exact match
-        if arg_name in available_args:
-            validated.append(arg)
-            continue
-
-        # 2. Fuzzy match — only against real available_args
-        matches = fuzzy_match(arg_name, available_args)
-        if matches and matches[0][1] >= 0.6:
-            matched_name = matches[0][0]
-            resolved = fmt(matched_name, arg_value)
-            validated.append(resolved)
+        if available_args and arg_name not in available_args:
+            available_str = ', '.join(sorted(available_args))
             notices.append(
-                f"NOTICE: '{arg_name}' not found — using closest match '{matched_name}' instead. "
-                f"Passed as: {resolved}"
-            )
-        else:
-            # 3. No match — drop and notify, do NOT pass through
-            available_str = ', '.join(sorted(available_args)) if available_args else 'none'
-            notices.append(
-                f"NOTICE: Argument '{arg_name}' does not exist in this launch file and no similar "
-                f"argument was found. It was NOT passed. Available args: [{available_str}]"
+                f"NOTICE: Argument '{arg_name}' is not in this launch file's declared args "
+                f"(available: [{available_str}]). Passing through anyway — "
+                f"the launch system will report an error if it is invalid."
             )
 
-    return validated, notices
+    return list(user_args), notices
 
 
 
@@ -307,17 +293,16 @@ def cmd_launch_run(args):
             ),
         })
 
-    # --- Validate and resolve launch arguments against real --show-args output ---
+    # --- Validate launch arguments against real --show-args output ---
+    # Args are always passed through; validation only adds informational notices.
     arg_notices = []
     if launch_args:
         available_args = _get_launch_arguments(package, os.path.basename(launch_path))
         if not available_args:
             arg_notices.append(
-                f"NOTICE: Could not retrieve launch arguments via --show-args. "
-                f"All provided arguments {launch_args} were dropped. "
-                f"Launch will proceed without arguments."
+                f"NOTICE: Could not retrieve declared launch arguments via --show-args. "
+                f"Passing {launch_args} through without validation."
             )
-            launch_args = []
         else:
             launch_args, arg_notices = _validate_launch_args(launch_args, available_args)
 

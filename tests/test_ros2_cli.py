@@ -2712,12 +2712,11 @@ class TestFuzzyMatch(unittest.TestCase):
 
 class TestValidateLaunchArgs(unittest.TestCase):
     """Tests for ros2_launch._validate_launch_args — the argument validation
-    layer that prevents the agent from inventing or passing unknown launch args.
+    layer that warns about unrecognised launch args but always passes them through.
 
-    Covers the 'ambiguity handling' and 'skill/script argument introspection'
-    gaps: the agent must check available args first, use exact matches as-is,
-    substitute close matches with a notice, and silently drop unknown args
-    rather than passing them through.
+    The function is warn-only: it never drops or renames arguments.  The ROS 2
+    launch system is the authoritative validator; we must not silently discard
+    what the user asked for.
     """
 
     @classmethod
@@ -2758,26 +2757,27 @@ class TestValidateLaunchArgs(unittest.TestCase):
     # Fuzzy substitution
     # ------------------------------------------------------------------
 
-    def test_fuzzy_match_substitutes_name_and_generates_notice(self):
-        """Close arg name → real name substituted, agent notified."""
+    def test_close_arg_name_passed_through_with_notice(self):
+        """Close but non-exact arg name is passed through unchanged; a notice is emitted."""
         validated, notices = self._validate_launch_args(
             ["sim_time:=true"], ["use_sim_time"]
         )
-        # The matched name should be used
-        self.assertTrue(len(validated) > 0 or len(notices) > 0)
-        # Whether matched or dropped, a notice must explain what happened
-        self.assertTrue(len(notices) > 0)
+        # Arg passed through as-is — no renaming
+        self.assertIn("sim_time:=true", validated)
+        # Notice emitted because sim_time is not in declared args
+        self.assertEqual(len(notices), 1)
+        self.assertIn("sim_time", notices[0])
 
     # ------------------------------------------------------------------
     # No-match → drop and notify
     # ------------------------------------------------------------------
 
-    def test_unknown_arg_dropped_with_notice(self):
-        """Completely unknown arg is dropped — never passed to launch."""
+    def test_unknown_arg_passed_through_with_notice(self):
+        """Unknown arg is passed through unchanged; a notice explains it is not declared."""
         validated, notices = self._validate_launch_args(
             ["invented_arg:=value"], ["use_sim_time", "robot_name"]
         )
-        self.assertNotIn("invented_arg:=value", validated)
+        self.assertIn("invented_arg:=value", validated)
         self.assertEqual(len(notices), 1)
         self.assertIn("invented_arg", notices[0])
 
@@ -2788,13 +2788,13 @@ class TestValidateLaunchArgs(unittest.TestCase):
         )
         self.assertTrue(any("use_sim_time" in n or "robot_name" in n for n in notices))
 
-    def test_empty_available_args_drops_all_user_args(self):
-        """When no args are declared, every user arg is dropped."""
+    def test_empty_available_args_passes_user_args_through(self):
+        """When available_args is empty, user args are passed through unchanged (no notices)."""
         validated, notices = self._validate_launch_args(
             ["use_sim_time:=true", "robot_name:=r1"], []
         )
-        self.assertEqual(validated, [])
-        self.assertEqual(len(notices), 2)
+        self.assertEqual(validated, ["use_sim_time:=true", "robot_name:=r1"])
+        self.assertEqual(notices, [])
 
     def test_empty_user_args_returns_empty(self):
         validated, notices = self._validate_launch_args([], ["use_sim_time"])
@@ -2806,13 +2806,13 @@ class TestValidateLaunchArgs(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_mixed_exact_and_unknown(self):
-        """One exact match passes through; one unknown arg is dropped."""
+        """Both the exact match and the unknown arg are passed through; one notice for unknown."""
         validated, notices = self._validate_launch_args(
             ["use_sim_time:=true", "invented:=val"],
             ["use_sim_time", "robot_name"]
         )
         self.assertIn("use_sim_time:=true", validated)
-        self.assertNotIn("invented:=val", validated)
+        self.assertIn("invented:=val", validated)
         self.assertEqual(len(notices), 1)
 
     def test_equals_format_exact_match(self):
