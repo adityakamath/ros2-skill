@@ -47,7 +47,7 @@ Session-start snapshot, topic list capping, launch params/config/preset, package
 - `_parse_param_str`: bare args with no separator silently dropped; now passed to arg validator
 - `pkg create`: `package_path` used unresolved relative path; fixed to always emit absolute path
 - `topics publish-sequence`: added `try/finally` auto-hold — on any exit (completion, exception, `KeyboardInterrupt`), publishes 3 zero-velocity messages; Twist/TwistStamped only via `_has_velocity_fields`; Rule 18 updated to cover both `publish-sequence` and `publish-until`
-- `launch new`: positional launch args (e.g. `config:=k2`) were corrupted to `'config'::=k2` and silently dropped; root cause was `_get_launch_arguments()` stripping lines before checking indentation (treating `default:` and `description:` as arg names), followed by a fuzzy-match rename turning `'config':` → `'config'::=k2`; arg validation is now warn-only and always passes args through unchanged
+- `launch new`: positional launch args (e.g. `config:=nav`) were corrupted to `'config'::=nav` and silently dropped; root cause was `_get_launch_arguments()` stripping lines before checking indentation (treating `default:` and `description:` as arg names), followed by a fuzzy-match rename turning `'config':` → `'config'::=nav`; arg validation is now warn-only and always passes args through unchanged
 - `TestExhaustiveParser`: removed stale `publish-continuous` entry from `MINIMAL_ARGS`; added `echo-once` and `depth-point` rows; fixed `TestFuzzyMatch` import (`fuzzy_match` in `ros2_utils`, not `_fuzzy_match` in `ros2_launch`); added missing rows for `pkg create` and all four `logs` commands
 
 ---

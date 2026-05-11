@@ -115,7 +115,7 @@ _ARM_HINTS = {
 _MOBILE_HINTS = {
     "diff_drive", "cmd_vel", "mecanum", "omni", "ackermann",
     "turtlebot", "husky", "jackal", "ridgeback", "summit",
-    "roomba", "create3", "lekiwi", "base_controller",
+    "roomba", "create3", "base_controller",
 }
 
 # Aerial / UAV / drone.
@@ -284,13 +284,15 @@ def _detect_config_name(launch_path):
     """Derive a configuration name from a launch file path.
 
     Strategy (no hardcoded robot-specific names):
-      1. Take the file stem (e.g. ``lekiwi_k2_bringup`` → ``lekiwi_k2_bringup``).
+      1. Take the file stem (e.g. ``outdoor_navigation_bringup`` → stem is
+         ``outdoor_navigation_bringup``).
       2. Strip leading/trailing noise affixes like ``bringup_``, ``_launch``,
-         ``robot_``, ``ros2_`` from both ends of the stem.
+         ``robot_``, ``ros2_`` from both ends of the stem in up to 4 passes
+         (e.g. ``outdoor_navigation_bringup`` → ``outdoor_navigation``).
       3. If the result is still a fully generic word (e.g. ``main``, ``start``),
          fall back to ``<package_name>/<stem>`` so configs stay distinguishable
          across packages.
-      4. If the stem becomes empty after stripping → ``default``.
+      4. If the stem becomes empty after stripping → keep the original raw stem.
 
     This means the config name always comes from the workspace itself, so any
     robot with any naming convention produces meaningful, unique config keys.

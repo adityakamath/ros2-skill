@@ -361,7 +361,7 @@ When a user request is ambiguous or incomplete, resolve it yourself — then act
 
 | User says | Correct form |
 |---|---|
-| "launch lekiwi_bringup base" | `launch new lekiwi_bringup base.launch.py` |
+| "launch my_robot bringup" | `launch new my_robot_bringup bringup.launch.py` |
 | "kill/stop the launch" | `launch kill <session>` |
 | "take a photo" | discover camera topic → `topics capture-image --topic <discovered>` |
 | "topic list" or "topic" instead of "topics" | self-correct silently per Rule 6, retry with `topics` |
@@ -410,7 +410,7 @@ Use the first result. If multiple camera topics exist and the user has not speci
 **When multiple results are returned — tiebreaker heuristics (apply in order):**
 
 1. **Format preference**: `CompressedImage` > `Image`; `TwistStamped` > `Twist` for stamped-capable controllers
-2. **Namespace match**: prefer topics under the robot's primary namespace (e.g. `/lekiwi/cmd_vel` > `/cmd_vel`)
+2. **Namespace match**: prefer topics under the robot's primary namespace (e.g. `/<robot_ns>/cmd_vel` > `/cmd_vel`)
 3. **Semantic name match**: topic name contains the expected keyword (`cmd_vel`, `odom`, `camera`, `scan`)
 4. **Publisher count**: prefer topics with active publishers (`topics details <topic>` to check)
 5. **If still ambiguous**: pick the first result, proceed, and note the choice in the report

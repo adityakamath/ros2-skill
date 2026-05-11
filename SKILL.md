@@ -289,7 +289,7 @@ python3 {baseDir}/scripts/ros2_cli.py profile show
 # Load a specific section
 python3 {baseDir}/scripts/ros2_cli.py profile show --section summary
 python3 {baseDir}/scripts/ros2_cli.py profile show --section detail
-python3 {baseDir}/scripts/ros2_cli.py profile show --section <config-name>   # e.g. base, pantilt, k2
+python3 {baseDir}/scripts/ros2_cli.py profile show --section <config-name>   # config name = launch file stem
 
 # Full rescan (workspace changed)
 python3 {baseDir}/scripts/ros2_cli.py profile rescan [--workspace PATH]
@@ -306,14 +306,14 @@ python3 {baseDir}/scripts/ros2_cli.py profile list
 {
   "summary": {                     ← always load; compact
     "robot_type": "mobile_base",
-    "configurations": ["base", "pantilt", "k2"],
+    "configurations": ["navigation", "simulation"],   ← derived from launch file stems in the workspace
     "velocity_topics": ["/cmd_vel"],
     "safety_limits": {"linear_max": 0.5, "angular_max": 1.0, "source": "yaml_or_urdf"},
     "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false,
-    "launch_files": {"base": "/path/to/base.launch.py", ...}
+    "launch_files": {"navigation": "/path/to/navigation.launch.py", ...}
   },
   "detail": {                      ← load on demand per configuration
-    "base": {"launch_file": ..., "launch_args": {...}, "yaml_files": [...], "joint_limits": {...}},
+    "navigation": {"launch_file": ..., "launch_args": {...}, "yaml_files": [...], "joint_limits": {...}},
     ...
   }
 }

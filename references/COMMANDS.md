@@ -3417,31 +3417,31 @@ Run a ROS 2 executable in a tmux session. System ROS is assumed to be already so
 
 **Run an executable:**
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py run new lekiwi_control teleop
+python3 {baseDir}/scripts/ros2_cli.py run new my_robot_pkg teleop
 ```
 
 **Run with arguments:**
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py run new lekiwi_control teleop --speed 1.0
+python3 {baseDir}/scripts/ros2_cli.py run new my_robot_pkg teleop --speed 1.0
 ```
 
 **Run with parameters:**
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py run new lekiwi_control teleop --params "speed:1.0,max_velocity:2.0"
+python3 {baseDir}/scripts/ros2_cli.py run new my_robot_pkg teleop --params "speed:1.0,max_velocity:2.0"
 ```
 
 **Run with presets:**
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py run new lekiwi_control teleop --presets indoor
+python3 {baseDir}/scripts/ros2_cli.py run new my_robot_pkg teleop --presets indoor
 ```
 
 **Output:**
 ```json
 {
   "success": true,
-  "session": "run_lekiwi_control_teleop",
-  "command": "ros2 run lekiwi_control teleop",
-  "package": "lekiwi_control",
+  "session": "run_my_robot_pkg_teleop",
+  "command": "ros2 run my_robot_pkg teleop",
+  "package": "my_robot_pkg",
   "executable": "teleop",
   "args": [],
   "status": "running"
@@ -3451,9 +3451,9 @@ python3 {baseDir}/scripts/ros2_cli.py run new lekiwi_control teleop --presets in
 Error (session already exists):
 ```json
 {
-  "error": "Session 'run_lekiwi_control_teleop' already exists",
-  "suggestion": "Use 'run restart run_lekiwi_control_teleop' to restart, or 'run kill run_lekiwi_control_teleop' to kill first",
-  "session": "run_lekiwi_control_teleop"
+  "error": "Session 'run_my_robot_pkg_teleop' already exists",
+  "suggestion": "Use 'run restart run_my_robot_pkg_teleop' to restart, or 'run kill run_my_robot_pkg_teleop' to kill first",
+  "session": "run_my_robot_pkg_teleop"
 }
 ```
 
@@ -3470,12 +3470,12 @@ python3 {baseDir}/scripts/ros2_cli.py run list
 **Output:**
 ```json
 {
-  "all_sessions": ["run_lekiwi_control_teleop", "launch_navigation2_navigation2"],
-  "run_sessions": ["run_lekiwi_control_teleop"],
+  "all_sessions": ["run_my_robot_pkg_teleop", "launch_navigation2_navigation2"],
+  "run_sessions": ["run_my_robot_pkg_teleop"],
   "run_sessions_detail": [
     {
-      "session": "run_lekiwi_control_teleop",
-      "command": "ros2 run lekiwi_control teleop",
+      "session": "run_my_robot_pkg_teleop",
+      "command": "ros2 run my_robot_pkg teleop",
       "status": "running"
     }
   ]
@@ -3493,15 +3493,15 @@ Kill a running run session.
 | `session` | Yes | Session name to kill (must start with `run_`) |
 
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py run kill run_lekiwi_control_teleop
+python3 {baseDir}/scripts/ros2_cli.py run kill run_my_robot_pkg_teleop
 ```
 
 **Output:**
 ```json
 {
   "success": true,
-  "session": "run_lekiwi_control_teleop",
-  "message": "Session 'run_lekiwi_control_teleop' killed"
+  "session": "run_my_robot_pkg_teleop",
+  "message": "Session 'run_my_robot_pkg_teleop' killed"
 }
 ```
 
@@ -3517,15 +3517,15 @@ Restart a run session. Kills the existing session and re-launches with the same 
 
 **Restart a run session:**
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py run restart run_lekiwi_control_teleop
+python3 {baseDir}/scripts/ros2_cli.py run restart run_my_robot_pkg_teleop
 ```
 
 **Output:**
 ```json
 {
   "success": true,
-  "session": "run_lekiwi_control_teleop",
-  "command": "ros2 run lekiwi_control teleop",
+  "session": "run_my_robot_pkg_teleop",
+  "command": "ros2 run my_robot_pkg teleop",
   "status": "running",
   "message": "Session restarted"
 }
@@ -3534,7 +3534,7 @@ python3 {baseDir}/scripts/ros2_cli.py run restart run_lekiwi_control_teleop
 Error (session not found):
 ```json
 {
-  "error": "Session 'run_lekiwi_control_teleop' does not exist",
+  "error": "Session 'run_my_robot_pkg_teleop' does not exist",
   "suggestion": "Use 'run' to start a new session",
   "available_sessions": []
 }
