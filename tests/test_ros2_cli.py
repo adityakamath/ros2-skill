@@ -238,6 +238,12 @@ MINIMAL_ARGS = [
     ("daemon",   "status",   ["daemon", "status"]),
     ("daemon",   "start",    ["daemon", "start"]),
     ("daemon",   "stop",     ["daemon", "stop"]),
+    # profile
+    ("profile",  "scan",     ["profile", "scan"]),
+    ("profile",  "show",     ["profile", "show"]),
+    ("profile",  "rescan",   ["profile", "rescan"]),
+    ("profile",  "list",     ["profile", "list"]),
+    ("profile",  "ls",       ["profile", "ls"]),
 ]
 
 

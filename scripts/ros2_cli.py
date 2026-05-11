@@ -166,6 +166,12 @@ from ros2_daemon import (
     cmd_daemon_start,
     cmd_daemon_stop,
 )
+from ros2_profile import (
+    cmd_profile_scan,
+    cmd_profile_show,
+    cmd_profile_rescan,
+    cmd_profile_list,
+)
 from ros2_control import (
     cmd_control_list_controller_types,
     cmd_control_list_controllers,
@@ -1235,6 +1241,47 @@ def build_parser():
         help="Override log directory",
     )
 
+    # ------------------------------------------------------------------
+    # profile
+    # ------------------------------------------------------------------
+    profile = sub.add_parser("profile", help="Robot profile: scan, show, rescan")
+    psub = profile.add_subparsers(dest="subcommand")
+
+    # scan
+    p = psub.add_parser("scan",
+                        help="Scan workspace and write a robot profile JSON")
+    p.add_argument("--workspace", default=None, metavar="PATH",
+                   help="Path to ROS 2 workspace (auto-detected if omitted)")
+    p.add_argument("--name", default="robot", metavar="NAME",
+                   help="Robot name (default: derived from workspace folder name)")
+    p.add_argument("--allow-live", dest="allow_live", action="store_true",
+                   help="Fall back to the live ROS 2 graph when static analysis "
+                        "has gaps (requires a running ROS 2 system)")
+
+    # show
+    p = psub.add_parser("show",
+                        help="Show the current robot profile (or a specific section)")
+    p.add_argument("--name", default="robot", metavar="NAME",
+                   help="Robot name (default: auto-detected from .profiles/)")
+    p.add_argument("--section", default=None, metavar="SECTION",
+                   help="Section to return: summary | detail | <config-name>")
+
+    # rescan
+    p = psub.add_parser("rescan",
+                        help="Re-scan and update the robot profile")
+    p.add_argument("--workspace", default=None, metavar="PATH",
+                   help="Path to ROS 2 workspace (re-uses saved path if omitted)")
+    p.add_argument("--name", default="robot", metavar="NAME",
+                   help="Robot name (default: auto-detected from .profiles/)")
+    p.add_argument("--config", default=None, metavar="CONFIG",
+                   help="Partial rescan: update only this configuration's launch args")
+    p.add_argument("--allow-live", dest="allow_live", action="store_true",
+                   help="Allow live graph fallback during rescan")
+
+    # list
+    psub.add_parser("list", help="List all robot profiles in .profiles/")
+    psub.add_parser("ls",   help="Alias for list")
+
     return parser
 
 
@@ -1411,6 +1458,12 @@ DISPATCH = {
     ("logs", "query"):        cmd_logs_query,
     ("logs", "tail"):         cmd_logs_tail,
     ("logs", "node-summary"): cmd_logs_node_summary,
+    # profile
+    ("profile", "scan"):    cmd_profile_scan,
+    ("profile", "show"):    cmd_profile_show,
+    ("profile", "rescan"):  cmd_profile_rescan,
+    ("profile", "list"):    cmd_profile_list,
+    ("profile", "ls"):      cmd_profile_list,
 }
 
 

@@ -207,6 +207,22 @@ python3 {baseDir}/scripts/ros2_cli.py context
 ```
 Returns topics (capped at 50), services, actions, and nodes in one call. Store the result — reference it during task planning instead of re-running separate discovery commands. Use `--limit 0` for the full topic list.
 
+**Step 7 — Load robot profile (if available):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py profile show
+```
+If a profile exists it returns `robot_type`, `configurations`, `velocity_topics`, `safety_limits`, and the primary launch file for each configuration — everything a session needs to operate the robot without re-discovering it every time. If the profile is absent, skip this step and proceed with manual discovery (Rules 1 and 28). Build the profile once with:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py profile scan [--workspace /path/to/ros2_ws]
+```
+Re-run `profile rescan` after the workspace changes, or `profile rescan --config <name>` for a quick partial rescan when only one configuration's launch args change.
+
+When a profile is loaded:
+- Use `summary.velocity_topics` as the starting point for velocity topic discovery (still verify with `topics find` — topic names may differ at runtime).
+- Use `summary.safety_limits.linear_max` / `summary.safety_limits.angular_max` as the hard ceiling for `--max-vel` / `--max-ang` (see Rule 28).
+- Use `summary.configurations` to understand which launch files are available without scanning the filesystem.
+- Load a configuration's detail section on demand: `profile show --section <config-name>`.
+
 ---
 
 ## Output Format

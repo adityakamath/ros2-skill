@@ -2,12 +2,16 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.7] - 2026-05-01
+## [1.0.7] - 2026-05-11
 
-Session-start snapshot, topic list capping, launch params/config/preset, package scaffolding, security hardening, rules audit, log introspection, RULES domain split, and auto-hold on motion failure.
+Session-start snapshot, topic list capping, launch params/config/preset, package scaffolding, security hardening, rules audit, log introspection, RULES domain split, auto-hold on motion failure, velocity clamp flags, and robot profile.
 
 ### New Commands
 
+- `profile scan [--workspace PATH] [--name NAME] [--allow-live]` — static-first workspace scan: walks `src/`, queries ament index, parses `package.xml` / launch files / URDF / YAML configs; writes a tiered `.profiles/<robot>_profile.json` with `summary` (always loaded) and per-configuration `detail` sections; live graph used as fallback only when `--allow-live` is passed
+- `profile show [--section S]` — load the saved robot profile; without `--section` returns `summary` + list of detail section names; `--section summary` / `--section detail` / `--section <config-name>` for progressive disclosure
+- `profile rescan [--config C] [--workspace PATH]` — full or partial rescan; `--config NAME` refreshes only that configuration's launch args without re-walking the workspace
+- `profile list` — list all robot profiles stored in `.profiles/`
 - `context` — compact session-start graph snapshot: topics (capped at 50), services, actions, and nodes in one call
 - `launch new --param key:=value` / `--config-path PATH` / `--preset NAME` — inline params, YAML config forwarding, and preset loading; duplicate session detection warns before launching
 - `pkg create <name>` — scaffold a new ROS 2 package; supports `--build-type`, `--dependencies`, `--node-name`, and other `ros2 pkg create` flags
@@ -23,7 +27,9 @@ Session-start snapshot, topic list capping, launch params/config/preset, package
 - `main()`: unhandled exceptions from any command are serialised as `{"error": "...", "type": "<ExceptionClass>"}` instead of raw Python tracebacks
 - `topics publish` / `pub`, `topics publish-sequence`, `topics publish-until`: new `--max-vel N` and `--max-ang N` flags clamp linear (x/y/z) to ±N m/s and angular.z to ±N rad/s before the message is sent; Twist/TwistStamped only; other message types pass through unchanged; clamped axes reported in `velocity_clamped` in the JSON output (implements RH-6)
 - `shlex.quote()` applied to all user-controlled shell inputs; `session_exists` grep pipeline replaced with Python list check; AGENTS.md jailbreak-pattern phrasing removed
-- AGENTS.md: camera/depth pre-flight (camera_info + K matrix + TF frame) and nested `interface show` recursion added to Rule 2; `context` snapshot added to Session Start Step 6
+- AGENTS.md: camera/depth pre-flight (camera_info + K matrix + TF frame) and nested `interface show` recursion added to Rule 2; `context` snapshot added to Session Start Step 6; robot profile load added as Session Start Step 7
+- SKILL.md: Session Start Checklist extended to Step 7 (profile load); Robot Profile section added under Common Operations; profile commands added to "Commands Without a Live Graph" table
+- `.profiles/` output folder introduced (alongside `.artifacts/` and `.presets/`)
 - Rules: executor starvation diagnostic (Rule 7); real-time scheduling advisory (Rule 0); namespace filtering vocabulary
 - `RULES.md` split into five domain files (`RULES-CORE`, `RULES-PREFLIGHT`, `RULES-MOTION`, `RULES-DIAGNOSTICS`, `RULES-REFERENCE`); `RULES.md` becomes a navigation index; AGENTS.md and SKILL.md updated to reference domain files
 - SKILL.md rewritten to agentskills.io format (76 → 251 lines): `allowed-tools`, `triggers`, session start checklist, progressive disclosure table, log introspection command reference
