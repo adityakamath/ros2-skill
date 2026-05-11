@@ -51,19 +51,19 @@ _WS_CANDIDATES = [
     "~/ros2",
 ]
 
-# Heuristic: launch file name fragments → configuration name.
-# The first regex that matches the stem is used as the config name.
-_LAUNCH_CONFIG_PATTERNS = [
-    (re.compile(r"\b(k2|kit2|kit_2)\b", re.I), "k2"),
-    (re.compile(r"\bpantilt\b", re.I), "pantilt"),
-    (re.compile(r"\bbase\b", re.I), "base"),
-    (re.compile(r"\bfull\b", re.I), "full"),
-    (re.compile(r"\bminimal\b", re.I), "minimal"),
-    (re.compile(r"\bsim(?:ulation)?\b", re.I), "sim"),
-    (re.compile(r"\bgazebo\b", re.I), "sim"),
-    (re.compile(r"\breal\b", re.I), "real"),
-    (re.compile(r"\bdemo\b", re.I), "demo"),
-]
+# Launch file stem affixes that carry no configuration meaning on their own.
+# Stripped from both ends of a stem before using it as a config name.
+_STEM_NOISE_AFFIXES = re.compile(
+    r"^(?:ros2?_?|robot_?|launch_?|bringup_?)|"
+    r"(?:_?ros2?|_?robot|_?launch|_?bringup)$",
+    re.I,
+)
+
+# Generic stems that are meaningless as config names even after affix stripping.
+_GENERIC_STEMS = frozenset({
+    "bringup", "launch", "main", "robot", "start", "run",
+    "default", "all", "full", "demo", "example", "test",
+})
 
 # Velocity-related YAML keys we scan for safety limits.
 _VEL_KEYS = {
@@ -81,13 +81,78 @@ _NAV2_FRAGMENTS = {
     "follow_path", "compute_path", "spin", "backup",
 }
 
-# Sensor package / topic fragments.
-_LIDAR_HINTS = {"rplidar", "sllidar", "velodyne", "hokuyo", "laser_scan",
-                "scan", "lidar", "pointcloud"}
-_CAMERA_HINTS = {"camera", "realsense", "zed", "oak", "image_raw",
-                 "depth_image", "rgb", "color"}
-_IMU_HINTS = {"imu", "ahrs", "mpu", "bno"}
-_ARM_HINTS = {"arm", "gripper", "manipulator", "moveit", "joint_trajectory"}
+# ---------------------------------------------------------------------------
+# Sensor hints (package names, topic fragments, source keywords).
+# These are open-ended — add new entries as new hardware appears.
+# ---------------------------------------------------------------------------
+
+_LIDAR_HINTS = {
+    "rplidar", "sllidar", "urg", "velodyne", "hokuyo",
+    "laser_scan", "scan", "lidar", "pointcloud", "ouster",
+    "livox", "hesai", "robosense",
+}
+_CAMERA_HINTS = {
+    "camera", "realsense", "zed", "oak", "image_raw",
+    "depth_image", "rgb", "color", "basler", "flir",
+    "v4l2", "usb_cam", "opencv",
+}
+_IMU_HINTS = {"imu", "ahrs", "mpu", "bno", "vectornav", "xsens", "microstrain"}
+
+# ---------------------------------------------------------------------------
+# Robot-type hints — each set covers package names, topic fragments, and
+# source-code keywords.  They are intentionally broad; detection is additive
+# so an unrecognised platform still falls through gracefully to "unknown".
+# ---------------------------------------------------------------------------
+
+# Arm / manipulator (any DOF, any make).
+_ARM_HINTS = {
+    "arm", "gripper", "manipulator", "moveit", "joint_trajectory",
+    "ur3", "ur5", "ur10", "panda", "kuka", "fanuc", "yaskawa",
+    "abb", "kinova", "xarm", "hebi", "dynamixel", "servo",
+}
+
+# Ground / wheeled mobile base.
+_MOBILE_HINTS = {
+    "diff_drive", "cmd_vel", "mecanum", "omni", "ackermann",
+    "turtlebot", "husky", "jackal", "ridgeback", "summit",
+    "roomba", "create3", "lekiwi", "base_controller",
+}
+
+# Aerial / UAV / drone.
+_AERIAL_HINTS = {
+    "drone", "uav", "quadrotor", "multirotor", "hexarotor",
+    "mavros", "px4", "ardupilot", "betaflight", "ardrone",
+    "parrot", "dji", "rotors", "hector_quadrotor",
+    "altitude", "takeoff", "land", "thrust",
+}
+
+# Legged robots (quadruped, hexapod, biped walkers that aren't full humanoids).
+_LEGGED_HINTS = {
+    "legged", "quadruped", "hexapod", "biped",
+    "spot", "go1", "go2", "go3", "b1", "b2", "unitree", "anymal",
+    "cheetah", "cassie", "hyq", "aliengo", "a1", "mini_cheetah",
+    "leg_controller", "stance", "swing", "gait",
+}
+
+# Humanoid robots.
+_HUMANOID_HINTS = {
+    "humanoid", "nao", "pepper", "romeo", "atlas", "valkyrie",
+    "talos", "icub", "darwin", "op2", "op3", "thormang",
+    "walking", "balance", "zmp",
+}
+
+# Underwater ROV / AUV.
+_UNDERWATER_HINTS = {
+    "underwater", "uuv", "rov", "auv", "bluerov", "bluerobotics",
+    "thruster", "dvl", "depth_sensor", "pressure",
+    "waterlinked", "bar30", "ping",
+}
+
+# Surface vessels (USV / ASV / boat).
+_SURFACE_VESSEL_HINTS = {
+    "usv", "asv", "boat", "vessel", "marine", "nauticus",
+    "wam_v", "navquad", "rudder", "propeller", "watercraft",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -216,15 +281,44 @@ def _parse_package_xml(path):
 # ---------------------------------------------------------------------------
 
 def _detect_config_name(launch_path):
-    """Guess a configuration name from a launch file path."""
-    stem = pathlib.Path(launch_path).stem.lower()
-    for pattern, label in _LAUNCH_CONFIG_PATTERNS:
-        if pattern.search(stem):
-            return label
-    # Fallback: use the stem itself if it doesn't look like a generic name.
-    if stem not in {"bringup", "launch", "main", "robot", "start", "run"}:
-        return stem
-    return "default"
+    """Derive a configuration name from a launch file path.
+
+    Strategy (no hardcoded robot-specific names):
+      1. Take the file stem (e.g. ``lekiwi_k2_bringup`` → ``lekiwi_k2_bringup``).
+      2. Strip leading/trailing noise affixes like ``bringup_``, ``_launch``,
+         ``robot_``, ``ros2_`` from both ends of the stem.
+      3. If the result is still a fully generic word (e.g. ``main``, ``start``),
+         fall back to ``<package_name>/<stem>`` so configs stay distinguishable
+         across packages.
+      4. If the stem becomes empty after stripping → ``default``.
+
+    This means the config name always comes from the workspace itself, so any
+    robot with any naming convention produces meaningful, unique config keys.
+    """
+    path = pathlib.Path(launch_path)
+    raw_stem = path.stem.lower()
+
+    # Remove double extension artifacts (e.g. "foo.launch" from "foo.launch.py").
+    if raw_stem.endswith(".launch"):
+        raw_stem = raw_stem[: -len(".launch")]
+
+    # Strip noise affixes repeatedly until stable.
+    cleaned = raw_stem
+    for _ in range(4):  # max 4 passes to handle stacked affixes
+        candidate = _STEM_NOISE_AFFIXES.sub("", cleaned).strip("_")
+        if candidate == cleaned:
+            break
+        cleaned = candidate
+
+    if not cleaned:
+        cleaned = raw_stem  # nothing meaningful was left; keep the original
+
+    if cleaned in _GENERIC_STEMS:
+        # Disambiguate with the package directory name.
+        pkg_name = path.parent.parent.name  # heuristic: launch files live in <pkg>/launch/
+        return f"{pkg_name}/{cleaned}" if pkg_name else cleaned
+
+    return cleaned
 
 
 def _query_launch_args(launch_file, package=None, timeout=15):
@@ -436,22 +530,78 @@ def _live_fallback_topics(timeout=8):
 # Robot type detection
 # ---------------------------------------------------------------------------
 
+def _hints_match(hint_set, pkg_names, src_files, max_src=50):
+    """Return True if any token from *hint_set* appears in package names or source."""
+    pkg_blob = " ".join(p.lower() for p in pkg_names)
+    if any(h in pkg_blob for h in hint_set):
+        return True
+    return _grep_source(src_files, list(hint_set), max_files=max_src)
+
+
 def _detect_robot_type(all_pkg_names, all_src_files, velocity_topics,
                        joint_limits, has_nav2):
-    """Return one of: mobile_base | arm | mobile_manipulator | unknown."""
-    has_arm = bool(joint_limits) and any(
-        _ARM_HINTS.intersection(n.lower().split("_")) for n in joint_limits
-    )
-    if not has_arm:
-        # Check source code for arm hints.
-        has_arm = _grep_source(all_src_files, list(_ARM_HINTS), max_files=50)
-    if not has_arm:
-        has_arm = any(
-            any(h in p.lower() for h in _ARM_HINTS) for p in all_pkg_names
+    """Return the most specific robot type string detectable from static signals.
+
+    Possible return values (in priority order, highest first):
+      humanoid          — bipedal humanoid (NAO, Atlas, Valkyrie, …)
+      legged            — quadruped / hexapod (Spot, Go1, ANYmal, …)
+      aerial            — drone / UAV / multirotor (PX4, MAVROS, ArduPilot, …)
+      underwater        — ROV / AUV (BlueROV, UUV-simulator, …)
+      surface_vessel    — USV / boat (WAM-V, Nauticus, …)
+      mobile_manipulator— wheeled base + arm
+      arm               — arm / manipulator only (no mobile base)
+      mobile_base       — wheeled / tracked / diff-drive (no arm)
+      unknown           — insufficient signals
+
+    Detection is hint-based (package names + source code grep) so it generalises
+    to any robot without robot-specific hardcoding.  Multiple types can be true
+    simultaneously (e.g. a legged robot with an arm); priority ordering ensures
+    we return the most informative single label.
+    """
+    pkg_names_lower = [p.lower() for p in all_pkg_names]
+
+    # Build presence flags — each uses the same broad hint-matching logic.
+    has_humanoid = _hints_match(_HUMANOID_HINTS, pkg_names_lower, all_src_files)
+
+    has_legged = _hints_match(_LEGGED_HINTS, pkg_names_lower, all_src_files)
+
+    has_aerial = _hints_match(_AERIAL_HINTS, pkg_names_lower, all_src_files)
+    # Extra aerial signal: cmd_vel + altitude/takeoff topics (drone pattern)
+    if not has_aerial and velocity_topics:
+        has_aerial = any(
+            "altitude" in t or "takeoff" in t or "land" in t
+            for t in velocity_topics
         )
 
-    has_mobile = bool(velocity_topics) or has_nav2
+    has_underwater = _hints_match(_UNDERWATER_HINTS, pkg_names_lower, all_src_files)
 
+    has_surface_vessel = _hints_match(
+        _SURFACE_VESSEL_HINTS, pkg_names_lower, all_src_files
+    )
+
+    # Arm detection: URDF joint names + package hints + source.
+    has_arm = _hints_match(_ARM_HINTS, pkg_names_lower, all_src_files)
+    if not has_arm and joint_limits:
+        # Arm joints typically have non-trivial names (not just "wheel_*").
+        non_wheel = [n for n in joint_limits if "wheel" not in n.lower()]
+        has_arm = len(non_wheel) >= 3  # ≥3 non-wheel movable joints → arm-like
+
+    # Mobile base: velocity topics or Nav2 or explicit mobile-base package hints.
+    has_mobile = bool(velocity_topics) or has_nav2
+    if not has_mobile:
+        has_mobile = _hints_match(_MOBILE_HINTS, pkg_names_lower, all_src_files)
+
+    # --- Priority resolution ---
+    if has_humanoid:
+        return "humanoid"
+    if has_legged:
+        return "legged"
+    if has_aerial:
+        return "aerial"
+    if has_underwater:
+        return "underwater"
+    if has_surface_vessel:
+        return "surface_vessel"
     if has_mobile and has_arm:
         return "mobile_manipulator"
     if has_arm:
