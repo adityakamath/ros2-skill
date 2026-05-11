@@ -2,30 +2,6 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [Unreleased]
-
-Quality-of-life pass: two new commands, four code-quality fixes, three test maintenance items.
-
-### New Commands
-
-- `topics echo-once <topic>` — subscribe and return the first message received, then exit; no need to set `--max-messages 1` or a short `--duration`
-- `topics depth-point --topic T --u U --v V` — extract depth at pixel (u, v) from a depth image topic; supports 16UC1 (mm→m) and 32FC1 (native m, NaN-aware) via struct; no numpy or cv2 required; returns `{depth_m, invalid, encoding, width, height}` (implements AG-10)
-
-### Changes
-
-- `topics list` / `ls`: default `--limit` changed from 0 (unlimited) to 50; override with `--limit 0` for the full list; matches the `context` command cap to avoid flooding agent context on dense graphs
-- `params get`: accepts extra positional parameter names — `params get /node key1 key2 key3` issues one `GetParameters` RPC; single-key output is unchanged; multi-key returns `{node, parameters: {key: {value, exists}}, count}`
-- `main()`: unhandled exceptions from any command are now serialised as `{"error": "...", "type": "<ExceptionClass>"}` instead of raw Python tracebacks
-- `topics publish`, `topics publish-sequence`, `topics publish-until`: new `--max-vel N` and `--max-ang N` flags clamp linear (x/y/z) and angular.z velocity to ±N before the message is serialised and sent; applies only to Twist/TwistStamped payloads; other message types pass through unchanged; clamped axes are reported in `velocity_clamped` in the JSON output (implements RH-6)
-
-### Fixes
-
-- Removed stale `publish-continuous` entry from `MINIMAL_ARGS` in tests (caused 3 `TestExhaustiveParser` failures)
-- `TestFuzzyMatch`: fixed import (`_fuzzy_match` from `ros2_launch` → `fuzzy_match` from `ros2_utils`)
-- Added missing `MINIMAL_ARGS` rows for `pkg create` and all four `logs` commands (`list-runs`, `query`, `tail`, `node-summary`)
-
----
-
 ## [1.0.7] - 2026-05-01
 
 Session-start snapshot, topic list capping, launch params/config/preset, package scaffolding, security hardening, rules audit, log introspection, RULES domain split, and auto-hold on motion failure.
@@ -36,10 +12,16 @@ Session-start snapshot, topic list capping, launch params/config/preset, package
 - `launch new --param key:=value` / `--config-path PATH` / `--preset NAME` — inline params, YAML config forwarding, and preset loading; duplicate session detection warns before launching
 - `pkg create <name>` — scaffold a new ROS 2 package; supports `--build-type`, `--dependencies`, `--node-name`, and other `ros2 pkg create` flags
 - `logs list-runs` / `logs query` / `logs tail` / `logs node-summary` — log file introspection without a live graph; reads `~/.ros/log/`; time filters accept relative (`-30s`, `-5m`) and absolute formats
+- `topics echo-once <topic>` — subscribe and return the first message received, then exit; avoids needing `--max-messages 1` or a short `--duration` for one-shot reads
+- `topics depth-point --topic T --u U --v V` — extract depth at pixel (u, v) from a depth image topic; supports 16UC1 (mm→m) and 32FC1 (native m, NaN-aware) via `struct.unpack_from`; no numpy or cv2 required; returns `{depth_m, invalid, encoding, width, height}` (implements AG-10)
 
 ### Changes
 
-- `topics list` / `ls`: `--limit N` flag (default 0 = unlimited); output includes `truncated: true` and `total` when capped
+- `topics list` / `ls`: default `--limit` changed from 0 (unlimited) to 50; override with `--limit 0` for the full list; matches the `context` command cap
+- `topics list` / `ls`: `--limit N` flag also added; output includes `truncated: true` and `total` when capped
+- `params get`: accepts extra positional parameter names — `params get /node key1 key2 key3` issues one `GetParameters` RPC; single-key output format unchanged; multi-key returns `{node, parameters: {key: {value, exists}}, count}`
+- `main()`: unhandled exceptions from any command are serialised as `{"error": "...", "type": "<ExceptionClass>"}` instead of raw Python tracebacks
+- `topics publish` / `pub`, `topics publish-sequence`, `topics publish-until`: new `--max-vel N` and `--max-ang N` flags clamp linear (x/y/z) to ±N m/s and angular.z to ±N rad/s before the message is sent; Twist/TwistStamped only; other message types pass through unchanged; clamped axes reported in `velocity_clamped` in the JSON output (implements RH-6)
 - `shlex.quote()` applied to all user-controlled shell inputs; `session_exists` grep pipeline replaced with Python list check; AGENTS.md jailbreak-pattern phrasing removed
 - AGENTS.md: camera/depth pre-flight (camera_info + K matrix + TF frame) and nested `interface show` recursion added to Rule 2; `context` snapshot added to Session Start Step 6
 - Rules: executor starvation diagnostic (Rule 7); real-time scheduling advisory (Rule 0); namespace filtering vocabulary
@@ -56,6 +38,7 @@ Session-start snapshot, topic list capping, launch params/config/preset, package
 - `pkg create`: `package_path` used unresolved relative path; fixed to always emit absolute path
 - `topics publish-sequence`: added `try/finally` auto-hold — on any exit (completion, exception, `KeyboardInterrupt`), publishes 3 zero-velocity messages; Twist/TwistStamped only via `_has_velocity_fields`; Rule 18 updated to cover both `publish-sequence` and `publish-until`
 - `launch new`: positional launch args (e.g. `config:=k2`) were corrupted to `'config'::=k2` and silently dropped; root cause was `_get_launch_arguments()` stripping lines before checking indentation (treating `default:` and `description:` as arg names), followed by a fuzzy-match rename turning `'config':` → `'config'::=k2`; arg validation is now warn-only and always passes args through unchanged
+- `TestExhaustiveParser`: removed stale `publish-continuous` entry from `MINIMAL_ARGS`; added `echo-once` and `depth-point` rows; fixed `TestFuzzyMatch` import (`fuzzy_match` in `ros2_utils`, not `_fuzzy_match` in `ros2_launch`); added missing rows for `pkg create` and all four `logs` commands
 
 ---
 

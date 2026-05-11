@@ -121,22 +121,30 @@ python3 {baseDir}/scripts/ros2_cli.py tf list                             # disc
 # Get payload template first — always
 python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
 
-# Single publish
-python3 {baseDir}/scripts/ros2_cli.py topics publish <topic> '<json>'
+# Single publish (pass velocity ceiling from Rule 28 limit scan)
+python3 {baseDir}/scripts/ros2_cli.py topics publish <topic> '<json>' \
+  --max-vel <linear_ceiling> --max-ang <angular_ceiling>
 
 # Closed-loop movement (Euclidean distance)
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
   '{"linear":{"x":0.2},"angular":{"z":0}}' \
-  --monitor <odom_topic> --field pose.pose.position --euclidean --delta 1.0 --timeout 60
+  --monitor <odom_topic> --field pose.pose.position --euclidean --delta 1.0 --timeout 60 \
+  --max-vel <linear_ceiling> --max-ang <angular_ceiling>
 
 # Closed-loop rotation (sign of --rotate MUST match sign of angular.z)
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
   '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor <odom_topic> --rotate 90 --degrees --timeout 30
+  --monitor <odom_topic> --rotate 90 --degrees --timeout 30 \
+  --max-vel <linear_ceiling> --max-ang <angular_ceiling>
 
 # Subscribe (read sensor data)
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe <topic> --max-messages 1 --timeout 5
+
+# Subscribe and return the first message only, then exit
+python3 {baseDir}/scripts/ros2_cli.py topics echo-once <topic> [--timeout 5]
 ```
+
+**`--max-vel N` / `--max-ang N`** (Twist / TwistStamped only): clamp linear x/y/z to ±N m/s and angular.z to ±N rad/s inside the CLI before the message is sent. Pass the binding velocity ceiling discovered in Rule 28 here. Clamped axes are reported in `velocity_clamped` in the JSON output. Other message types pass through unchanged.
 
 ### Services and Actions
 
@@ -176,6 +184,10 @@ python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CameraInfo
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe <camera_info_topic> --max-messages 1 --timeout 2
 # Confirm K matrix is non-zero and frame_id is in tf list before proceeding
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg
+
+# Read depth at a specific pixel from a depth image topic (16UC1 or 32FC1; no numpy/cv2 needed)
+python3 {baseDir}/scripts/ros2_cli.py topics depth-point --topic <depth_topic> --u <col> --v <row>
+# Returns: {depth_m, invalid, encoding, width, height}
 ```
 
 ### Diagnostics and Health

@@ -302,10 +302,19 @@ python3 {baseDir}/scripts/ros2_cli.py params list <NODE_2>
 # Step 3: Compute binding ceiling
 # linear_ceiling  = min of all discovered linear limit values
 # angular_ceiling = min of all discovered angular/theta limit values
-# velocity = min(requested_velocity, ceiling)
+
+# Step 4: Pass the ceiling into the publish command via --max-vel / --max-ang
+# The flags clamp the velocity inside the CLI before the message is sent.
+# This enforces the hardware limit even if the caller provides an out-of-range value.
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> '<payload>' \
+  --max-vel <linear_ceiling> --max-ang <angular_ceiling> \
+  --monitor <ODOM_TOPIC> ...
+# Or for publish-sequence / publish:
+python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> '<msgs>' '<durs>' \
+  --max-vel <linear_ceiling> --max-ang <angular_ceiling>
 ```
 
-**If no limits are found on any node:** use conservative defaults (0.2 m/s linear, 0.75 rad/s angular) and tell the user.
+**If no limits are found on any node:** use conservative defaults (0.2 m/s linear, 0.75 rad/s angular) and pass them via `--max-vel 0.2 --max-ang 0.75`; tell the user the defaults were applied.
 
 ---
 
