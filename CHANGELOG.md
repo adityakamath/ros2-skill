@@ -16,6 +16,7 @@ Quality-of-life pass: two new commands, four code-quality fixes, three test main
 - `topics list` / `ls`: default `--limit` changed from 0 (unlimited) to 50; override with `--limit 0` for the full list; matches the `context` command cap to avoid flooding agent context on dense graphs
 - `params get`: accepts extra positional parameter names — `params get /node key1 key2 key3` issues one `GetParameters` RPC; single-key output is unchanged; multi-key returns `{node, parameters: {key: {value, exists}}, count}`
 - `main()`: unhandled exceptions from any command are now serialised as `{"error": "...", "type": "<ExceptionClass>"}` instead of raw Python tracebacks
+- `topics publish`, `topics publish-sequence`, `topics publish-until`: new `--max-vel N` and `--max-ang N` flags clamp linear (x/y/z) and angular.z velocity to ±N before the message is serialised and sent; applies only to Twist/TwistStamped payloads; other message types pass through unchanged; clamped axes are reported in `velocity_clamped` in the JSON output (implements RH-6)
 
 ### Fixes
 

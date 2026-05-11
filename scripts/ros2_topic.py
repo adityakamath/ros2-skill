@@ -609,6 +609,47 @@ def _has_velocity_fields(data):
     return isinstance(nested, dict) and ('linear' in nested or 'angular' in nested)
 
 
+def _clamp_velocity(data, max_linear=None, max_ang=None):
+    """Return (clamped_data, notices).
+
+    Clips linear x/y/z to ±max_linear and angular z to ±max_ang in a Twist
+    or TwistStamped dict.  Non-velocity payloads pass through unchanged.
+    Both limits are optional; passing None means "no clamp on that axis".
+    """
+    if max_linear is None and max_ang is None:
+        return data, []
+    if not _has_velocity_fields(data):
+        return data, []
+
+    d = copy.deepcopy(data)
+    notices = []
+
+    def _clamp_axis(container, key, axis, limit, label):
+        if container and isinstance(container.get(key), dict):
+            val = container[key].get(axis)
+            if isinstance(val, (int, float)) and limit is not None:
+                clamped = max(-limit, min(limit, val))
+                if clamped != val:
+                    container[key][axis] = clamped
+                    notices.append(
+                        f"{label}.{axis}: {val} → {clamped} (clamped to ±{limit})"
+                    )
+
+    if 'twist' in d and isinstance(d.get('twist'), dict):
+        # TwistStamped — velocity nested under 'twist'
+        t = d['twist']
+        for ax in ('x', 'y', 'z'):
+            _clamp_axis(t, 'linear', ax, max_linear, 'twist.linear')
+        _clamp_axis(t, 'angular', 'z', max_ang, 'twist.angular')
+    else:
+        # Twist — velocity at top level
+        for ax in ('x', 'y', 'z'):
+            _clamp_axis(d, 'linear', ax, max_linear, 'linear')
+        _clamp_axis(d, 'angular', 'z', max_ang, 'angular')
+
+    return d, notices
+
+
 class ConditionMonitor(Node):
     """Subscriber that evaluates a stop condition on every incoming message."""
 
@@ -858,6 +899,10 @@ def cmd_topics_publish(args):
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         return output({"error": f"Invalid JSON message: {e}"})
 
+    max_vel = getattr(args, 'max_vel', None)
+    max_ang = getattr(args, 'max_ang', None)
+    msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
+
     try:
         with ros2_context():
             topic = args.topic
@@ -898,13 +943,19 @@ def cmd_topics_publish(args):
                 except KeyboardInterrupt:
                     stopped_by = "keyboard_interrupt"
                 elapsed = round(time.time() - start_time, 3)
-                output({"success": True, "topic": topic, "msg_type": msg_type,
-                        "duration": elapsed, "rate": rate, "published_count": published,
-                        "stopped_by": stopped_by})
+                result = {"success": True, "topic": topic, "msg_type": msg_type,
+                          "duration": elapsed, "rate": rate, "published_count": published,
+                          "stopped_by": stopped_by}
+                if clamp_notices:
+                    result["velocity_clamped"] = clamp_notices
+                output(result)
             else:
                 publisher.pub.publish(msg)
                 time.sleep(0.1)
-                output({"success": True, "topic": topic, "msg_type": msg_type})
+                result = {"success": True, "topic": topic, "msg_type": msg_type}
+                if clamp_notices:
+                    result["velocity_clamped"] = clamp_notices
+                output(result)
     except Exception as e:
         output({"error": str(e)})
 
@@ -947,10 +998,16 @@ def cmd_topics_publish_sequence(args):
             rate = getattr(args, "rate", None) or 10.0
             interval = 1.0 / rate
 
+            max_vel = getattr(args, 'max_vel', None)
+            max_ang = getattr(args, 'max_ang', None)
+            all_clamp_notices = []
+
             total_published = 0
             last_msg_data = messages[0] if messages else {}
             try:
                 for msg_data, dur in zip(messages, durations):
+                    msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
+                    all_clamp_notices.extend(clamp_notices)
                     last_msg_data = msg_data
                     msg = dict_to_msg(msg_class, msg_data)
                     if dur > 0:
@@ -978,8 +1035,14 @@ def cmd_topics_publish_sequence(args):
                     except Exception:
                         pass
 
-            output({"success": True, "published_count": total_published, "topic": topic,
-                    "rate": rate})
+            result = {"success": True, "published_count": total_published, "topic": topic,
+                      "rate": rate}
+            if all_clamp_notices:
+                # Deduplicate while preserving order
+                seen = set()
+                unique_notices = [n for n in all_clamp_notices if not (n in seen or seen.add(n))]
+                result["velocity_clamped"] = unique_notices
+            output(result)
     except Exception as e:
         output({"error": str(e)})
 
@@ -1042,6 +1105,10 @@ def cmd_topics_publish_until(args):
         msg_data = json.loads(args.msg)
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         return output({"error": f"Invalid JSON message: {e}"})
+
+    max_vel = getattr(args, 'max_vel', None)
+    max_ang = getattr(args, 'max_ang', None)
+    msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
 
     try:
         with ros2_context():
@@ -1204,19 +1271,22 @@ def cmd_topics_publish_until(args):
                         "published_count": published_count,
                     }
 
+                clamp_extra = {"velocity_clamped": clamp_notices} if clamp_notices else {}
                 if condition_met:
                     output({**base,
                             "success": True,
                             "condition_met": True,
                             "decel_zone": decel_meta,
                             "start_msg": monitor.start_msg,
-                            "end_msg": monitor.end_msg})
+                            "end_msg": monitor.end_msg,
+                            **clamp_extra})
                 else:
                     output({**base,
                             "success": False,
                             "condition_met": False,
                             "decel_zone": decel_meta,
-                            "error": f"Timeout after {timeout}s: condition not met"})
+                            "error": f"Timeout after {timeout}s: condition not met",
+                            **clamp_extra})
 
     except Exception as e:
         output({"error": str(e)})

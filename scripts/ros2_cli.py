@@ -407,6 +407,12 @@ def build_parser():
                        help="Publish rate in Hz (default: 10)")
         p.add_argument("--retries", type=int, default=None,
                        help="Number of attempts before giving up (overrides global --retries)")
+        p.add_argument("--max-vel", dest="max_vel", type=float, default=None,
+                       help="Clamp linear velocity (x/y/z) to ±N m/s before publishing "
+                            "(Twist / TwistStamped only; other message types unaffected)")
+        p.add_argument("--max-ang", dest="max_ang", type=float, default=None,
+                       help="Clamp angular.z to ±N rad/s before publishing "
+                            "(Twist / TwistStamped only; other message types unaffected)")
     p = tsub.add_parser("publish-sequence", help="Publish message sequence with delays")
     p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
     p.add_argument("messages", nargs="?", help="JSON array of messages")
@@ -416,6 +422,12 @@ def build_parser():
                    help="Message type (auto-detected if not provided)")
     p.add_argument("--rate", type=float, default=10.0,
                    help="Publish rate in Hz (default: 10)")
+    p.add_argument("--max-vel", dest="max_vel", type=float, default=None,
+                   help="Clamp linear velocity (x/y/z) to ±N m/s before publishing "
+                        "(Twist / TwistStamped only; other message types unaffected)")
+    p.add_argument("--max-ang", dest="max_ang", type=float, default=None,
+                   help="Clamp angular.z to ±N rad/s before publishing "
+                        "(Twist / TwistStamped only; other message types unaffected)")
     p = tsub.add_parser("publish-until",
                         help="Publish until a monitor-topic condition is met")
     p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
@@ -467,6 +479,12 @@ def build_parser():
                    help="Publish topic message type (auto-detected)")
     p.add_argument("--monitor-msg-type", dest="monitor_msg_type", default=None,
                    help="Monitor topic message type (auto-detected)")
+    p.add_argument("--max-vel", dest="max_vel", type=float, default=None,
+                   help="Clamp linear velocity (x/y/z) to ±N m/s before publishing "
+                        "(Twist / TwistStamped only; other message types unaffected)")
+    p.add_argument("--max-ang", dest="max_ang", type=float, default=None,
+                   help="Clamp angular.z to ±N rad/s before publishing "
+                        "(Twist / TwistStamped only; other message types unaffected)")
     # ------------------------------------------------------------------
     # services
     # ------------------------------------------------------------------

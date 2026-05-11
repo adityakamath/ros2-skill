@@ -3491,6 +3491,148 @@ class TestHasVelocityFields(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# RH-6 — _clamp_velocity helper tests (no rclpy required)
+# ---------------------------------------------------------------------------
+
+class TestClampVelocity(unittest.TestCase):
+    """Unit tests for _clamp_velocity — velocity limit clamping for publish commands."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+        import ros2_topic
+        cls.fn = staticmethod(ros2_topic._clamp_velocity)
+
+    # ------------------------------------------------------------------
+    # Pass-through cases
+    # ------------------------------------------------------------------
+
+    def test_no_limits_passthrough(self):
+        """Both limits None → data returned unchanged, no notices."""
+        data = {"linear": {"x": 2.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 5.0}}
+        out, notices = self.fn(data, None, None)
+        self.assertEqual(out, data)
+        self.assertEqual(notices, [])
+
+    def test_non_velocity_passthrough(self):
+        """Non-velocity message passes through even with limits set."""
+        data = {"data": "hello"}
+        out, notices = self.fn(data, max_linear=1.0, max_ang=1.0)
+        self.assertEqual(out, data)
+        self.assertEqual(notices, [])
+
+    def test_within_limits_no_clamp(self):
+        """Values already within limits → no notices, values unchanged."""
+        data = {"linear": {"x": 0.3, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.2}}
+        out, notices = self.fn(data, max_linear=0.5, max_ang=1.0)
+        self.assertEqual(out["linear"]["x"], 0.3)
+        self.assertEqual(out["angular"]["z"], 0.2)
+        self.assertEqual(notices, [])
+
+    def test_does_not_mutate_original(self):
+        """_clamp_velocity returns a deep copy; original is unmodified."""
+        data = {"linear": {"x": 2.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}
+        self.fn(data, max_linear=0.5, max_ang=None)
+        self.assertEqual(data["linear"]["x"], 2.0)
+
+    # ------------------------------------------------------------------
+    # Twist clamping
+    # ------------------------------------------------------------------
+
+    def test_clamp_linear_x_positive(self):
+        data = {"linear": {"x": 2.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}
+        out, notices = self.fn(data, max_linear=0.5, max_ang=None)
+        self.assertAlmostEqual(out["linear"]["x"], 0.5)
+        self.assertTrue(any("linear.x" in n for n in notices))
+
+    def test_clamp_linear_x_negative(self):
+        data = {"linear": {"x": -2.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}
+        out, notices = self.fn(data, max_linear=0.5, max_ang=None)
+        self.assertAlmostEqual(out["linear"]["x"], -0.5)
+
+    def test_clamp_angular_z_positive(self):
+        data = {"linear": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 3.0}}
+        out, notices = self.fn(data, max_linear=None, max_ang=1.0)
+        self.assertAlmostEqual(out["angular"]["z"], 1.0)
+        self.assertTrue(any("angular.z" in n for n in notices))
+
+    def test_clamp_angular_z_negative(self):
+        data = {"linear": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": -3.0}}
+        out, notices = self.fn(data, max_linear=None, max_ang=1.0)
+        self.assertAlmostEqual(out["angular"]["z"], -1.0)
+
+    def test_clamp_multiple_axes(self):
+        """All three linear axes clamped simultaneously."""
+        data = {"linear": {"x": 2.0, "y": -3.0, "z": 5.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}
+        out, notices = self.fn(data, max_linear=1.0, max_ang=None)
+        self.assertAlmostEqual(out["linear"]["x"],  1.0)
+        self.assertAlmostEqual(out["linear"]["y"], -1.0)
+        self.assertAlmostEqual(out["linear"]["z"],  1.0)
+        self.assertEqual(len(notices), 3)
+
+    def test_clamp_both_linear_and_angular(self):
+        data = {"linear": {"x": 2.0, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 4.0}}
+        out, notices = self.fn(data, max_linear=0.5, max_ang=1.0)
+        self.assertAlmostEqual(out["linear"]["x"],  0.5)
+        self.assertAlmostEqual(out["angular"]["z"], 1.0)
+        self.assertEqual(len(notices), 2)
+
+    # ------------------------------------------------------------------
+    # TwistStamped clamping
+    # ------------------------------------------------------------------
+
+    def test_clamp_twist_stamped_linear(self):
+        data = {"header": {"frame_id": "base_link"},
+                "twist": {"linear":  {"x": 3.0, "y": 0.0, "z": 0.0},
+                          "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+        out, notices = self.fn(data, max_linear=1.0, max_ang=None)
+        self.assertAlmostEqual(out["twist"]["linear"]["x"], 1.0)
+        self.assertTrue(any("twist.linear.x" in n for n in notices))
+
+    def test_clamp_twist_stamped_angular(self):
+        data = {"header": {"frame_id": "base_link"},
+                "twist": {"linear":  {"x": 0.0, "y": 0.0, "z": 0.0},
+                          "angular": {"x": 0.0, "y": 0.0, "z": 5.0}}}
+        out, notices = self.fn(data, max_linear=None, max_ang=0.5)
+        self.assertAlmostEqual(out["twist"]["angular"]["z"], 0.5)
+        self.assertTrue(any("twist.angular.z" in n for n in notices))
+
+    def test_clamp_twist_stamped_header_preserved(self):
+        """Header and other fields are preserved after clamping."""
+        data = {"header": {"frame_id": "odom", "stamp": {"sec": 1, "nanosec": 0}},
+                "twist": {"linear":  {"x": 2.0, "y": 0.0, "z": 0.0},
+                          "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}}
+        out, _ = self.fn(data, max_linear=0.5, max_ang=None)
+        self.assertEqual(out["header"]["frame_id"], "odom")
+        self.assertEqual(out["header"]["stamp"]["sec"], 1)
+
+    # ------------------------------------------------------------------
+    # Notice content
+    # ------------------------------------------------------------------
+
+    def test_notice_format_contains_old_new_limit(self):
+        """Notice string contains the original value, clamped value, and limit."""
+        data = {"linear": {"x": 2.5, "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}
+        _, notices = self.fn(data, max_linear=1.0, max_ang=None)
+        self.assertEqual(len(notices), 1)
+        notice = notices[0]
+        self.assertIn("2.5", notice)
+        self.assertIn("1.0", notice)
+        self.assertIn("±1.0", notice)
+
+
+# ---------------------------------------------------------------------------
 # H1 — Pure-arithmetic decel zone formula tests (no rclpy required)
 # ---------------------------------------------------------------------------
 
