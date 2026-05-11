@@ -135,6 +135,16 @@ python3 {baseDir}/scripts/ros2_cli.py context
 ```
 Returns topics, services, actions, and nodes in a single call. Use this to pre-load graph state at session start rather than running four separate discovery commands. Topics are capped at 50 by default (`--limit 0` for unlimited). Store the output; reference it during task planning to avoid redundant discovery round-trips.
 
+**Step 6 — Load robot profile (if available):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py profile show
+```
+If a profile exists for this robot, its `summary` section is printed.
+- **Velocity ceiling:** use `summary.safety_limits.linear_max` and `summary.safety_limits.angular_max` as the initial `--max-vel` / `--max-ang` ceiling for all motion commands this session. These are static values derived from the workspace at scan time. Still run the full four-source live sweep (Rule 0 velocity limit section) before any motion command, but treat the profile limits as a hard upper bound that must not be exceeded regardless of what the live sweep finds.
+- **Launch configs:** use `summary.configurations` to see which launch file configs exist for this robot without needing a live graph (useful before bringup).
+- **Detail sections:** load per-config details on demand — `profile show --section <config-name>` — to get topics, parameters, and URDF path for a specific configuration.
+- **If the command reports "no profile found":** no profile has been built yet. Build one with `profile scan` (add `--allow-live` for a richer result if the graph is already up). A missing profile is not an error — skip this step and continue.
+
 **These checks are session-level.** Do not re-run for every command. Re-run only if the user relaunches the robot or if nodes appear/disappear unexpectedly.
 
 **Exception — simulated time re-check before every timed command:**

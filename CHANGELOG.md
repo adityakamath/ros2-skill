@@ -29,7 +29,11 @@ Session-start snapshot, topic list capping, launch params/config/preset, package
 - `shlex.quote()` applied to all user-controlled shell inputs; `session_exists` grep pipeline replaced with Python list check; AGENTS.md jailbreak-pattern phrasing removed
 - AGENTS.md: camera/depth pre-flight (camera_info + K matrix + TF frame) and nested `interface show` recursion added to Rule 2; `context` snapshot added to Session Start Step 6; robot profile load added as Session Start Step 7
 - SKILL.md: Session Start Checklist extended to Step 7 (profile load); Robot Profile section added under Common Operations; profile commands added to "Commands Without a Live Graph" table
+- RULES-PREFLIGHT.md Rule 0.1: Step 6 (profile load) added; Rules.md index updated to Steps 0–6
+- RULES-REFERENCE.md: profile commands added to intent→command table (Step 1); Step 5 velocity-limit scan notes profile as a fast-path source if already loaded
 - `.profiles/` output folder introduced (alongside `.artifacts/` and `.presets/`)
+- `profile` config naming: stem-based (derives from launch file name), no robot-specific hardcoding; affix noise (`bringup_`, `_launch`, `robot_`, `ros2_`) stripped; generic stems (`main`, `bringup`, `robot`) disambiguated with package name
+- `profile` robot type detection expanded from 3 to 8 values (`humanoid`, `legged`, `aerial`, `underwater`, `surface_vessel`, `mobile_manipulator`, `arm`, `mobile_base`); each type has an open-ended hint set covering package names and source keywords; detection additive so priority ordering picks the most specific match
 - Rules: executor starvation diagnostic (Rule 7); real-time scheduling advisory (Rule 0); namespace filtering vocabulary
 - `RULES.md` split into five domain files (`RULES-CORE`, `RULES-PREFLIGHT`, `RULES-MOTION`, `RULES-DIAGNOSTICS`, `RULES-REFERENCE`); `RULES.md` becomes a navigation index; AGENTS.md and SKILL.md updated to reference domain files
 - SKILL.md rewritten to agentskills.io format (76 → 251 lines): `allowed-tools`, `triggers`, session start checklist, progressive disclosure table, log introspection command reference

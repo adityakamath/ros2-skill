@@ -230,6 +230,12 @@ Motion command received
 | "is ROS localhost only / is ROS isolated to localhost / can I reach across containers / cross-container ROS / is ROS_LOCALHOST_ONLY set" | Check cross-host/container visibility | Inspect `ROS_LOCALHOST_ONLY` env variable; if set to `1`, cross-container and cross-host topics are invisible — see Rule 0.1 Step 0 |
 | "run tests / run test suite / run the tests / test package X / check if tests pass / execute tests / run unit tests / run integration tests / colcon test" | Run package tests (shell command — Rule 2 exception; ros2_cli.py has no test runner) | Shell: `colcon test --packages-select <pkg>` then `colcon test-result --verbose` to show failures |
 | "what test results / did the tests pass / test report / show failures / test output / test summary" | Check colcon test results | Shell: `colcon test-result --all` or `colcon test-result --verbose` for failure details |
+| **— ROBOT PROFILE —** | | |
+| "build profile / scan robot / create profile / generate robot profile / scan workspace / analyse workspace / detect robot type / what kind of robot is this" | Build a static robot profile from the workspace | `profile scan` (add `--allow-live` if graph is up; `--name <name>` to override auto-name) |
+| "show profile / load profile / what does the robot look like / robot summary / robot capabilities / what sensors does this robot have / what launch configs exist" | Show robot profile summary (session-start: Rule 0.1 Step 6) | `profile show` — prints `summary` section; returns velocity limits, robot type, sensor types, configurations |
+| "show profile detail / show config detail / full profile / profile section <name> / detail for config <name> / full info for launch <name>" | Show per-config detail (topics, params, URDF path) | `profile show --section <config-name>` |
+| "update profile / refresh profile / rescan / re-scan workspace / rebuild profile / update robot profile / rescan config <name>" | Rescan workspace and update profile | `profile rescan` (full rescan) or `profile rescan --config <name>` (single config) |
+| "list profiles / what profiles exist / what robots have been scanned / show all profiles / profiles available" | List all saved profiles | `profile list` |
 
 ### Step 2: Find What Exists
 
@@ -288,6 +294,8 @@ python3 {baseDir}/scripts/ros2_cli.py actions details <action_name>
 ```
 
 ### Step 5: Get Safety Limits (for movement)
+
+**Fast-path: if a robot profile was loaded at session start (Rule 0.1 Step 6)**, use `summary.safety_limits.linear_max` and `summary.safety_limits.angular_max` as an initial hard ceiling before running the live sweep below. These are static values derived from workspace analysis — they capture limits baked into YAML configs and URDF at scan time. Pass them immediately via `--max-vel` / `--max-ang`. The live sweep below is still mandatory to catch dynamic parameters not visible at scan time, but the profile limit is a hard upper bound — if the live sweep finds a lower value, use that; if it finds a higher value, keep the profile ceiling.
 
 **ALWAYS check for velocity limits before publishing movement commands. Scan every node.**
 
