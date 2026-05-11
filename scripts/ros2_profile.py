@@ -2,7 +2,7 @@
 """ROS 2 robot profile commands.
 
 Builds and queries a persistent per-robot profile JSON that captures
-packages, configurations, launch files, topics, safety limits, and
+packages, launch files, topics, safety limits, and
 robot type — so every agent session can load the profile instead of
 re-discovering from scratch.
 
@@ -50,20 +50,6 @@ _WS_CANDIDATES = [
     "~/workspace",
     "~/ros2",
 ]
-
-# Launch file stem affixes that carry no configuration meaning on their own.
-# Stripped from both ends of a stem before using it as a config name.
-_STEM_NOISE_AFFIXES = re.compile(
-    r"^(?:ros2?_?|robot_?|launch_?|bringup_?)|"
-    r"(?:_?ros2?|_?robot|_?launch|_?bringup)$",
-    re.I,
-)
-
-# Generic stems that are meaningless as config names even after affix stripping.
-_GENERIC_STEMS = frozenset({
-    "bringup", "launch", "main", "robot", "start", "run",
-    "default", "all", "full", "demo", "example", "test",
-})
 
 # Velocity-related YAML keys we scan for safety limits.
 _VEL_KEYS = {
@@ -279,48 +265,6 @@ def _parse_package_xml(path):
 # ---------------------------------------------------------------------------
 # Launch file analysis
 # ---------------------------------------------------------------------------
-
-def _detect_config_name(launch_path):
-    """Derive a configuration name from a launch file path.
-
-    Strategy (no hardcoded robot-specific names):
-      1. Take the file stem (e.g. ``outdoor_navigation_bringup`` → stem is
-         ``outdoor_navigation_bringup``).
-      2. Strip leading/trailing noise affixes like ``bringup_``, ``_launch``,
-         ``robot_``, ``ros2_`` from both ends of the stem in up to 4 passes
-         (e.g. ``outdoor_navigation_bringup`` → ``outdoor_navigation``).
-      3. If the result is still a fully generic word (e.g. ``main``, ``start``),
-         fall back to ``<package_name>/<stem>`` so configs stay distinguishable
-         across packages.
-      4. If the stem becomes empty after stripping → keep the original raw stem.
-
-    This means the config name always comes from the workspace itself, so any
-    robot with any naming convention produces meaningful, unique config keys.
-    """
-    path = pathlib.Path(launch_path)
-    raw_stem = path.stem.lower()
-
-    # Remove double extension artifacts (e.g. "foo.launch" from "foo.launch.py").
-    if raw_stem.endswith(".launch"):
-        raw_stem = raw_stem[: -len(".launch")]
-
-    # Strip noise affixes repeatedly until stable.
-    cleaned = raw_stem
-    for _ in range(4):  # max 4 passes to handle stacked affixes
-        candidate = _STEM_NOISE_AFFIXES.sub("", cleaned).strip("_")
-        if candidate == cleaned:
-            break
-        cleaned = candidate
-
-    if not cleaned:
-        cleaned = raw_stem  # nothing meaningful was left; keep the original
-
-    if cleaned in _GENERIC_STEMS:
-        # Disambiguate with the package directory name.
-        pkg_name = path.parent.parent.name  # heuristic: launch files live in <pkg>/launch/
-        return f"{pkg_name}/{cleaned}" if pkg_name else cleaned
-
-    return cleaned
 
 
 def _query_launch_args(launch_file, package=None, timeout=15):
@@ -614,19 +558,25 @@ def _detect_robot_type(all_pkg_names, all_src_files, velocity_topics,
 
 
 # ---------------------------------------------------------------------------
-# Configuration grouping
+# Launch file detail keying
 # ---------------------------------------------------------------------------
 
-def _group_launch_files(launch_files):
-    """Return {config_name: [launch_file_path]} from a flat list of launch files.
+def _make_detail_key(launch_path, existing_keys):
+    """Return a unique key for this launch file in the detail dict.
 
-    Launch files that cannot be attributed to a config go under 'default'.
+    Uses the actual filename from the workspace (e.g. ``bringup.launch.py``).
+    If that basename is already taken by another launch file in a different
+    package, falls back to ``<package_dir>/<basename>`` to disambiguate.
+    No name derivation or stem stripping — the key is always directly readable
+    from the filesystem.
     """
-    groups = {}
-    for lf in launch_files:
-        config = _detect_config_name(lf)
-        groups.setdefault(config, []).append(lf)
-    return groups
+    path = pathlib.Path(launch_path)
+    basename = path.name  # e.g. bringup.launch.py — taken verbatim
+    if basename not in existing_keys:
+        return basename
+    # Disambiguate with the immediate parent-of-launch directory (package name).
+    pkg_name = path.parent.parent.name  # heuristic: <pkg>/launch/<file>
+    return f"{pkg_name}/{basename}"
 
 
 # ---------------------------------------------------------------------------
@@ -680,12 +630,7 @@ def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
         if lin and (best_linear is None or lin < best_linear):
             best_linear = lin
 
-    # --- 5. Configuration grouping ---
-    scan_steps.append("config_detection")
-    config_groups = _group_launch_files(all_launch_files)
-    configurations = sorted(config_groups.keys())
-
-    # --- 6. Sensor / feature detection ---
+    # --- 5. Sensor / feature detection ---
     scan_steps.append("feature_detection")
     all_pkg_names_lower = [n.lower() for n in (ws_pkg_names + all_ament_pkg_names)]
 
@@ -768,34 +713,33 @@ def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
         "source": limits_source,
     }
 
-    # --- 10. Launch args (per config, best-effort) ---
-    config_details = {}
-    for cfg_name, lf_list in config_groups.items():
-        primary_lf = lf_list[0]  # Use first launch file per config.
-        launch_args = _query_launch_args(primary_lf)
+    # --- 10. Launch file details (one entry per file, keyed by filename) ---
+    launch_file_details = {}
+    for lf in all_launch_files:
+        key = _make_detail_key(lf, launch_file_details)
+        pkg_dir = pathlib.Path(lf).parent.parent  # heuristic: <pkg>/launch/<file>
+        launch_args = _query_launch_args(lf)
 
-        # YAML files co-located with this launch file's package.
-        cfg_yaml = [
+        # YAML and URDF files co-located with this launch file's package.
+        lf_yaml = [
             yf for yf in all_yaml_files
-            if pathlib.Path(yf).parent.parent == pathlib.Path(primary_lf).parent.parent
+            if pathlib.Path(yf).parent.parent == pkg_dir
         ]
-
-        # Local joint limits for this config.
-        cfg_urdf = [
+        lf_urdf = [
             uf for uf in all_urdf_files
-            if pathlib.Path(uf).parent.parent == pathlib.Path(primary_lf).parent.parent
+            if pathlib.Path(uf).parent.parent == pkg_dir
         ]
-        cfg_joints = {}
-        for uf in cfg_urdf:
-            cfg_joints.update(_extract_joint_limits_from_urdf(uf))
+        lf_joints = {}
+        for uf in lf_urdf:
+            lf_joints.update(_extract_joint_limits_from_urdf(uf))
 
-        config_details[cfg_name] = {
-            "launch_file": primary_lf,
-            "all_launch_files": lf_list,
+        launch_file_details[key] = {
+            "path": lf,
+            "package": pkg_dir.name,
             "launch_args": launch_args,
-            "yaml_files": cfg_yaml,
-            "urdf_files": cfg_urdf,
-            "joint_limits": cfg_joints,
+            "yaml_files": lf_yaml,
+            "urdf_files": lf_urdf,
+            "joint_limits": lf_joints,
         }
 
     return {
@@ -803,7 +747,8 @@ def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
         "ws_packages": ws_pkg_names,
         "ament_packages": all_ament_pkg_names,
         "all_launch_files": all_launch_files,
-        "configurations": configurations,
+        "all_urdf_files": all_urdf_files,
+        "launch_file_details": launch_file_details,
         "velocity_topics": velocity_topics,
         "has_lidar": has_lidar,
         "has_camera": has_camera,
@@ -812,7 +757,6 @@ def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
         "robot_type": robot_type,
         "safety_limits": safety_limits,
         "joint_limits": joint_limits,
-        "config_details": config_details,
         "live_topics": live_topics,
     }
 
@@ -861,23 +805,22 @@ def _build_profile(robot_name, workspace, distro, scan_result):
         # ------------------------------------------------------------------ #
         "summary": {
             "robot_type": sr["robot_type"],
-            "configurations": sr["configurations"],
             "packages": sr["ws_packages"],
+            # launch_files: the filenames as they exist in the workspace.
+            # Each entry is a key into the detail section.
+            "launch_files": sorted(sr["launch_file_details"].keys()),
+            "urdf_files": sr["all_urdf_files"],
             "velocity_topics": sr["velocity_topics"],
             "has_lidar": sr["has_lidar"],
             "has_camera": sr["has_camera"],
             "has_imu": sr["has_imu"],
             "has_nav2": sr["has_nav2"],
             "safety_limits": sr["safety_limits"],
-            "launch_files": {
-                cfg: d["launch_file"]
-                for cfg, d in sr["config_details"].items()
-            },
         },
         # ------------------------------------------------------------------ #
-        # DETAIL — per-configuration; load on demand.                         #
+        # DETAIL — per launch file; load on demand via --section <filename>.  #
         # ------------------------------------------------------------------ #
-        "detail": sr["config_details"],
+        "detail": sr["launch_file_details"],
     }
 
 
@@ -937,7 +880,7 @@ def cmd_profile_scan(args):
         "profile_file": profile_file,
         "workspace": ws_path,
         "workspace_status": ws_status,
-        "configurations": scan_result["configurations"],
+        "launch_files_found": sorted(scan_result["launch_file_details"].keys()),
         "packages_found": len(scan_result["ws_packages"]),
         "robot_type": scan_result["robot_type"],
         "safety_limits": scan_result["safety_limits"],
@@ -974,7 +917,7 @@ def cmd_profile_show(args):
         elif section == "detail":
             output({"robot_name": robot_name, "detail": profile.get("detail", {})})
         elif section in profile.get("detail", {}):
-            output({"robot_name": robot_name, "config": section,
+            output({"robot_name": robot_name, "launch_file": section,
                     "detail": profile["detail"][section]})
         else:
             available = ["summary", "detail"] + list(profile.get("detail", {}).keys())
@@ -991,18 +934,18 @@ def cmd_profile_show(args):
             "ros_distro": profile.get("ros_distro"),
             "summary": profile.get("summary", {}),
             "detail_sections": list(profile.get("detail", {}).keys()),
-            "hint": "Use --section <name> to load a configuration's full detail.",
+            "hint": "Use --section <launch-filename> to load a launch file's full detail.",
         })
 
 
 def cmd_profile_rescan(args):
     """Rescan the robot workspace, updating the profile.
 
-    With --config NAME, rescans only that configuration's launch args
-    (fast partial rescan).  Without --config, performs a full rescan.
+    With --launch-file FILENAME, rescans only that launch file's args
+    (fast partial rescan).  Without it, performs a full rescan.
     """
     robot_name = getattr(args, "name", None) or "robot"
-    config_filter = getattr(args, "config", None)
+    launch_filter = getattr(args, "launch_file", None)
     user_ws = getattr(args, "workspace", None)
     allow_live = getattr(args, "allow_live", False)
 
@@ -1015,25 +958,25 @@ def cmd_profile_rescan(args):
                 robot_name = profiles[0].name.replace("_profile.json", "")
                 existing = _load_profile(robot_name)
 
-    if config_filter and existing:
-        # Partial rescan: just re-query launch args for the requested config.
+    if launch_filter and existing:
+        # Partial rescan: re-query launch args for the specified launch file.
         detail = existing.get("detail", {})
-        if config_filter not in detail:
+        if launch_filter not in detail:
             output({
-                "error": f"Configuration '{config_filter}' not found in existing profile.",
+                "error": f"Launch file '{launch_filter}' not found in existing profile.",
                 "available": list(detail.keys()),
             })
             return
-        lf = detail[config_filter].get("launch_file", "")
+        lf = detail[launch_filter].get("path", "")
         new_args = _query_launch_args(lf) if lf else {}
-        detail[config_filter]["launch_args"] = new_args
+        detail[launch_filter]["launch_args"] = new_args
         existing["detail"] = detail
         existing["generated_at"] = datetime.now(timezone.utc).isoformat()
         profile_file = _save_profile(existing, name=robot_name)
         output({
             "success": True,
             "mode": "partial",
-            "config": config_filter,
+            "launch_file": launch_filter,
             "profile_file": profile_file,
             "launch_args": new_args,
         })
@@ -1063,7 +1006,7 @@ def cmd_profile_list(args):
                 "generated_at": data.get("generated_at"),
                 "ros_distro": data.get("ros_distro"),
                 "robot_type": data.get("summary", {}).get("robot_type"),
-                "configurations": data.get("summary", {}).get("configurations", []),
+                "launch_files": data.get("summary", {}).get("launch_files", []),
             })
         except Exception:
             profiles.append({"file": str(p), "error": "Could not parse profile"})

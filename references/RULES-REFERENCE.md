@@ -232,9 +232,9 @@ Motion command received
 | "what test results / did the tests pass / test report / show failures / test output / test summary" | Check colcon test results | Shell: `colcon test-result --all` or `colcon test-result --verbose` for failure details |
 | **— ROBOT PROFILE —** | | |
 | "build profile / scan robot / create profile / generate robot profile / scan workspace / analyse workspace / detect robot type / what kind of robot is this" | Build a static robot profile from the workspace | `profile scan` (add `--allow-live` if graph is up; `--name <name>` to override auto-name) |
-| "show profile / load profile / what does the robot look like / robot summary / robot capabilities / what sensors does this robot have / what launch configs exist" | Show robot profile summary (session-start: Rule 0.1 Step 6) | `profile show` — prints `summary` section; returns velocity limits, robot type, sensor types, configurations |
-| "show profile detail / show config detail / full profile / profile section <name> / detail for config <name> / full info for launch <name>" | Show per-config detail (topics, params, URDF path) | `profile show --section <config-name>` |
-| "update profile / refresh profile / rescan / re-scan workspace / rebuild profile / update robot profile / rescan config <name>" | Rescan workspace and update profile | `profile rescan` (full rescan) or `profile rescan --config <name>` (single config) |
+| "show profile / load profile / what does the robot look like / robot summary / robot capabilities / what sensors does this robot have / what launch files are there / workspace overview" | Show robot profile summary (session-start: Rule 0.1 Step 6) | `profile show` — prints `summary` section; returns robot type, packages, launch files (as filenames), velocity topics, safety limits, sensor flags |
+| "show profile detail / full profile / detail for launch file X / launch args for X / yaml files for X / urdf for X" | Show per-launch-file detail (launch args, YAML, URDF, joint limits) | `profile show --section <launch-filename>` (e.g. `profile show --section bringup.launch.py`) |
+| "update profile / refresh profile / rescan / re-scan workspace / rebuild profile / update robot profile / refresh launch file X" | Rescan workspace and update profile | `profile rescan` (full rescan) or `profile rescan --launch-file <filename>` (single file, fast) |
 | "list profiles / what profiles exist / what robots have been scanned / show all profiles / profiles available" | List all saved profiles | `profile list` |
 
 ### Step 2: Find What Exists

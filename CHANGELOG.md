@@ -8,9 +8,9 @@ Session-start snapshot, topic list capping, launch params/config/preset, package
 
 ### New Commands
 
-- `profile scan [--workspace PATH] [--name NAME] [--allow-live]` — static-first workspace scan: walks `src/`, queries ament index, parses `package.xml` / launch files / URDF / YAML configs; writes a tiered `.profiles/<robot>_profile.json` with `summary` (always loaded) and per-configuration `detail` sections; live graph used as fallback only when `--allow-live` is passed
-- `profile show [--section S]` — load the saved robot profile; without `--section` returns `summary` + list of detail section names; `--section summary` / `--section detail` / `--section <config-name>` for progressive disclosure
-- `profile rescan [--config C] [--workspace PATH]` — full or partial rescan; `--config NAME` refreshes only that configuration's launch args without re-walking the workspace
+- `profile scan [--workspace PATH] [--name NAME] [--allow-live]` — static-first workspace scan: walks `src/`, queries ament index, parses `package.xml` / launch files / URDF / YAML configs; writes a tiered `.profiles/<robot>_profile.json` with `summary` (packages, launch files, safety limits, robot type, sensor flags) and per-launch-file `detail` sections; live graph used as fallback only when `--allow-live` is passed
+- `profile show [--section S]` — load the saved robot profile; without `--section` returns `summary` + list of launch file filenames; `--section summary` / `--section detail` / `--section <launch-filename>` (e.g. `bringup.launch.py`) for progressive disclosure
+- `profile rescan [--launch-file F] [--workspace PATH]` — full or partial rescan; `--launch-file FILENAME` refreshes only that file's launch args without re-walking the workspace
 - `profile list` — list all robot profiles stored in `.profiles/`
 - `context` — compact session-start graph snapshot: topics (capped at 50), services, actions, and nodes in one call
 - `launch new --param key:=value` / `--config-path PATH` / `--preset NAME` — inline params, YAML config forwarding, and preset loading; duplicate session detection warns before launching
@@ -32,8 +32,9 @@ Session-start snapshot, topic list capping, launch params/config/preset, package
 - RULES-PREFLIGHT.md Rule 0.1: Step 6 (profile load) added; Rules.md index updated to Steps 0–6
 - RULES-REFERENCE.md: profile commands added to intent→command table (Step 1); Step 5 velocity-limit scan notes profile as a fast-path source if already loaded
 - `.profiles/` output folder introduced (alongside `.artifacts/` and `.presets/`)
-- `profile` config naming: stem-based (derives from launch file name), no robot-specific hardcoding; affix noise (`bringup_`, `_launch`, `robot_`, `ros2_`) stripped; generic stems (`main`, `bringup`, `robot`) disambiguated with package name
-- `profile` robot type detection expanded from 3 to 8 values (`humanoid`, `legged`, `aerial`, `underwater`, `surface_vessel`, `mobile_manipulator`, `arm`, `mobile_base`); each type has an open-ended hint set covering package names and source keywords; detection additive so priority ordering picks the most specific match
+- `profile` structure: no "configurations" concept; `summary.launch_files` is a flat list of launch file filenames as they appear on disk; `detail` is keyed by filename (or `pkg/filename` on clash); no stem-stripping or name derivation
+- `profile rescan --config` replaced by `profile rescan --launch-file <filename>`; `profile show --section` matches launch file filenames directly
+- `profile` robot type detection: 8 values (`humanoid`, `legged`, `aerial`, `underwater`, `surface_vessel`, `mobile_manipulator`, `arm`, `mobile_base`); open-ended hint sets covering package names and source keywords; additive detection with priority ordering
 - Rules: executor starvation diagnostic (Rule 7); real-time scheduling advisory (Rule 0); namespace filtering vocabulary
 - `RULES.md` split into five domain files (`RULES-CORE`, `RULES-PREFLIGHT`, `RULES-MOTION`, `RULES-DIAGNOSTICS`, `RULES-REFERENCE`); `RULES.md` becomes a navigation index; AGENTS.md and SKILL.md updated to reference domain files
 - SKILL.md rewritten to agentskills.io format (76 → 251 lines): `allowed-tools`, `triggers`, session start checklist, progressive disclosure table, log introspection command reference

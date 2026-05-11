@@ -1264,7 +1264,7 @@ def build_parser():
     p.add_argument("--name", default="robot", metavar="NAME",
                    help="Robot name (default: auto-detected from .profiles/)")
     p.add_argument("--section", default=None, metavar="SECTION",
-                   help="Section to return: summary | detail | <config-name>")
+                   help="Section to return: summary | detail | <launch-filename>")
 
     # rescan
     p = psub.add_parser("rescan",
@@ -1273,8 +1273,9 @@ def build_parser():
                    help="Path to ROS 2 workspace (re-uses saved path if omitted)")
     p.add_argument("--name", default="robot", metavar="NAME",
                    help="Robot name (default: auto-detected from .profiles/)")
-    p.add_argument("--config", default=None, metavar="CONFIG",
-                   help="Partial rescan: update only this configuration's launch args")
+    p.add_argument("--launch-file", dest="launch_file", default=None, metavar="FILENAME",
+                   help="Partial rescan: refresh launch args for this launch file only "
+                        "(use the filename as shown in 'profile show', e.g. bringup.launch.py)")
     p.add_argument("--allow-live", dest="allow_live", action="store_true",
                    help="Allow live graph fallback during rescan")
 

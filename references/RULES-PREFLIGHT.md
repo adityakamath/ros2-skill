@@ -140,9 +140,9 @@ Returns topics, services, actions, and nodes in a single call. Use this to pre-l
 python3 {baseDir}/scripts/ros2_cli.py profile show
 ```
 If a profile exists for this robot, its `summary` section is printed.
-- **Velocity ceiling:** use `summary.safety_limits.linear_max` and `summary.safety_limits.angular_max` as the initial `--max-vel` / `--max-ang` ceiling for all motion commands this session. These are static values derived from the workspace at scan time. Still run the full four-source live sweep (Rule 0 velocity limit section) before any motion command, but treat the profile limits as a hard upper bound that must not be exceeded regardless of what the live sweep finds.
-- **Launch configs:** use `summary.configurations` to see which launch file configs exist for this robot without needing a live graph (useful before bringup).
-- **Detail sections:** load per-config details on demand — `profile show --section <config-name>` — to get topics, parameters, and URDF path for a specific configuration.
+- **Velocity ceiling:** use `summary.safety_limits.linear_max` and `summary.safety_limits.angular_max` as the initial `--max-vel` / `--max-ang` ceiling for all motion commands this session. These are static values derived from workspace YAML and URDF at scan time. Still run the full four-source live sweep (Rule 0 velocity limit section) before any motion command, but treat the profile limits as a hard upper bound that must not be exceeded regardless of what the live sweep finds.
+- **Launch files:** use `summary.launch_files` to see which launch files exist in the workspace (filenames as they appear on disk) without needing a live graph. Use these to inform `launch new` calls.
+- **Detail on demand:** `profile show --section <launch-filename>` (e.g. `profile show --section bringup.launch.py`) returns that file's launch args, co-located YAML files, and joint limits.
 - **If the command reports "no profile found":** no profile has been built yet. Build one with `profile scan` (add `--allow-live` for a richer result if the graph is already up). A missing profile is not an error — skip this step and continue.
 
 **These checks are session-level.** Do not re-run for every command. Re-run only if the user relaunches the robot or if nodes appear/disappear unexpectedly.

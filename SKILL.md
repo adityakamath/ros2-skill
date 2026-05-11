@@ -76,7 +76,7 @@ python3 {baseDir}/scripts/ros2_cli.py context          # topics (cap 50), servic
 
 # Step 7 — robot profile (load if available; skip if absent)
 python3 {baseDir}/scripts/ros2_cli.py profile show
-# → robot_type, configurations, velocity_topics, safety_limits, launch_files
+# → robot_type, packages, launch_files, velocity_topics, safety_limits, sensor_flags
 # If absent: build once with  profile scan [--workspace PATH]
 # Use summary.safety_limits as the --max-vel / --max-ang ceiling (Rule 28).
 ```
@@ -274,7 +274,7 @@ python3 {baseDir}/scripts/ros2_cli.py tf echo <source_frame> <target_frame>
 
 ### Robot Profile (no live graph required)
 
-Build once; load every session. The profile captures robot type, configurations, velocity topics, safety limits, and launch file paths — eliminating per-session re-discovery.
+Build once; load every session. The profile captures robot type, packages, launch files (as filenames from the workspace), velocity topics, safety limits, and sensor flags — eliminating per-session re-discovery.
 
 ```bash
 # Scan the workspace and write .profiles/<robot>_profile.json
@@ -283,19 +283,19 @@ python3 {baseDir}/scripts/ros2_cli.py profile scan [--workspace /path/to/ros2_ws
 # Add --allow-live to also query the live graph for topics static analysis missed
 python3 {baseDir}/scripts/ros2_cli.py profile scan --allow-live
 
-# Load summary (robot_type, configurations, velocity_topics, safety_limits, launch_files)
+# Load summary (robot_type, packages, launch_files, velocity_topics, safety_limits)
 python3 {baseDir}/scripts/ros2_cli.py profile show
 
 # Load a specific section
 python3 {baseDir}/scripts/ros2_cli.py profile show --section summary
 python3 {baseDir}/scripts/ros2_cli.py profile show --section detail
-python3 {baseDir}/scripts/ros2_cli.py profile show --section <config-name>   # config name = launch file stem
+python3 {baseDir}/scripts/ros2_cli.py profile show --section <launch-filename>   # e.g. bringup.launch.py
 
 # Full rescan (workspace changed)
 python3 {baseDir}/scripts/ros2_cli.py profile rescan [--workspace PATH]
 
-# Partial rescan — only refresh one configuration's launch args (fast)
-python3 {baseDir}/scripts/ros2_cli.py profile rescan --config <config-name>
+# Partial rescan — only refresh launch args for one file (fast)
+python3 {baseDir}/scripts/ros2_cli.py profile rescan --launch-file <launch-filename>
 
 # List all saved profiles
 python3 {baseDir}/scripts/ros2_cli.py profile list
@@ -306,20 +306,21 @@ python3 {baseDir}/scripts/ros2_cli.py profile list
 {
   "summary": {                     ← always load; compact
     "robot_type": "mobile_base",
-    "configurations": ["navigation", "simulation"],   ← derived from launch file stems in the workspace
+    "packages": ["my_bringup", "my_nav"],
+    "launch_files": ["bringup.launch.py", "nav2_bringup.launch.py"],  ← filenames from workspace; keys into detail
+    "urdf_files": ["/path/to/robot.urdf.xacro"],
     "velocity_topics": ["/cmd_vel"],
     "safety_limits": {"linear_max": 0.5, "angular_max": 1.0, "source": "yaml_or_urdf"},
-    "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false,
-    "launch_files": {"navigation": "/path/to/navigation.launch.py", ...}
+    "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false
   },
-  "detail": {                      ← load on demand per configuration
-    "navigation": {"launch_file": ..., "launch_args": {...}, "yaml_files": [...], "joint_limits": {...}},
+  "detail": {                      ← load on demand per launch file
+    "bringup.launch.py": {"path": "...", "package": "...", "launch_args": {...}, "yaml_files": [...], "joint_limits": {...}},
     ...
   }
 }
 ```
 
-Use `summary.safety_limits.linear_max` / `summary.safety_limits.angular_max` as the `--max-vel` / `--max-ang` ceiling (Rule 28). Multi-configuration robots: each config has its own `detail` section with its launch arguments and YAML files.
+Use `summary.safety_limits.linear_max` / `summary.safety_limits.angular_max` as the `--max-vel` / `--max-ang` ceiling (Rule 28). Use `summary.launch_files` to see what launch files exist in the workspace; load any one's full detail with `--section <filename>`.
 
 ---
 
@@ -366,7 +367,7 @@ These work without ROS running or nodes active:
 | `pkg create <name> [flags]` | Scaffold a new ROS 2 package |
 | `profile scan [--workspace PATH]` | Build robot profile from workspace (static-first) |
 | `profile show [--section S]` | Show saved robot profile or a section |
-| `profile rescan [--config C]` | Update existing profile (full or partial) |
+| `profile rescan [--launch-file F]` | Update existing profile (full or partial) |
 | `profile list` | List all saved robot profiles |
 
 ---
