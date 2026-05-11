@@ -1257,6 +1257,10 @@ def build_parser():
     p.add_argument("--allow-live", dest="allow_live", action="store_true",
                    help="Fall back to the live ROS 2 graph when static analysis "
                         "has gaps (requires a running ROS 2 system)")
+    p.add_argument("--robot-type", dest="robot_type", default=None, metavar="TYPE",
+                   help="Override auto-detected robot type. "
+                        "Valid values: humanoid, legged, aerial, underwater, "
+                        "surface_vessel, mobile_manipulator, arm, mobile_base, unknown")
 
     # show
     p = psub.add_parser("show",
@@ -1278,6 +1282,11 @@ def build_parser():
                         "(use the filename as shown in 'profile show', e.g. bringup.launch.py)")
     p.add_argument("--allow-live", dest="allow_live", action="store_true",
                    help="Allow live graph fallback during rescan")
+    p.add_argument("--robot-type", dest="robot_type", default=None, metavar="TYPE",
+                   help="Override auto-detected robot type on a full rescan "
+                        "(ignored for --launch-file partial rescans). "
+                        "Valid values: humanoid, legged, aerial, underwater, "
+                        "surface_vessel, mobile_manipulator, arm, mobile_base, unknown")
 
     # list
     psub.add_parser("list", help="List all robot profiles in .profiles/")

@@ -120,12 +120,27 @@ _LEGGED_HINTS = {
     "leg_controller", "stance", "swing", "gait",
 }
 
-# Humanoid robots.
+# Humanoid robots — specific platform names and ZMP only.
+# Do NOT add generic locomotion words ("walking", "balance") — they appear in
+# any robotics codebase and cause false positives on non-humanoid platforms.
 _HUMANOID_HINTS = {
-    "humanoid", "nao", "pepper", "romeo", "atlas", "valkyrie",
+    "humanoid",
+    "nao", "pepper", "romeo", "atlas", "valkyrie",
     "talos", "icub", "darwin", "op2", "op3", "thormang",
-    "walking", "balance", "zmp",
+    "zmp",  # Zero Moment Point — specific to humanoid stability algorithms
 }
+
+# Pan-tilt / gimbal — supplementary feature, not a primary robot type.
+_PANTILT_HINTS = {
+    "pantilt", "pan_tilt", "ptz", "gimbal",
+    "pan_controller", "tilt_controller",
+}
+
+# All valid primary robot type values.
+_VALID_ROBOT_TYPES = frozenset({
+    "humanoid", "legged", "aerial", "underwater", "surface_vessel",
+    "mobile_manipulator", "arm", "mobile_base", "unknown",
+})
 
 # Underwater ROV / AUV.
 _UNDERWATER_HINTS = {
@@ -733,6 +748,115 @@ def _grep_source(paths, patterns, max_files=30):
     return False
 
 
+def _pkg_match_hints(hint_set, pkg_names):
+    """Match hints against package names using token-level matching.
+
+    Splits each package name on ``_`` and ``-`` before matching, so a hint
+    like ``"nao"`` does **not** match ``"autonomous"`` or ``"scenario"`` — it
+    only matches packages that have ``nao`` as a distinct token (e.g.
+    ``"nao_robot"`` → tokens {``nao``, ``robot``}).
+
+    Multi-token hints (those containing ``_`` or ``-``) fall back to substring
+    matching on the full package name because they are already specific enough
+    (e.g. ``"diff_drive"`` unambiguously identifies a mobile-base package).
+
+    Returns a list of ``(hint, package_name)`` pairs for up to 5 matches
+    (enough for evidence without flooding the output).
+    """
+    matches = []
+    for pkg in pkg_names:
+        pkg_lower = pkg.lower()
+        # Token set for exact single-word hint matching.
+        tokens = set(re.split(r"[_\-]+", pkg_lower)) - {"", "ros", "ros2", "pkg"}
+        for h in hint_set:
+            if "_" in h or "-" in h:
+                # Compound hint → substring match is safe (specific enough).
+                if h in pkg_lower:
+                    matches.append((h, pkg))
+                    break
+            else:
+                # Single-word hint → exact token match to avoid "nao" ⊂ "autonomous".
+                if h in tokens:
+                    matches.append((h, pkg))
+                    break
+        if len(matches) >= 5:
+            break
+    return matches
+
+
+def _src_match_hints(hint_set, src_files, word_boundary=False, max_files=50):
+    """Match hints against source file content.
+
+    When *word_boundary* is True the patterns are wrapped in ``\\b`` anchors so
+    that short tokens like ``"nao"`` do not match inside longer identifiers.
+
+    Returns a list of ``(hint, filename)`` pairs (capped at 5 for readability).
+    """
+    if word_boundary:
+        compiled = [(h, re.compile(r"\b" + re.escape(h) + r"\b", re.I))
+                    for h in hint_set]
+    else:
+        compiled = [(h, re.compile(re.escape(h), re.I)) for h in hint_set]
+
+    matches = []
+    for fpath in src_files[:max_files]:
+        try:
+            text = pathlib.Path(fpath).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        fname = pathlib.Path(fpath).name
+        for h, pat in compiled:
+            if pat.search(text):
+                matches.append((h, fname))
+                if len(matches) >= 5:
+                    return matches
+    return matches
+
+
+# ---------------------------------------------------------------------------
+# URDF-based type evidence helpers
+# ---------------------------------------------------------------------------
+
+def _urdf_humanoid_evidence(joint_limits):
+    """Return evidence strings when URDF joint names suggest a humanoid robot.
+
+    Looks for joints whose names contain torso, neck, head, shoulder, elbow,
+    wrist, ankle, knee, or hip axis names (hip_pitch / hip_roll / hip_yaw).
+    Requires **≥ 4** such joints to reduce false positives from robots that
+    happen to have a single ``head_pan`` joint.
+    """
+    _HUMANOID_JOINT_PATTERNS = {
+        "torso", "neck", "head", "shoulder", "elbow", "wrist",
+        "ankle", "knee", "hip_pitch", "hip_roll", "hip_yaw",
+    }
+    found = []
+    for jname in joint_limits:
+        jl = jname.lower()
+        for pat in _HUMANOID_JOINT_PATTERNS:
+            if pat in jl:
+                found.append(f"urdf-joint:{jname}")
+                break
+    return found if len(found) >= 4 else []
+
+
+def _urdf_legged_evidence(joint_limits):
+    """Return evidence strings when URDF joint names suggest a legged robot.
+
+    Looks for FL/FR/RL/RR leg-naming prefixes or _hip_ / _knee_ / _ankle_
+    substrings.  Requires **≥ 4** such joints to distinguish a true legged
+    platform from, e.g., a pan-tilt mechanism with two rotational joints.
+    """
+    _LEG_PREFIXES = {"fl_", "fr_", "rl_", "rr_", "lf_", "rf_", "lb_", "rb_"}
+    _LEG_SUBSTRINGS = {"_hip_", "_knee_", "_ankle_", "_leg_", "_thigh_", "_shin_"}
+    found = []
+    for jname in joint_limits:
+        jl = jname.lower()
+        if any(jl.startswith(p) for p in _LEG_PREFIXES) or \
+                any(s in jl for s in _LEG_SUBSTRINGS):
+            found.append(f"urdf-joint:{jname}")
+    return found if len(found) >= 4 else []
+
+
 # ---------------------------------------------------------------------------
 # Live graph fallback
 # ---------------------------------------------------------------------------
@@ -756,85 +880,161 @@ def _live_fallback_topics(timeout=8):
 # Robot type detection
 # ---------------------------------------------------------------------------
 
-def _hints_match(hint_set, pkg_names, src_files, max_src=50):
-    """Return True if any token from *hint_set* appears in package names or source."""
-    pkg_blob = " ".join(p.lower() for p in pkg_names)
-    if any(h in pkg_blob for h in hint_set):
-        return True
-    return _grep_source(src_files, list(hint_set), max_files=max_src)
+def _detect_robot_type(ws_pkg_names, all_src_files, velocity_topics,
+                       joint_limits, has_nav2, robot_type_override=None):
+    """Return ``(robot_type, robot_features, evidence)`` from static workspace signals.
 
+    Parameters
+    ----------
+    ws_pkg_names : list[str]
+        Package names from the workspace ``src/`` tree **only**.
+        Ament-installed infrastructure packages are deliberately excluded —
+        they don't indicate the robot's own type.
+    all_src_files : list[str]
+        Source paths for grep-based hinting.
+    velocity_topics : list[str]
+        Velocity topics discovered in the workspace.
+    joint_limits : dict
+        Joint names keyed from URDF files.
+    has_nav2 : bool
+        Whether Nav2 packages are present.
+    robot_type_override : str | None
+        If set, skip detection and use this value directly (user-specified).
 
-def _detect_robot_type(all_pkg_names, all_src_files, velocity_topics,
-                       joint_limits, has_nav2):
-    """Return the most specific robot type string detectable from static signals.
+    Returns
+    -------
+    robot_type : str
+        Primary type (one of ``_VALID_ROBOT_TYPES``).
+    robot_features : list[str]
+        Supplementary features detected alongside the primary type,
+        e.g. ``["pantilt"]``.
+    evidence : dict[str, list[str]]
+        Per-label evidence strings explaining which signals matched.
+        Keys are type/feature names; values are short signal descriptions.
 
-    Possible return values (in priority order, highest first):
-      humanoid          — bipedal humanoid (NAO, Atlas, Valkyrie, …)
-      legged            — quadruped / hexapod (Spot, Go1, ANYmal, …)
-      aerial            — drone / UAV / multirotor (PX4, MAVROS, ArduPilot, …)
-      underwater        — ROV / AUV (BlueROV, UUV-simulator, …)
-      surface_vessel    — USV / boat (WAM-V, Nauticus, …)
-      mobile_manipulator— wheeled base + arm
-      arm               — arm / manipulator only (no mobile base)
-      mobile_base       — wheeled / tracked / diff-drive (no arm)
-      unknown           — insufficient signals
-
-    Detection is hint-based (package names + source code grep) so it generalises
-    to any robot without robot-specific hardcoding.  Multiple types can be true
-    simultaneously (e.g. a legged robot with an arm); priority ordering ensures
-    we return the most informative single label.
+    Detection philosophy
+    --------------------
+    - Package names are checked with **token-level** matching (split on ``_``/``-``)
+      so ``"nao"`` does not spuriously match ``"autonomous"`` or ``"scenario"``.
+    - Source-code grep uses **word-boundary** anchors for short / ambiguous tokens
+      (humanoid, legged, pantilt) and plain substring match for long/compound ones.
+    - Humanoid detection additionally requires URDF joint-name confirmation if the
+      only signal is a source-code match (package match alone is sufficient).
+    - Type detection runs on workspace packages only; installed ROS 2 infrastructure
+      packages do not influence the robot type.
+    - ``robot_features`` captures supplementary capabilities (pan-tilt, gimbal …)
+      that enrich the primary type without changing it.
     """
-    pkg_names_lower = [p.lower() for p in all_pkg_names]
+    # ── User override ─────────────────────────────────────────────────────────
+    if robot_type_override:
+        safe = robot_type_override if robot_type_override in _VALID_ROBOT_TYPES \
+            else "unknown"
+        return (safe, [], {"override": [f"user-specified: {robot_type_override}"]})
 
-    # Build presence flags — each uses the same broad hint-matching logic.
-    has_humanoid = _hints_match(_HUMANOID_HINTS, pkg_names_lower, all_src_files)
+    evidence: dict = {}
 
-    has_legged = _hints_match(_LEGGED_HINTS, pkg_names_lower, all_src_files)
+    # ── Helper: check one type and record evidence ────────────────────────────
+    def _check(hint_set, label, word_boundary=False):
+        pkg_hits = _pkg_match_hints(hint_set, ws_pkg_names)
+        if pkg_hits:
+            evidence[label] = [f"pkg:{p}" for _, p in pkg_hits[:5]]
+            return True
+        src_hits = _src_match_hints(hint_set, all_src_files,
+                                    word_boundary=word_boundary)
+        if src_hits:
+            evidence[label] = [f"src:{f}" for _, f in src_hits[:5]]
+            return True
+        return False
 
-    has_aerial = _hints_match(_AERIAL_HINTS, pkg_names_lower, all_src_files)
-    # Extra aerial signal: cmd_vel + altitude/takeoff topics (drone pattern)
-    if not has_aerial and velocity_topics:
-        has_aerial = any(
-            "altitude" in t or "takeoff" in t or "land" in t
-            for t in velocity_topics
-        )
-
-    has_underwater = _hints_match(_UNDERWATER_HINTS, pkg_names_lower, all_src_files)
-
-    has_surface_vessel = _hints_match(
-        _SURFACE_VESSEL_HINTS, pkg_names_lower, all_src_files
-    )
-
-    # Arm detection: URDF joint names + package hints + source.
-    has_arm = _hints_match(_ARM_HINTS, pkg_names_lower, all_src_files)
-    if not has_arm and joint_limits:
-        # Arm joints typically have non-trivial names (not just "wheel_*").
-        non_wheel = [n for n in joint_limits if "wheel" not in n.lower()]
-        has_arm = len(non_wheel) >= 3  # ≥3 non-wheel movable joints → arm-like
-
-    # Mobile base: velocity topics or Nav2 or explicit mobile-base package hints.
-    has_mobile = bool(velocity_topics) or has_nav2
-    if not has_mobile:
-        has_mobile = _hints_match(_MOBILE_HINTS, pkg_names_lower, all_src_files)
-
-    # --- Priority resolution ---
+    # ── Humanoid — strictest: pkg token match OR (URDF ≥4 joints) ─────────────
+    # Source-only match is NOT accepted for humanoid because generic words in
+    # comments / tutorial code cause false positives on non-humanoid robots.
+    hum_pkg_hits = _pkg_match_hints(_HUMANOID_HINTS, ws_pkg_names)
+    hum_urdf = _urdf_humanoid_evidence(joint_limits)
+    has_humanoid = bool(hum_pkg_hits or hum_urdf)
     if has_humanoid:
-        return "humanoid"
+        sigs = ([f"pkg:{p}" for _, p in hum_pkg_hits[:3]] + hum_urdf[:3])
+        evidence["humanoid"] = sigs[:5]
+
+    # ── Legged — pkg token OR URDF leg-joint pattern ──────────────────────────
+    leg_pkg_hits = _pkg_match_hints(_LEGGED_HINTS, ws_pkg_names)
+    leg_urdf = _urdf_legged_evidence(joint_limits)
+    leg_src_hits = [] if (leg_pkg_hits or leg_urdf) else \
+        _src_match_hints(_LEGGED_HINTS, all_src_files)
+    has_legged = bool(leg_pkg_hits or leg_urdf or leg_src_hits)
     if has_legged:
-        return "legged"
-    if has_aerial:
-        return "aerial"
-    if has_underwater:
-        return "underwater"
-    if has_surface_vessel:
-        return "surface_vessel"
-    if has_mobile and has_arm:
-        return "mobile_manipulator"
-    if has_arm:
-        return "arm"
-    if has_mobile:
-        return "mobile_base"
-    return "unknown"
+        sigs = ([f"pkg:{p}" for _, p in leg_pkg_hits[:3]]
+                + leg_urdf[:3]
+                + [f"src:{f}" for _, f in leg_src_hits[:2]])
+        evidence["legged"] = sigs[:5]
+
+    # ── Aerial ─────────────────────────────────────────────────────────────────
+    has_aerial = _check(_AERIAL_HINTS, "aerial")
+    if not has_aerial and velocity_topics:
+        aerial_topics = [t for t in velocity_topics
+                         if "altitude" in t or "takeoff" in t or "land" in t]
+        if aerial_topics:
+            has_aerial = True
+            evidence["aerial"] = [f"topic:{t}" for t in aerial_topics[:3]]
+
+    # ── Underwater / surface vessel ────────────────────────────────────────────
+    has_underwater = _check(_UNDERWATER_HINTS, "underwater")
+    has_surface_vessel = _check(_SURFACE_VESSEL_HINTS, "surface_vessel")
+
+    # ── Arm — pkg/src hints OR ≥3 non-wheel URDF joints ───────────────────────
+    has_arm = _check(_ARM_HINTS, "arm")
+    if not has_arm and joint_limits:
+        non_wheel = [n for n in joint_limits if "wheel" not in n.lower()]
+        if len(non_wheel) >= 3:
+            has_arm = True
+            evidence["arm"] = [f"urdf-joint:{j}" for j in non_wheel[:5]]
+
+    # ── Mobile base — velocity topics or Nav2 or explicit hints ───────────────
+    has_mobile = False
+    mobile_sigs = []
+    if velocity_topics:
+        has_mobile = True
+        mobile_sigs.extend(f"topic:{t}" for t in velocity_topics[:3])
+    if has_nav2:
+        has_mobile = True
+        mobile_sigs.append("ament:nav2")
+    if not has_mobile:
+        has_mobile = _check(_MOBILE_HINTS, "mobile_base")
+    elif mobile_sigs:
+        evidence["mobile_base"] = mobile_sigs
+
+    # ── Supplementary features (don't affect primary type) ────────────────────
+    robot_features: list = []
+    pt_pkg = _pkg_match_hints(_PANTILT_HINTS, ws_pkg_names)
+    pt_src = [] if pt_pkg else \
+        _src_match_hints(_PANTILT_HINTS, all_src_files, word_boundary=True)
+    if pt_pkg or pt_src:
+        robot_features.append("pantilt")
+        sigs = ([f"pkg:{p}" for _, p in pt_pkg[:3]]
+                + [f"src:{f}" for _, f in pt_src[:3]])
+        evidence["pantilt"] = sigs[:5]
+
+    # ── Priority resolution ────────────────────────────────────────────────────
+    if has_humanoid:
+        robot_type = "humanoid"
+    elif has_legged:
+        robot_type = "legged"
+    elif has_aerial:
+        robot_type = "aerial"
+    elif has_underwater:
+        robot_type = "underwater"
+    elif has_surface_vessel:
+        robot_type = "surface_vessel"
+    elif has_mobile and has_arm:
+        robot_type = "mobile_manipulator"
+    elif has_arm:
+        robot_type = "arm"
+    elif has_mobile:
+        robot_type = "mobile_base"
+    else:
+        robot_type = "unknown"
+
+    return robot_type, robot_features, evidence
 
 
 # ---------------------------------------------------------------------------
@@ -863,7 +1063,8 @@ def _make_detail_key(launch_path, existing_keys):
 # Full static scan
 # ---------------------------------------------------------------------------
 
-def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
+def _run_static_scan(ws_path, distro, allow_live=False,
+                     robot_type_override=None, verbose=False):
     """Execute the full static scan and return a profile dict."""
     scan_steps = []
 
@@ -974,12 +1175,15 @@ def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
             has_nav2 = "navigate_to_pose" in topic_str
 
     # --- 8. Robot type ---
-    robot_type = _detect_robot_type(
-        ws_pkg_names + all_ament_pkg_names,
-        all_src_files,
-        velocity_topics,
-        joint_limits,
-        has_nav2,
+    # Detection uses workspace packages only — ament-installed infrastructure
+    # packages (nav2, moveit, …) don't characterise the robot's own type.
+    robot_type, robot_features, robot_type_evidence = _detect_robot_type(
+        ws_pkg_names=ws_pkg_names,
+        all_src_files=all_src_files,
+        velocity_topics=velocity_topics,
+        joint_limits=joint_limits,
+        has_nav2=has_nav2,
+        robot_type_override=robot_type_override,
     )
 
     # --- 9. Safety limits final ---
@@ -1041,6 +1245,8 @@ def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
         "has_imu": has_imu,
         "has_nav2": has_nav2,
         "robot_type": robot_type,
+        "robot_features": robot_features,
+        "robot_type_evidence": robot_type_evidence,
         "safety_limits": safety_limits,
         "joint_limits": joint_limits,
         "live_topics": live_topics,
@@ -1091,6 +1297,12 @@ def _build_profile(robot_name, workspace, distro, scan_result):
         # ------------------------------------------------------------------ #
         "summary": {
             "robot_type": sr["robot_type"],
+            # robot_features: supplementary capabilities alongside the primary type.
+            # e.g. ["pantilt"] for a mobile_base with a pan-tilt head.
+            "robot_features": sr["robot_features"],
+            # robot_type_evidence: signals that drove the detected type.
+            # Each key is a type/feature label; value is a list of signal strings.
+            "robot_type_evidence": sr["robot_type_evidence"],
             "packages": sr["ws_packages"],
             # launch_files: the filenames as they exist in the workspace.
             # Each entry is a key into the detail section.
@@ -1119,6 +1331,14 @@ def cmd_profile_scan(args):
     user_ws = getattr(args, "workspace", None)
     robot_name = getattr(args, "name", None) or "robot"
     allow_live = getattr(args, "allow_live", False)
+    robot_type_override = getattr(args, "robot_type", None)
+
+    if robot_type_override and robot_type_override not in _VALID_ROBOT_TYPES:
+        output({
+            "error": f"Invalid --robot-type '{robot_type_override}'.",
+            "valid_types": sorted(_VALID_ROBOT_TYPES),
+        })
+        return
 
     distro = os.environ.get("ROS_DISTRO", "unknown")
 
@@ -1141,6 +1361,7 @@ def cmd_profile_scan(args):
         ws_path=ws_path,
         distro=distro,
         allow_live=allow_live,
+        robot_type_override=robot_type_override,
     )
 
     # --- Derive robot name from workspace if not provided ---
@@ -1169,6 +1390,8 @@ def cmd_profile_scan(args):
         "launch_files_found": sorted(scan_result["launch_file_details"].keys()),
         "packages_found": len(scan_result["ws_packages"]),
         "robot_type": scan_result["robot_type"],
+        "robot_features": scan_result["robot_features"],
+        "robot_type_evidence": scan_result["robot_type_evidence"],
         "safety_limits": scan_result["safety_limits"],
         "scan_steps": scan_result["scan_steps"],
         "summary": profile["summary"],
@@ -1229,6 +1452,7 @@ def cmd_profile_rescan(args):
 
     With --launch-file FILENAME, rescans only that launch file's args
     (fast partial rescan).  Without it, performs a full rescan.
+    Pass --robot-type TYPE on a full rescan to override the detected type.
     """
     robot_name = getattr(args, "name", None) or "robot"
     launch_filter = getattr(args, "launch_file", None)

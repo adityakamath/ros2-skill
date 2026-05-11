@@ -283,6 +283,9 @@ python3 {baseDir}/scripts/ros2_cli.py profile scan [--workspace /path/to/ros2_ws
 # Add --allow-live to also query the live graph for topics static analysis missed
 python3 {baseDir}/scripts/ros2_cli.py profile scan --allow-live
 
+# Override auto-detected robot type (e.g. if detection mis-classifies)
+python3 {baseDir}/scripts/ros2_cli.py profile scan --robot-type mobile_base
+
 # Load summary (robot_type, packages, launch_files, velocity_topics, safety_limits)
 python3 {baseDir}/scripts/ros2_cli.py profile show
 
@@ -291,7 +294,7 @@ python3 {baseDir}/scripts/ros2_cli.py profile show --section summary
 python3 {baseDir}/scripts/ros2_cli.py profile show --section detail
 python3 {baseDir}/scripts/ros2_cli.py profile show --section <launch-filename>   # e.g. bringup.launch.py
 
-# Full rescan (workspace changed)
+# Full rescan (workspace changed) — accepts --robot-type override too
 python3 {baseDir}/scripts/ros2_cli.py profile rescan [--workspace PATH]
 
 # Partial rescan — only refresh launch args for one file (fast)
@@ -304,8 +307,13 @@ python3 {baseDir}/scripts/ros2_cli.py profile list
 **Profile JSON shape:**
 ```
 {
-  "summary": {                     ← always load; compact
-    "robot_type": "mobile_base",
+  "summary": {                          ← always load; compact
+    "robot_type": "mobile_base",        ← primary type (see types below)
+    "robot_features": ["pantilt"],      ← supplementary features alongside primary type
+    "robot_type_evidence": {            ← signals that drove the detected type
+      "mobile_base": ["topic:/cmd_vel", "ament:nav2"],
+      "pantilt": ["pkg:my_pantilt_driver"]
+    },
     "packages": ["my_bringup", "my_nav"],
     "launch_files": ["bringup.launch.py", "nav2_bringup.launch.py"],  ← filenames from workspace; keys into detail
     "urdf_files": ["/path/to/robot.urdf.xacro"],
@@ -313,15 +321,15 @@ python3 {baseDir}/scripts/ros2_cli.py profile list
     "safety_limits": {"linear_max": 0.5, "angular_max": 1.0, "source": "yaml_or_urdf"},
     "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false
   },
-  "detail": {                      ← load on demand per launch file
+  "detail": {                           ← load on demand per launch file
     "bringup.launch.py": {
       "path": "...", "package": "...",
       "launch_args": {"use_sim_time": "false", "robot_name": null},
-      "includes": [                ← sub-launch files included by this file
+      "includes": [                      ← sub-launch files included by this file
         {
           "source": "pkg:nav2_bringup/launch/bringup_launch.py",
           "package": "nav2_bringup", "file": "bringup_launch.py",
-          "args_forwarded": {      ← "$ref" = pass-through; literal = hardcoded
+          "args_forwarded": {            ← "$ref" = pass-through; literal = hardcoded
             "use_sim_time": "$use_sim_time",
             "map_yaml_file": "$map_yaml"
           }
@@ -333,6 +341,18 @@ python3 {baseDir}/scripts/ros2_cli.py profile list
   }
 }
 ```
+
+**Robot type values:** `humanoid` · `legged` · `aerial` · `underwater` · `surface_vessel` · `mobile_manipulator` · `arm` · `mobile_base` · `unknown`
+
+**Detection rules (applied strictly in this order):**
+1. Humanoid — specific platform package name (NAO, Atlas, Valkyrie …) **or** ≥ 4 URDF joints with torso/neck/shoulder/elbow patterns. Generic terms like "walking"/"balance" are intentionally excluded (too broad).
+2. Legged — specific quadruped/hexapod package name (Spot, Go1, ANYmal …) or ≥ 4 URDF joints with FL/FR/RL/RR leg naming.
+3. Aerial, underwater, surface\_vessel — platform-specific package names or source keywords.
+4. Mobile manipulator — both mobile-base *and* arm signals present.
+5. Arm — arm/gripper/MoveIt package or ≥ 3 non-wheel URDF joints.
+6. Mobile base — velocity topics (`/cmd_vel`) or Nav2 present, or explicit diff-drive/Ackermann packages.
+
+**If detection is wrong:** run `profile scan --robot-type <type>` to override. The evidence field always shows what matched so you can see why a type was chosen.
 
 Use `summary.safety_limits.linear_max` / `summary.safety_limits.angular_max` as the `--max-vel` / `--max-ang` ceiling (Rule 28). Use `summary.launch_files` to see what launch files exist in the workspace; load any one's full detail with `--section <filename>`.
 
@@ -379,7 +399,7 @@ These work without ROS running or nodes active:
 | `--help` on any command | Inspect flags and subcommands |
 | `pkg list / prefix / executables / xml` | Package introspection |
 | `pkg create <name> [flags]` | Scaffold a new ROS 2 package |
-| `profile scan [--workspace PATH]` | Build robot profile from workspace (static-first) |
+| `profile scan [--workspace PATH] [--robot-type TYPE]` | Build robot profile from workspace (static-first); `--robot-type` overrides detection |
 | `profile show [--section S]` | Show saved robot profile or a section |
 | `profile rescan [--launch-file F]` | Update existing profile (full or partial) |
 | `profile list` | List all saved robot profiles |

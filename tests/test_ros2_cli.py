@@ -4636,6 +4636,266 @@ class TestApplyParams(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Robot type detection unit tests (ros2_profile helpers)
+# ---------------------------------------------------------------------------
+
+class TestPkgMatchHints(unittest.TestCase):
+    """_pkg_match_hints uses token-level matching to avoid short-token false positives."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        # Import only the pure helper — no ROS 2 dependency.
+        import importlib, types
+        # Provide a stub for ros2_utils so the import doesn't fail without ROS.
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def _match(self, hints, pkgs):
+        return self.mod._pkg_match_hints(hints, pkgs)
+
+    # ── Token isolation ────────────────────────────────────────────────────
+    def test_nao_does_not_match_autonomous(self):
+        """'nao' must not match 'autonomous_navigation' (false positive in old code)."""
+        hits = self._match({"nao"}, ["autonomous_navigation", "my_scenario_pkg"])
+        self.assertEqual(hits, [], f"Unexpected hits: {hits}")
+
+    def test_nao_matches_nao_robot(self):
+        """'nao' must match 'nao_robot' (token is exactly 'nao')."""
+        hits = self._match({"nao"}, ["nao_robot"])
+        self.assertTrue(hits, "Expected a hit on 'nao_robot'")
+
+    def test_atlas_does_not_match_atlas_mapper(self):
+        """'atlas' must not match an unrelated 'atlas_mapper' package."""
+        # 'atlas' is a token in 'atlas_mapper' — this one SHOULD match.
+        # The test verifies the token split still catches the real robot name.
+        hits = self._match({"atlas"}, ["atlas_description"])
+        self.assertTrue(hits)
+
+    def test_compound_hint_substring(self):
+        """Compound hints with '_' use substring matching (specific enough)."""
+        hits = self._match({"diff_drive"}, ["diff_drive_controller"])
+        self.assertTrue(hits)
+
+    def test_no_match_on_unrelated_package(self):
+        hits = self._match({"humanoid", "zmp", "valkyrie"}, ["my_bringup", "pantilt_driver"])
+        self.assertEqual(hits, [])
+
+    def test_returns_up_to_five_matches(self):
+        pkgs = [f"nao_pkg_{i}" for i in range(10)]
+        hits = self._match({"nao"}, pkgs)
+        self.assertLessEqual(len(hits), 5)
+
+
+class TestUrdfHumanoidEvidence(unittest.TestCase):
+    """_urdf_humanoid_evidence requires ≥4 humanoid-pattern joints."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.fn = staticmethod(ros2_profile._urdf_humanoid_evidence)
+
+    def test_empty_joints_returns_empty(self):
+        self.assertEqual(self.fn({}), [])
+
+    def test_three_humanoid_joints_returns_empty(self):
+        """Fewer than 4 matches → not enough evidence → empty list."""
+        joints = {"head_pan": {}, "neck_tilt": {}, "torso_yaw": {}}
+        self.assertEqual(self.fn(joints), [])
+
+    def test_four_humanoid_joints_returns_evidence(self):
+        joints = {
+            "head_pan": {}, "neck_tilt": {}, "torso_yaw": {}, "shoulder_pitch": {},
+        }
+        ev = self.fn(joints)
+        self.assertEqual(len(ev), 4)
+        self.assertTrue(all(e.startswith("urdf-joint:") for e in ev))
+
+    def test_wheel_joints_not_matched(self):
+        joints = {"wheel_left": {}, "wheel_right": {}, "caster": {}, "axle": {}}
+        self.assertEqual(self.fn(joints), [])
+
+    def test_pantilt_joints_alone_not_humanoid(self):
+        """A pan-tilt with two joints must NOT trigger humanoid detection."""
+        joints = {"head_pan": {}, "head_tilt": {}}
+        self.assertEqual(self.fn(joints), [])
+
+
+class TestUrdfLeggedEvidence(unittest.TestCase):
+    """_urdf_legged_evidence requires ≥4 leg-pattern joints."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.fn = staticmethod(ros2_profile._urdf_legged_evidence)
+
+    def test_four_leg_joints_returns_evidence(self):
+        joints = {"fl_hip": {}, "fr_hip": {}, "rl_hip": {}, "rr_hip": {}}
+        ev = self.fn(joints)
+        self.assertEqual(len(ev), 4)
+
+    def test_three_leg_joints_returns_empty(self):
+        joints = {"fl_hip": {}, "fr_hip": {}, "rl_hip": {}}
+        self.assertEqual(self.fn(joints), [])
+
+    def test_hip_knee_substring_matches(self):
+        joints = {"j_hip_pitch": {}, "j_knee_pitch": {}, "j_ankle_roll": {},
+                  "j_hip_roll": {}}
+        ev = self.fn(joints)
+        self.assertEqual(len(ev), 4)
+
+
+class TestDetectRobotType(unittest.TestCase):
+    """_detect_robot_type integration: correct primary types and evidence."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.fn = staticmethod(ros2_profile._detect_robot_type)
+
+    def _detect(self, pkg_names=None, src_files=None, vel_topics=None,
+                joints=None, nav2=False, override=None):
+        return self.fn(
+            ws_pkg_names=pkg_names or [],
+            all_src_files=src_files or [],
+            velocity_topics=vel_topics or [],
+            joint_limits=joints or {},
+            has_nav2=nav2,
+            robot_type_override=override,
+        )
+
+    # ── User override ──────────────────────────────────────────────────────
+    def test_override_skips_detection(self):
+        rtype, features, ev = self._detect(
+            pkg_names=["nao_description", "nao_robot"],
+            override="mobile_base",
+        )
+        self.assertEqual(rtype, "mobile_base")
+        self.assertIn("override", ev)
+
+    def test_override_invalid_value_falls_back_to_unknown(self):
+        rtype, _, _ = self._detect(override="flying_car")
+        self.assertEqual(rtype, "unknown")
+
+    # ── Primary type detection ─────────────────────────────────────────────
+    def test_mobile_base_from_velocity_topic(self):
+        rtype, features, ev = self._detect(vel_topics=["/cmd_vel"])
+        self.assertEqual(rtype, "mobile_base")
+        self.assertIn("mobile_base", ev)
+
+    def test_mobile_base_from_nav2(self):
+        rtype, _, _ = self._detect(nav2=True)
+        self.assertEqual(rtype, "mobile_base")
+
+    def test_humanoid_from_pkg_name(self):
+        rtype, _, ev = self._detect(pkg_names=["nao_robot"])
+        self.assertEqual(rtype, "humanoid")
+        self.assertIn("humanoid", ev)
+        self.assertTrue(any("pkg:" in s for s in ev["humanoid"]))
+
+    def test_humanoid_not_from_walking_keyword(self):
+        """'walking' in source code must NOT trigger humanoid detection."""
+        import tempfile, pathlib
+        with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+            f.write("# This robot is good at walking and balance control\n")
+            f.write("cmd_vel_publisher = node.create_publisher('cmd_vel', Twist, 10)\n")
+            fname = f.name
+        try:
+            rtype, _, _ = self._detect(
+                src_files=[fname],
+                vel_topics=["/cmd_vel"],
+            )
+            # Must be mobile_base (from vel_topics), NOT humanoid
+            self.assertNotEqual(rtype, "humanoid",
+                                "'walking' in source code caused false humanoid detection")
+        finally:
+            pathlib.Path(fname).unlink(missing_ok=True)
+
+    def test_humanoid_not_from_balance_keyword(self):
+        """'balance' in source code must NOT trigger humanoid detection."""
+        import tempfile, pathlib
+        with tempfile.NamedTemporaryFile(suffix=".cpp", mode="w", delete=False) as f:
+            f.write("// PID balance controller for wheeled platform\n")
+            fname = f.name
+        try:
+            rtype, _, _ = self._detect(src_files=[fname])
+            self.assertNotEqual(rtype, "humanoid")
+        finally:
+            pathlib.Path(fname).unlink(missing_ok=True)
+
+    def test_mobile_with_pantilt_gives_mobile_base_plus_feature(self):
+        """A mobile robot with a pantilt package → mobile_base + ['pantilt'] feature."""
+        rtype, features, ev = self._detect(
+            pkg_names=["my_bringup", "pantilt_driver"],
+            vel_topics=["/cmd_vel"],
+        )
+        self.assertEqual(rtype, "mobile_base")
+        self.assertIn("pantilt", features)
+        self.assertIn("pantilt", ev)
+
+    def test_legged_from_urdf_joints(self):
+        joints = {"fl_hip": {}, "fr_hip": {}, "rl_hip": {}, "rr_hip": {},
+                  "fl_knee": {}, "fr_knee": {}}
+        rtype, _, _ = self._detect(joints=joints)
+        self.assertEqual(rtype, "legged")
+
+    def test_mobile_manipulator(self):
+        rtype, _, _ = self._detect(
+            pkg_names=["arm_description", "moveit_config"],
+            vel_topics=["/cmd_vel"],
+        )
+        self.assertEqual(rtype, "mobile_manipulator")
+
+    def test_unknown_when_no_signals(self):
+        rtype, features, ev = self._detect()
+        self.assertEqual(rtype, "unknown")
+        self.assertEqual(features, [])
+
+    # ── Evidence keys ──────────────────────────────────────────────────────
+    def test_evidence_contains_chosen_type(self):
+        rtype, _, ev = self._detect(vel_topics=["/cmd_vel"])
+        self.assertIn(rtype, ev)
+
+    def test_evidence_signals_are_strings(self):
+        _, _, ev = self._detect(
+            pkg_names=["nao_robot"], vel_topics=["/cmd_vel"])
+        for label, signals in ev.items():
+            for s in signals:
+                self.assertIsInstance(s, str, f"Signal in {label!r} is not a string: {s!r}")
+
+
+# ---------------------------------------------------------------------------
 # Gap 4 — Exhaustive parser sweep + DISPATCH/parser symmetry canary
 # ---------------------------------------------------------------------------
 

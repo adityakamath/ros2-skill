@@ -2,6 +2,25 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [Unreleased]
+
+### Changes
+
+- `profile` robot type detection overhauled for accuracy and transparency:
+  - **Tightened `_HUMANOID_HINTS`**: removed `"walking"` and `"balance"` — too generic; both appear in any locomotion/navigation codebase and caused false-positive humanoid classification on non-humanoid platforms (e.g. a mobile robot with a pan-tilt mechanism)
+  - **Token-level package matching** (`_pkg_match_hints`): splits package names on `_`/`-` before matching so `"nao"` no longer spuriously matches `"autonomous"` or `"scenario"`; compound hints (e.g. `"diff_drive"`) still use substring match (specific enough)
+  - **Word-boundary source grep** for ambiguous short tokens (humanoid, pantilt hints)
+  - **Workspace-only scope**: type detection now uses only workspace (`src/`) packages; installed ament infrastructure packages (`nav2_*`, `moveit_*`, …) are excluded from the type-detection pass (they don't identify the robot's own type)
+  - **Humanoid confirmation**: source-code match alone is no longer sufficient to classify a robot as humanoid; requires a package name token match **or** ≥ 4 URDF joints with torso/neck/shoulder/elbow/knee patterns
+  - **Legged confirmation**: package match or ≥ 4 URDF joints with FL/FR/RL/RR leg-naming prefixes or `_hip_`/`_knee_`/`_ankle_` substrings
+  - **`robot_features` field** added to `summary`: supplementary capabilities alongside the primary type (e.g. `["pantilt"]` for a mobile robot with a pan-tilt head); does not change the primary type label
+  - **`robot_type_evidence` field** added to `summary`: per-label dict of signal strings (`"pkg:…"`, `"src:…"`, `"topic:…"`, `"urdf-joint:…"`) explaining exactly which hints fired; enables transparent debugging of mis-classifications
+  - **`_PANTILT_HINTS`** added: `pantilt`, `pan_tilt`, `ptz`, `gimbal`, `pan_controller`, `tilt_controller`
+  - **`_VALID_ROBOT_TYPES`** constant added for validation
+  - `profile scan --robot-type TYPE` / `profile rescan --robot-type TYPE` — user override; skips detection and stores the specified type directly; invalid values are rejected with an error listing valid options
+  - Evidence shows `{"override": ["user-specified: <TYPE>"]}` when an override is active
+- SKILL.md: profile JSON shape updated to show `robot_features` and `robot_type_evidence` fields; detection rules documented with exclusion rationale; `--robot-type` override documented; commands table updated
+
 ## [1.0.7] - 2026-05-11
 
 Session-start snapshot, topic list capping, launch params/config/preset, package scaffolding, security hardening, rules audit, log introspection, RULES domain split, auto-hold on motion failure, velocity clamp flags, and robot profile.
