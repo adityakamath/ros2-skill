@@ -8,7 +8,7 @@ Session-start snapshot, topic list capping, launch params/config/preset, package
 
 ### New Commands
 
-- `profile scan [--workspace PATH] [--name NAME] [--allow-live]` — static-first workspace scan: walks `src/`, queries ament index, parses `package.xml` / launch files / URDF / YAML configs; writes a tiered `.profiles/<robot>_profile.json` with `summary` (packages, launch files, safety limits, robot type, sensor flags) and per-launch-file `detail` sections; live graph used as fallback only when `--allow-live` is passed
+- `profile scan [--workspace PATH] [--name NAME] [--allow-live]` — static-first workspace scan: walks `src/`, queries ament index, parses `package.xml` / launch files / URDF / YAML configs; writes a tiered `.profiles/<robot>_profile.json` with `summary` (packages, launch files, safety limits, robot type, sensor flags) and per-launch-file `detail` sections; each detail entry includes `launch_args` (declared arguments via `--show-args`), `includes` (sub-launch files with `args_forwarded` showing how arguments are passed through), `yaml_files`, `urdf_files`, and `joint_limits`; live graph used as fallback only when `--allow-live` is passed
 - `profile show [--section S]` — load the saved robot profile; without `--section` returns `summary` + list of launch file filenames; `--section summary` / `--section detail` / `--section <launch-filename>` (e.g. `bringup.launch.py`) for progressive disclosure
 - `profile rescan [--launch-file F] [--workspace PATH]` — full or partial rescan; `--launch-file FILENAME` refreshes only that file's launch args without re-walking the workspace
 - `profile list` — list all robot profiles stored in `.profiles/`

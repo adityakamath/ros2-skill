@@ -322,6 +322,286 @@ def _parse_show_args_output(text):
 
 
 # ---------------------------------------------------------------------------
+# Launch include analysis — static parsing of sub-launch inclusion chains
+# ---------------------------------------------------------------------------
+
+def _parse_launch_includes(launch_path):
+    """Return a list of sub-launch include records found in *launch_path*.
+
+    Each record:
+    {
+        "source": "<str>",         # best-effort path/package description
+        "package": "<str>|None",   # package name if determinable
+        "file": "<str>|None",      # filename of the included launch file
+        "args_forwarded": {        # arguments passed to the included file
+            "<arg>": "<value>",    # literal string, or "$ref" for LaunchConfiguration('ref')
+            ...
+        }
+    }
+
+    Supports:
+    - Python .launch.py files  (ast-based, best-effort)
+    - XML    .launch.xml files (ElementTree)
+    - YAML   .launch.yaml files (PyYAML, limited)
+    """
+    path = pathlib.Path(launch_path)
+    if not path.exists():
+        return []
+    name = path.name.lower()
+    if name.endswith(".launch.py"):
+        return _parse_python_includes(path)
+    if name.endswith((".launch.xml", ".launch")) or path.suffix == ".xml":
+        return _parse_xml_includes(path)
+    if name.endswith((".launch.yaml", ".launch.yml")):
+        return _parse_yaml_includes(path)
+    return []
+
+
+# ---- Python (.launch.py) --------------------------------------------------
+
+def _ast_call_name(node):
+    """Return the bare function name from an ast.Call node."""
+    import ast as _ast
+    if isinstance(node.func, _ast.Name):
+        return node.func.id
+    if isinstance(node.func, _ast.Attribute):
+        return node.func.attr
+    return ""
+
+
+def _ast_to_str(node):
+    """Convert an AST node to a concise human-readable string.
+
+    Conventions:
+    - String/int constant       → the literal value
+    - LaunchConfiguration('x') → "$x"
+    - get_package_share_directory('p') / FindPackageShare('p') → "pkg:p"
+    - PathJoinSubstitution([...]) / os.path.join(...) → joined parts
+    - Variable name reference   → "$varname"
+    - Anything else             → "<expr>"
+    """
+    import ast as _ast
+
+    if node is None:
+        return None
+    if isinstance(node, _ast.Constant):
+        return str(node.value)
+    if isinstance(node, _ast.Name):
+        return f"${node.id}"
+    if isinstance(node, _ast.Call):
+        fn = _ast_call_name(node)
+        if fn == "LaunchConfiguration" and node.args:
+            inner = _ast_to_str(node.args[0])
+            return f"${inner}" if inner else "$?"
+        if fn in ("get_package_share_directory", "FindPackageShare") and node.args:
+            pkg = _ast_to_str(node.args[0])
+            return f"pkg:{pkg}" if pkg else "pkg:?"
+        if fn in ("PathJoinSubstitution", "JoinPathSegments") and node.args:
+            arg0 = node.args[0]
+            if isinstance(arg0, (_ast.List, _ast.Tuple)):
+                parts = [_ast_to_str(e) for e in arg0.elts]
+                return "/".join(p for p in parts if p)
+        if fn in ("os.path.join", "join"):
+            parts = [_ast_to_str(a) for a in node.args]
+            return "/".join(p for p in parts if p)
+        if fn == "PythonLaunchDescriptionSource" and node.args:
+            return _ast_to_str(node.args[0])
+        if fn == "AnyLaunchDescriptionSource" and node.args:
+            return _ast_to_str(node.args[0])
+        # Generic: show the function name so the reader understands context.
+        return f"{fn}(...)"
+    if isinstance(node, (_ast.List, _ast.Tuple)):
+        parts = [_ast_to_str(e) for e in node.elts]
+        return "/".join(p for p in parts if p)
+    if isinstance(node, _ast.BinOp):
+        import ast as _ast2
+        if isinstance(node.op, _ast2.Add):
+            left = _ast_to_str(node.left)
+            right = _ast_to_str(node.right)
+            return f"{left}{right}"
+    if isinstance(node, _ast.Attribute):
+        owner = _ast_to_str(node.value)
+        return f"{owner}.{node.attr}"
+    if isinstance(node, _ast.JoinedStr):        # f-string — too dynamic to resolve
+        return "<f-string>"
+    return "<expr>"
+
+
+def _ast_extract_forwarded_args(node):
+    """Extract {arg_name: value_str} from a launch_arguments AST node.
+
+    Accepts all three forms used in ROS 2 Python launch files:
+    - Dict literal:                  {"key": value, ...}
+    - Dict.items() call:             {"key": value, ...}.items()
+    - List/tuple of (name, value):   [("key", value), ...]
+    """
+    import ast as _ast
+    # Unwrap {}.items() — very common in ROS 2 launch files.
+    if (isinstance(node, _ast.Call)
+            and isinstance(node.func, _ast.Attribute)
+            and node.func.attr == "items"
+            and isinstance(node.func.value, _ast.Dict)):
+        node = node.func.value
+
+    result = {}
+    if isinstance(node, _ast.Dict):
+        for k, v in zip(node.keys, node.values):
+            key = _ast_to_str(k)
+            val = _ast_to_str(v)
+            if key and not key.startswith("$"):
+                result[key] = val
+    elif isinstance(node, (_ast.List, _ast.Tuple)):
+        for elt in node.elts:
+            if isinstance(elt, (_ast.Tuple, _ast.List)) and len(elt.elts) == 2:
+                key = _ast_to_str(elt.elts[0])
+                val = _ast_to_str(elt.elts[1])
+                if key and not key.startswith("$"):
+                    result[key] = val
+    return result
+
+
+def _parse_python_includes(path):
+    """Parse a Python launch file and return include records (ast-based)."""
+    import ast as _ast
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        tree = _ast.parse(text, filename=str(path))
+    except Exception:
+        return []
+
+    includes = []
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Call):
+            continue
+        if _ast_call_name(node) != "IncludeLaunchDescription":
+            continue
+
+        # ── source (first positional arg or 'launch_description_source' kw) ──
+        source_node = None
+        if node.args:
+            source_node = node.args[0]
+        else:
+            for kw in node.keywords:
+                if kw.arg in ("launch_description_source", None):
+                    source_node = kw.value
+                    break
+        source_str = _ast_to_str(source_node) if source_node else None
+
+        # ── extract package and filename from source_str ──
+        pkg, fname = _decompose_source(source_str)
+
+        # ── launch_arguments ──
+        forwarded = {}
+        for kw in node.keywords:
+            if kw.arg == "launch_arguments":
+                forwarded = _ast_extract_forwarded_args(kw.value)
+                break
+
+        includes.append({
+            "source": source_str,
+            "package": pkg,
+            "file": fname,
+            "args_forwarded": forwarded,
+        })
+
+    return includes
+
+
+def _decompose_source(source_str):
+    """Split a source string like 'pkg:nav2_bringup/launch/bringup_launch.py'
+    into (package, filename).  Returns (None, None) when not determinable."""
+    if not source_str:
+        return None, None
+    # "pkg:nav2_bringup/launch/bringup_launch.py"
+    m = re.match(r"pkg:([^/]+)/(.+)", source_str)
+    if m:
+        pkg = m.group(1)
+        rest = m.group(2)
+        fname = pathlib.Path(rest).name
+        return pkg, fname
+    # Plain path — try to extract the filename
+    if "/" in source_str or "\\" in source_str:
+        fname = pathlib.Path(source_str).name
+        return None, fname if fname else None
+    return None, None
+
+
+# ---- XML (.launch.xml / .launch) ------------------------------------------
+
+def _parse_xml_includes(path):
+    """Parse an XML launch file and return include records."""
+    try:
+        tree = ET.parse(str(path))
+        root = tree.getroot()
+    except Exception:
+        return []
+
+    includes = []
+    for inc in root.iter("include"):
+        source = inc.get("file", "") or inc.get("pkg", "")
+        # $(find pkg)/launch/file.py  or  $(pkg-path pkg)/...
+        pkg, fname = None, None
+        m = re.search(r"\$\(find\s+([^)]+)\)", source)
+        if m:
+            pkg = m.group(1)
+            fname = pathlib.Path(source.split(")")[-1]).name or None
+        else:
+            fname = pathlib.Path(source).name or None
+
+        forwarded = {}
+        for arg in inc.findall("arg"):
+            name = arg.get("name", "")
+            value = arg.get("value") or arg.get("default")
+            if name:
+                # Convert ROS XML substitution $(arg x) → $x
+                if value:
+                    value = re.sub(r"\$\(arg\s+([^)]+)\)", r"$\1", value)
+                forwarded[name] = value
+
+        includes.append({
+            "source": source or None,
+            "package": pkg,
+            "file": fname,
+            "args_forwarded": forwarded,
+        })
+
+    return includes
+
+
+# ---- YAML (.launch.yaml) --------------------------------------------------
+
+def _parse_yaml_includes(path):
+    """Parse a YAML launch file and return include records (limited support)."""
+    try:
+        import yaml
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            data = yaml.safe_load(fh)
+    except Exception:
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    includes = []
+    for item in data:
+        if not isinstance(item, dict) or "include" not in item:
+            continue
+        inc = item["include"]
+        if not isinstance(inc, dict):
+            continue
+        source = inc.pop("file", None)
+        pkg, fname = _decompose_source(source)
+        includes.append({
+            "source": source,
+            "package": pkg,
+            "file": fname,
+            "args_forwarded": {k: str(v) for k, v in inc.items()},
+        })
+
+    return includes
+
+
+# ---------------------------------------------------------------------------
 # YAML safety limit extraction
 # ---------------------------------------------------------------------------
 
@@ -718,7 +998,12 @@ def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
     for lf in all_launch_files:
         key = _make_detail_key(lf, launch_file_details)
         pkg_dir = pathlib.Path(lf).parent.parent  # heuristic: <pkg>/launch/<file>
+
+        # Declared arguments (from ros2 launch --show-args, best-effort).
         launch_args = _query_launch_args(lf)
+
+        # Sub-launch includes and how arguments are forwarded through them.
+        includes = _parse_launch_includes(lf)
 
         # YAML and URDF files co-located with this launch file's package.
         lf_yaml = [
@@ -737,6 +1022,7 @@ def _run_static_scan(ws_path, distro, allow_live=False, verbose=False):
             "path": lf,
             "package": pkg_dir.name,
             "launch_args": launch_args,
+            "includes": includes,
             "yaml_files": lf_yaml,
             "urdf_files": lf_urdf,
             "joint_limits": lf_joints,
@@ -969,7 +1255,9 @@ def cmd_profile_rescan(args):
             return
         lf = detail[launch_filter].get("path", "")
         new_args = _query_launch_args(lf) if lf else {}
+        new_includes = _parse_launch_includes(lf) if lf else []
         detail[launch_filter]["launch_args"] = new_args
+        detail[launch_filter]["includes"] = new_includes
         existing["detail"] = detail
         existing["generated_at"] = datetime.now(timezone.utc).isoformat()
         profile_file = _save_profile(existing, name=robot_name)
@@ -979,6 +1267,7 @@ def cmd_profile_rescan(args):
             "launch_file": launch_filter,
             "profile_file": profile_file,
             "launch_args": new_args,
+            "includes": new_includes,
         })
         return
 

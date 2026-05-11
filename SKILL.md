@@ -314,7 +314,21 @@ python3 {baseDir}/scripts/ros2_cli.py profile list
     "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false
   },
   "detail": {                      ← load on demand per launch file
-    "bringup.launch.py": {"path": "...", "package": "...", "launch_args": {...}, "yaml_files": [...], "joint_limits": {...}},
+    "bringup.launch.py": {
+      "path": "...", "package": "...",
+      "launch_args": {"use_sim_time": "false", "robot_name": null},
+      "includes": [                ← sub-launch files included by this file
+        {
+          "source": "pkg:nav2_bringup/launch/bringup_launch.py",
+          "package": "nav2_bringup", "file": "bringup_launch.py",
+          "args_forwarded": {      ← "$ref" = pass-through; literal = hardcoded
+            "use_sim_time": "$use_sim_time",
+            "map_yaml_file": "$map_yaml"
+          }
+        }
+      ],
+      "yaml_files": [...], "urdf_files": [...], "joint_limits": {...}
+    },
     ...
   }
 }
