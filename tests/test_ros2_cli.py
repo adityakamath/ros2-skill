@@ -5429,6 +5429,64 @@ def generate_launch_description():
             result = self.mod._extract_launch_arg_choices(str(p))
         self.assertEqual(result, {})
 
+    # ------------------------------------------------------------------ _merge_launch_args
+
+    def test_merge_ast_only_no_live(self):
+        """AST metadata used when live parser returns empty."""
+        arg_meta = {
+            "config": {"default": "base", "choices": ["base", "k2"], "description": "hw config"},
+            "use_sim_time": {"default": "false"},
+        }
+        result = self.mod._merge_launch_args(arg_meta, {})
+        self.assertEqual(result["config"]["default"], "base")
+        self.assertEqual(result["config"]["choices"], ["base", "k2"])
+        self.assertEqual(result["use_sim_time"]["default"], "false")
+
+    def test_merge_live_non_null_overrides_ast_default(self):
+        """A non-None live value overrides the AST literal default."""
+        arg_meta = {"port": {"default": "/dev/ttySERVO"}}
+        live_args = {"port": "/dev/ttyUSB0"}  # resolved at runtime
+        result = self.mod._merge_launch_args(arg_meta, live_args)
+        self.assertEqual(result["port"]["default"], "/dev/ttyUSB0")
+
+    def test_merge_live_null_does_not_overwrite_ast_default(self):
+        """A None live value must not wipe out the AST-derived default."""
+        arg_meta = {"config": {"default": "base", "description": "cfg"}}
+        live_args = {"config": None}
+        result = self.mod._merge_launch_args(arg_meta, live_args)
+        self.assertEqual(result["config"]["default"], "base")
+
+    def test_merge_live_only_arg_included(self):
+        """Args detected only by the live parser (not in AST) are included."""
+        live_args = {"extra_arg": "somevalue"}
+        result = self.mod._merge_launch_args({}, live_args)
+        self.assertIn("extra_arg", result)
+        self.assertEqual(result["extra_arg"]["default"], "somevalue")
+
+    def test_merge_live_null_only_arg_excluded(self):
+        """Args that are None in live and absent from AST produce no entry."""
+        live_args = {"mystery": None}
+        result = self.mod._merge_launch_args({}, live_args)
+        self.assertNotIn("mystery", result)
+
+    def test_merge_no_nulls_in_result(self):
+        """The merged result must never contain None values."""
+        arg_meta = {
+            "a": {"default": "x"},
+            "b": {},           # no default in AST
+        }
+        live_args = {"a": None, "b": None, "c": None}
+        result = self.mod._merge_launch_args(arg_meta, live_args)
+        for name, entry in result.items():
+            for k, v in entry.items():
+                self.assertIsNotNone(v, f"null value found at {name}.{k}")
+
+    def test_merge_result_sorted_by_name(self):
+        """Result keys are sorted alphabetically."""
+        arg_meta = {"z_arg": {"default": "1"}, "a_arg": {"default": "2"}}
+        result = self.mod._merge_launch_args(arg_meta, {})
+        self.assertEqual(list(result.keys()), ["a_arg", "z_arg"])
+
     # ------------------------------------------------------------------ active controllers
 
     def test_active_controllers_from_spawner(self):

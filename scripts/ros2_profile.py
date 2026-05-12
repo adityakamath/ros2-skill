@@ -1799,6 +1799,38 @@ def _extract_launch_arg_choices(launch_file):
     return result
 
 
+def _merge_launch_args(arg_meta, live_args):
+    """Merge AST-derived arg metadata with live-detected arg values.
+
+    *arg_meta*   — ``{name: {default?, choices?, description?}}`` from
+                   ``_extract_launch_arg_choices``; values come from the
+                   literal source code, so they are always populated.
+    *live_args*  — ``{name: str_or_None}`` from ``_query_launch_args``;
+                   a non-None value is a runtime-resolved default that may
+                   differ from the literal (e.g. when the default is a
+                   LaunchConfiguration reference).
+
+    Merge rules:
+    - AST metadata is the base (gives default + choices + description).
+    - A non-None *live_args* value overrides the AST default.
+    - Args present only in *live_args* (not seen by AST) are included with
+      whatever the live parser found.
+    - Entries with no metadata at all are dropped.
+
+    Returns:
+        ``{name: {default, choices?, description?}}`` — guaranteed no None values.
+    """
+    result: dict = {}
+    for name in sorted(set(arg_meta) | set(live_args)):
+        entry = dict(arg_meta.get(name, {}))
+        live_val = live_args.get(name)
+        if live_val is not None:
+            entry["default"] = live_val
+        if entry:               # skip args with no metadata from either source
+            result[name] = entry
+    return result
+
+
 def _extract_active_controllers(all_launch_files):
     """Return sorted list of unique controller names spawned across all launch files.
 
@@ -2820,9 +2852,6 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         key = _make_detail_key(lf, launch_file_details)
         pkg_dir = pathlib.Path(lf).parent.parent  # heuristic: <pkg>/launch/<file>
 
-        # Declared arguments (from ros2 launch --show-args, best-effort).
-        launch_args = _query_launch_args(lf)
-
         # Sub-launch includes and how arguments are forwarded through them.
         includes = _parse_launch_includes(lf)
 
@@ -2843,24 +2872,30 @@ def _run_static_scan(ws_path, distro, allow_live=False,
                 model_name = _get_urdf_robot_name(uf)
                 lf_joints.setdefault(model_name, {}).update(jl)
 
-        # Enrich with choices from DeclareLaunchArgument analysis.
-        arg_choices = _extract_launch_arg_choices(lf)
+        # --- Unified launch_args ---
+        # AST parse first (works without a live ROS 2 graph): gives default,
+        # choices, and description for every DeclareLaunchArgument call.
+        arg_meta = _extract_launch_arg_choices(lf)
+        # Live parse second (best-effort, requires ros2 CLI): may provide the
+        # resolved default when it differs from the literal in the source file.
+        live_args = _query_launch_args(lf)
+        launch_args = _merge_launch_args(arg_meta, live_args)
 
         launch_file_details[key] = {
             "path": lf,
             "package": pkg_dir.name,
             "launch_args": launch_args,
-            "launch_arg_choices": arg_choices,
             "includes": includes,
             "yaml_files": lf_yaml,
             "urdf_files": lf_urdf,
             "joint_limits": lf_joints,
         }
 
-    # Aggregate launch_configurations: args with choices across all launch files.
+    # Aggregate launch_configurations: all declared args across all launch files.
+    # Source is now the unified launch_args (which includes defaults + choices).
     launch_configurations: dict = {}
     for lf_detail in launch_file_details.values():
-        for arg, entry in lf_detail.get("launch_arg_choices", {}).items():
+        for arg, entry in lf_detail.get("launch_args", {}).items():
             if arg not in launch_configurations:
                 launch_configurations[arg] = entry
 
@@ -3127,8 +3162,9 @@ def _build_profile(robot_name, workspace, distro, scan_result):
         }),
         # ------------------------------------------------------------------ #
         # DETAIL — per launch file; load on demand via --section <filename>.  #
+        # Same null-stripping as summary: absent key = nothing found.         #
         # ------------------------------------------------------------------ #
-        "detail": sr["launch_file_details"],
+        "detail": _strip_nulls(sr["launch_file_details"]),
     }
 
 
