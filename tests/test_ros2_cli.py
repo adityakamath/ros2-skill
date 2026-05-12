@@ -5477,6 +5477,454 @@ def generate_launch_description():
         self.assertEqual(result.count("joint_state_broadcaster"), 1)
 
 
+# ---------------------------------------------------------------------------
+# New profile field tests (Wave 3): maps, sensor_filter_pipeline, imu_config,
+# controller_plugins, mock_hardware_available, package_dependencies
+# ---------------------------------------------------------------------------
+
+class TestExtractMaps(unittest.TestCase):
+    """_extract_maps detects nav2 map-server YAML files."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def _write_yaml(self, tmpdir, name, content):
+        import tempfile, pathlib
+        p = pathlib.Path(tmpdir) / name
+        p.write_text(content)
+        return str(p)
+
+    def test_occupancy_map_detected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "map.yaml", (
+                "image: map.pgm\n"
+                "resolution: 0.05\n"
+                "origin: [-10.0, -10.0, 0.0]\n"
+                "occupied_thresh: 0.65\n"
+                "free_thresh: 0.196\n"
+            ))
+            result = self.mod._extract_maps([yf])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["type"], "occupancy")
+        self.assertAlmostEqual(result[0]["resolution"], 0.05)
+        self.assertEqual(result[0]["image"], "map.pgm")
+
+    def test_keepout_map_detected_by_name(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "keepout_zones.yaml", (
+                "image: keepout.pgm\n"
+                "resolution: 0.05\n"
+                "origin: [0.0, 0.0, 0.0]\n"
+            ))
+            result = self.mod._extract_maps([yf])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["type"], "keepout")
+
+    def test_speed_map_detected_by_name(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "speed_limit_map.yaml", (
+                "image: speed.pgm\n"
+                "resolution: 0.1\n"
+                "origin: [0.0, 0.0, 0.0]\n"
+            ))
+            result = self.mod._extract_maps([yf])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["type"], "speed")
+
+    def test_non_map_yaml_ignored(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "params.yaml", (
+                "controller_manager:\n"
+                "  ros__parameters:\n"
+                "    update_rate: 100\n"
+            ))
+            result = self.mod._extract_maps([yf])
+        self.assertEqual(result, [])
+
+    def test_yaml_with_image_but_no_resolution_ignored(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "camera_cal.yaml", (
+                "image_width: 640\n"
+                "image_height: 480\n"
+                "image: camera.png\n"
+                "origin: [0, 0, 0]\n"
+            ))
+            result = self.mod._extract_maps([yf])
+        self.assertEqual(result, [])
+
+    def test_multiple_maps_returned(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf1 = self._write_yaml(d, "map.yaml", (
+                "image: map.pgm\nresolution: 0.05\norigin: [0,0,0]\n"
+            ))
+            yf2 = self._write_yaml(d, "keepout.yaml", (
+                "image: keepout.pgm\nresolution: 0.05\norigin: [0,0,0]\n"
+            ))
+            result = self.mod._extract_maps([yf1, yf2])
+        self.assertEqual(len(result), 2)
+
+
+class TestExtractSensorFilterPipeline(unittest.TestCase):
+    """_extract_sensor_filter_pipeline extracts filter chain entries."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def _write_yaml(self, tmpdir, name, content):
+        import pathlib
+        p = pathlib.Path(tmpdir) / name
+        p.write_text(content)
+        return str(p)
+
+    def test_laser_filter_chain_extracted(self):
+        import tempfile
+        yaml_content = (
+            "laser_filter_node:\n"
+            "  ros__parameters:\n"
+            "    filter_chain:\n"
+            "      - name: range_filter\n"
+            "        type: laser_filters/LaserScanRangeFilter\n"
+            "        params:\n"
+            "          lower_threshold: 0.1\n"
+            "          upper_threshold: 10.0\n"
+            "      - name: angular_filter\n"
+            "        type: laser_filters/LaserScanAngularBoundsFilter\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "laser_filter.yaml", yaml_content)
+            result = self.mod._extract_sensor_filter_pipeline([yf])
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["name"], "range_filter")
+        self.assertEqual(result[0]["type"], "laser_filters/LaserScanRangeFilter")
+        self.assertIn("params", result[0])
+        self.assertEqual(result[1]["name"], "angular_filter")
+
+    def test_laser_scan_filter_chain_key_recognized(self):
+        import tempfile
+        yaml_content = (
+            "laser_scan_filter_chain:\n"
+            "  - name: shadow_filter\n"
+            "    type: laser_filters/LaserScanShadowFilter\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "shadow.yaml", yaml_content)
+            result = self.mod._extract_sensor_filter_pipeline([yf])
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0]["type"], "laser_filters/LaserScanShadowFilter")
+
+    def test_no_filter_chain_returns_none(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "params.yaml", "controller_manager:\n  update_rate: 100\n")
+            result = self.mod._extract_sensor_filter_pipeline([yf])
+        self.assertIsNone(result)
+
+    def test_source_file_recorded(self):
+        import tempfile
+        yaml_content = (
+            "filter_chain:\n"
+            "  - name: f1\n"
+            "    type: laser_filters/LaserScanRangeFilter\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "myfilter.yaml", yaml_content)
+            result = self.mod._extract_sensor_filter_pipeline([yf])
+        self.assertEqual(result[0]["source_file"], "myfilter.yaml")
+
+
+class TestExtractImuConfig(unittest.TestCase):
+    """_extract_imu_config extracts IMU hardware + broadcaster config."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def _write_yaml(self, tmpdir, name, content):
+        import pathlib
+        p = pathlib.Path(tmpdir) / name
+        p.write_text(content)
+        return str(p)
+
+    def test_imu_plugin_extracted_from_hardware_interfaces(self):
+        import tempfile
+        hw_ifaces = [{
+            "name": "BNO055",
+            "type": "sensor",
+            "plugin": "bno055_hardware_interface/BNO055HardwareInterface",
+            "joints": [],
+            "command_interfaces": [],
+            "state_interfaces": ["imu/orientation/x", "imu/orientation/y"],
+            "hardware_params": {"i2c_bus": 1, "i2c_address": 40},
+        }]
+        with tempfile.TemporaryDirectory() as d:
+            result = self.mod._extract_imu_config(hw_ifaces, [])
+        self.assertIsNotNone(result)
+        self.assertIn("bno055", result["plugin"].lower())
+        self.assertEqual(result["state_interfaces"], ["imu/orientation/x", "imu/orientation/y"])
+        self.assertEqual(result["hardware_params"]["i2c_bus"], 1)
+
+    def test_imu_broadcaster_extracted_from_yaml(self):
+        import tempfile
+        yaml_content = (
+            "imu_sensor_broadcaster:\n"
+            "  ros__parameters:\n"
+            "    frame_id: imu_link\n"
+            "    sensor_name: imu_sensor\n"
+            "    publish_rate: 100.0\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "imu_broadcaster.yaml", yaml_content)
+            result = self.mod._extract_imu_config([], [yf])
+        self.assertIsNotNone(result)
+        self.assertEqual(result["broadcaster"]["frame_id"], "imu_link")
+        self.assertAlmostEqual(result["broadcaster"]["publish_rate"], 100.0)
+
+    def test_no_imu_returns_none(self):
+        import tempfile
+        hw_ifaces = [{
+            "name": "wheels",
+            "type": "system",
+            "plugin": "diff_drive_controller/DiffDriveController",
+            "joints": ["left_wheel", "right_wheel"],
+            "command_interfaces": ["velocity"],
+            "state_interfaces": ["position", "velocity"],
+            "hardware_params": None,
+        }]
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "params.yaml", "controller_manager:\n  update_rate: 50\n")
+            result = self.mod._extract_imu_config(hw_ifaces, [yf])
+        self.assertIsNone(result)
+
+    def test_hardware_imu_and_broadcaster_combined(self):
+        import tempfile
+        hw_ifaces = [{
+            "name": "IMU",
+            "type": "sensor",
+            "plugin": "ros2_control_bno055/BNO055",
+            "joints": [],
+            "command_interfaces": [],
+            "state_interfaces": ["imu/angular_velocity/z"],
+            "hardware_params": {"sensor_mode": 12},
+        }]
+        yaml_content = (
+            "imu_sensor_broadcaster:\n"
+            "  ros__parameters:\n"
+            "    frame_id: base_imu_link\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "imu_bc.yaml", yaml_content)
+            result = self.mod._extract_imu_config(hw_ifaces, [yf])
+        self.assertIsNotNone(result)
+        self.assertIn("plugin", result)
+        self.assertIn("broadcaster", result)
+        self.assertEqual(result["broadcaster"]["frame_id"], "base_imu_link")
+
+
+class TestExtractPackageDependencies(unittest.TestCase):
+    """_extract_package_dependencies returns exec_depend lists for primary packages."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def test_primary_packages_included(self):
+        ws_packages = [
+            {"name": "my_robot_bringup", "role": "primary",
+             "deps": ["rclpy", "nav2_bringup", "robot_state_publisher"]},
+            {"name": "my_robot_description", "role": "primary",
+             "deps": ["urdf", "xacro"]},
+        ]
+        result = self.mod._extract_package_dependencies(ws_packages)
+        self.assertIsNotNone(result)
+        self.assertIn("my_robot_bringup", result)
+        self.assertIn("nav2_bringup", result["my_robot_bringup"])
+        self.assertIn("my_robot_description", result)
+
+    def test_dependency_packages_excluded(self):
+        ws_packages = [
+            {"name": "my_robot_bringup", "role": "primary",
+             "deps": ["rclpy"]},
+            {"name": "some_driver", "role": "dependency",
+             "deps": ["libusb", "serial"]},
+        ]
+        result = self.mod._extract_package_dependencies(ws_packages)
+        self.assertNotIn("some_driver", result)
+        self.assertIn("my_robot_bringup", result)
+
+    def test_empty_deps_package_excluded(self):
+        ws_packages = [
+            {"name": "my_robot_bringup", "role": "primary", "deps": []},
+        ]
+        result = self.mod._extract_package_dependencies(ws_packages)
+        self.assertIsNone(result)
+
+    def test_no_primary_packages_returns_none(self):
+        ws_packages = [
+            {"name": "driver", "role": "dependency", "deps": ["libusb"]},
+        ]
+        result = self.mod._extract_package_dependencies(ws_packages)
+        self.assertIsNone(result)
+
+    def test_role_defaults_to_primary_when_absent(self):
+        # Packages from a full-workspace scan may not have a 'role' key.
+        ws_packages = [
+            {"name": "my_robot", "deps": ["rclpy", "nav2_bringup"]},
+        ]
+        result = self.mod._extract_package_dependencies(ws_packages)
+        self.assertIsNotNone(result)
+        self.assertIn("my_robot", result)
+
+
+class TestMockHardwareAvailable(unittest.TestCase):
+    """mock_hardware_available derivation logic."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def _mock_hw_available(self, hardware_interfaces, launch_configurations):
+        """Reproduce the mock_hardware_available derivation from _run_static_scan."""
+        return bool(
+            any(
+                str((iface.get("hardware_params") or {}).get("enable_mock_mode", "")).lower()
+                in ("true", "1", "yes")
+                for iface in hardware_interfaces
+            )
+            or any(
+                "mock" in arg.lower() or "fake" in arg.lower()
+                for arg in launch_configurations
+            )
+        )
+
+    def test_enable_mock_mode_true_string(self):
+        hw = [{"hardware_params": {"enable_mock_mode": "true"}}]
+        self.assertTrue(self._mock_hw_available(hw, {}))
+
+    def test_enable_mock_mode_int_1(self):
+        hw = [{"hardware_params": {"enable_mock_mode": 1}}]
+        self.assertTrue(self._mock_hw_available(hw, {}))
+
+    def test_enable_mock_mode_false(self):
+        hw = [{"hardware_params": {"enable_mock_mode": "false"}}]
+        self.assertFalse(self._mock_hw_available(hw, {}))
+
+    def test_mock_launch_arg(self):
+        self.assertTrue(self._mock_hw_available([], {"use_mock_hardware": {}}))
+
+    def test_fake_launch_arg(self):
+        self.assertTrue(self._mock_hw_available([], {"fake_sensor": {}}))
+
+    def test_no_mock_signals(self):
+        hw = [{"hardware_params": {"baud_rate": 115200}}]
+        self.assertFalse(self._mock_hw_available(hw, {"use_sim_time": {}}))
+
+    def test_empty_hardware_params(self):
+        hw = [{"hardware_params": None}]
+        self.assertFalse(self._mock_hw_available(hw, {}))
+
+
+class TestControllerPlugins(unittest.TestCase):
+    """controller_plugins is surfaced from ros2_control YAML at the top level."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def _write_yaml(self, tmpdir, name, content):
+        import pathlib
+        p = pathlib.Path(tmpdir) / name
+        p.write_text(content)
+        return str(p)
+
+    def test_controller_plugins_returned(self):
+        import tempfile
+        yaml_content = (
+            "controller_manager:\n"
+            "  ros__parameters:\n"
+            "    update_rate: 100\n"
+            "    base_controller:\n"
+            "      type: diff_drive_controller/DiffDriveController\n"
+            "    joint_state_broadcaster:\n"
+            "      type: joint_state_broadcaster/JointStateBroadcaster\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "ctrl.yaml", yaml_content)
+            result = self.mod._extract_ros2_control_config([yf])
+        plugins = result["controller_plugins"]
+        self.assertIn("diff_drive_controller/DiffDriveController", plugins)
+        self.assertIn("joint_state_broadcaster/JointStateBroadcaster", plugins)
+
+    def test_no_controllers_returns_empty_list(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "empty.yaml", "robot_name: testbot\n")
+            result = self.mod._extract_ros2_control_config([yf])
+        self.assertEqual(result["controller_plugins"], [])
+
+
 class TestPkgMatchHints(unittest.TestCase):
     """_pkg_match_hints uses token-level matching to avoid short-token false positives."""
 

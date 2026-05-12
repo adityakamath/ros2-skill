@@ -1852,6 +1852,180 @@ def _extract_active_controllers(all_launch_files):
 
 
 # ---------------------------------------------------------------------------
+# Maps (nav2 map-server YAML)
+# ---------------------------------------------------------------------------
+
+def _extract_maps(all_yaml_files):
+    """Return a list of map metadata records found in YAML files.
+
+    A map YAML (nav2 map-server / map_server format) is identified by the
+    simultaneous presence of ``image``, ``resolution``, and ``origin`` at the
+    top level.
+
+    Each record:
+      file       : filename
+      path       : absolute path
+      name       : stem of the filename (human label)
+      type       : "keepout" | "speed" | "occupancy"
+      resolution : metres-per-pixel (float)
+      image      : path to the PGM/PNG map image (relative or absolute)
+    """
+    maps = []
+    for yf in all_yaml_files:
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+        # Must have all three top-level keys that distinguish a map YAML from
+        # a parameter file that happens to have an "image" key.
+        if not all(k in data for k in ("image", "resolution", "origin")):
+            continue
+        path = pathlib.Path(yf)
+        stem = path.stem.lower()
+        map_type = (
+            "keepout" if "keepout" in stem
+            else "speed" if any(w in stem for w in ("speed", "restriction", "limit"))
+            else "occupancy"
+        )
+        maps.append({
+            "file": path.name,
+            "path": yf,
+            "name": path.stem,
+            "type": map_type,
+            "resolution": data.get("resolution"),
+            "image": data.get("image"),
+        })
+    return maps
+
+
+# ---------------------------------------------------------------------------
+# Sensor filter pipeline (laser_filters / sensor_filters)
+# ---------------------------------------------------------------------------
+
+def _extract_sensor_filter_pipeline(all_yaml_files):
+    """Return a list of filter entries from sensor/laser filter-chain YAMLs.
+
+    Recognises:
+    - ``filter_chain``
+    - ``laser_scan_filter_chain``
+    - ``scan_filter_chain``
+    - ``filters`` (when the enclosing node key contains "filter")
+
+    Each entry:
+      name        : filter name string (may be empty)
+      type        : filter plugin type string
+      source_file : filename the filter was extracted from
+      params      : {key: value} of filter-specific params (may be absent)
+    """
+    pipeline = []
+    for yf in all_yaml_files:
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+        found = False
+        for key, val in _walk_dict_items(data, max_depth=4):
+            if key in ("filter_chain", "laser_scan_filter_chain",
+                       "scan_filter_chain") and isinstance(val, list):
+                for entry in val:
+                    if not isinstance(entry, dict):
+                        continue
+                    rec = {
+                        "name": entry.get("name", ""),
+                        "type": entry.get("type", ""),
+                        "source_file": pathlib.Path(yf).name,
+                    }
+                    params = entry.get("params") or entry.get("ros__parameters")
+                    if isinstance(params, dict) and params:
+                        rec["params"] = params
+                    pipeline.append(rec)
+                found = True
+                break  # only first matching key per file
+        if not found:
+            continue  # avoid duplicate iterations
+    return pipeline if pipeline else None
+
+
+# ---------------------------------------------------------------------------
+# IMU configuration
+# ---------------------------------------------------------------------------
+
+_IMU_BROADCASTER_NAMES = frozenset({
+    "imu_sensor_broadcaster", "imu_broadcaster",
+    "imu_filter_madgwick", "imu_filter_node",
+    "imu_complementary_filter", "imu_sensor_node",
+})
+
+_IMU_HW_HINTS = frozenset({"bno", "imu", "mpu", "ahrs", "vectornav", "xsens", "microstrain"})
+
+_IMU_HW_PARAM_KEYS = frozenset({
+    "sensor_mode", "i2c_address", "i2c_bus", "baud_rate",
+    "port", "frame_id", "data_rate", "calibration_file",
+})
+
+
+def _extract_imu_config(hardware_interfaces, all_yaml_files):
+    """Return an IMU configuration dict derived from hardware_interfaces + YAML.
+
+    Fields (all optional):
+      plugin           : ros2_control hardware plugin string
+      state_interfaces : [str, ...]
+      hardware_params  : {key: value}  (raw hardware params)
+      broadcaster      : {frame_id, sensor_name, publish_rate, ...}
+    """
+    imu_config: dict = {}
+
+    # --- hardware_interfaces entry ---
+    for iface in hardware_interfaces:
+        plugin = (iface.get("plugin") or "").lower()
+        if any(h in plugin for h in _IMU_HW_HINTS):
+            imu_config["plugin"] = iface.get("plugin")
+            si = iface.get("state_interfaces")
+            if si:
+                imu_config["state_interfaces"] = si
+            hw_params = iface.get("hardware_params") or {}
+            if hw_params:
+                imu_config["hardware_params"] = hw_params
+            break
+
+    # --- imu broadcaster / filter YAML block ---
+    for yf in all_yaml_files:
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+        block = _find_node_block(data, _IMU_BROADCASTER_NAMES)
+        if block:
+            bc = {k: block[k] for k in (
+                "frame_id", "sensor_name", "publish_rate",
+                "filter_world_frame", "use_mag", "stationary_threshold",
+            ) if k in block}
+            if bc:
+                imu_config["broadcaster"] = bc
+            break
+
+    return imu_config if imu_config else None
+
+
+# ---------------------------------------------------------------------------
+# Package dependencies
+# ---------------------------------------------------------------------------
+
+def _extract_package_dependencies(ws_packages):
+    """Return {pkg_name: [exec_depend, ...]} for all primary packages.
+
+    Only primary packages are included — dependency packages are workspace-local
+    drivers whose own dependency lists are not relevant to the target robot's
+    runtime requirements.
+    """
+    result = {}
+    for pkg in ws_packages:
+        if pkg.get("role", "primary") != "primary":
+            continue
+        deps = pkg.get("deps", [])
+        if deps:
+            result[pkg["name"]] = deps
+    return result if result else None
+
+
+# ---------------------------------------------------------------------------
 # Sensor / actuator mount classification
 # ---------------------------------------------------------------------------
 
@@ -2491,6 +2665,30 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     scan_steps.append("active_controllers")
     active_controllers = _extract_active_controllers(all_launch_files)
 
+    # --- 4i. Maps, sensor filter pipeline, IMU config, package deps ---
+    scan_steps.append("extended_configs")
+    maps = _extract_maps(all_yaml_files)
+    sensor_filter_pipeline = _extract_sensor_filter_pipeline(all_yaml_files)
+    imu_config = _extract_imu_config(hardware_interfaces, all_yaml_files)
+    package_dependencies = _extract_package_dependencies(ws_packages)
+
+    # controller_plugins: already collected in ros2_ctrl; expose at top level.
+    controller_plugins = ros2_ctrl["controller_plugins"]
+
+    # mock_hardware_available: True when any hardware interface declares
+    # enable_mock_mode OR any launch arg suggests mock/sim hardware.
+    mock_hardware_available = bool(
+        any(
+            str((iface.get("hardware_params") or {}).get("enable_mock_mode", "")).lower()
+            in ("true", "1", "yes")
+            for iface in hardware_interfaces
+        )
+        or any(
+            "mock" in arg.lower() or "fake" in arg.lower()
+            for arg in launch_configurations
+        )
+    )
+
     # cmd_vel_topic: prefer teleop config, fall back to ros2_control odom block
     cmd_vel_topic = (teleop_config or {}).get("cmd_vel_topic") or \
                     (ros2_ctrl.get("odom_frame_ids") or {}).get("cmd_vel_topic")
@@ -2702,6 +2900,13 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "tf_frames": tf_frames,
         "launch_configurations": launch_configurations,
         "active_controllers": active_controllers,
+        # --- Extended config fields ---
+        "controller_plugins": controller_plugins,
+        "mock_hardware_available": mock_hardware_available,
+        "maps": maps,
+        "sensor_filter_pipeline": sensor_filter_pipeline,
+        "imu_config": imu_config,
+        "package_dependencies": package_dependencies,
         # Per-robot scoping
         "pkg_filter": resolved_pkg_filter,
         "matched_dirs": matched_dirs,
@@ -2865,6 +3070,32 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             # active_controllers: unique controller names spawned by any
             # launch file in the workspace.
             "active_controllers": sr["active_controllers"],
+            # ---- Extended config fields ------------------------------------
+            # controller_plugins: full plugin type strings declared under
+            # controller_manager.ros__parameters in any ros2_control YAML.
+            # These are the raw plugin identifiers (e.g.
+            # "diff_drive_controller/DiffDriveController") from which
+            # active_controllers and drive_type are derived.
+            "controller_plugins": sr["controller_plugins"],
+            # mock_hardware_available: True when any ros2_control hardware
+            # interface declares enable_mock_mode=true, or when any launch
+            # file exposes a "mock" / "fake" launch argument.
+            "mock_hardware_available": sr["mock_hardware_available"],
+            # maps: nav2 map-server YAMLs found in the workspace.  Each entry
+            # carries {file, path, name, type, resolution, image}.
+            # type is one of: "occupancy" | "keepout" | "speed".
+            "maps": sr["maps"],
+            # sensor_filter_pipeline: filter chain entries extracted from
+            # laser_filters / sensor_filters YAML files.
+            # Each entry: {name, type, source_file, params?}
+            "sensor_filter_pipeline": sr["sensor_filter_pipeline"],
+            # imu_config: IMU hardware plugin, state_interfaces, hardware
+            # params, and broadcaster/filter node config.
+            "imu_config": sr["imu_config"],
+            # package_dependencies: {pkg_name: [exec_depend, ...]} for each
+            # primary package.  Derived from package.xml exec_depend tags;
+            # useful for understanding runtime requirements at a glance.
+            "package_dependencies": sr["package_dependencies"],
         },
         # ------------------------------------------------------------------ #
         # DETAIL — per launch file; load on demand via --section <filename>.  #
