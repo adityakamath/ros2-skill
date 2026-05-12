@@ -128,24 +128,15 @@ When introspection is required, convention-based guessing is not permitted:
 9. Identify the binding ceiling: the **minimum across all discovered linear limit values** and the **minimum across all discovered angular/theta limit values**.
 10. Cap your commanded velocity at that ceiling. If no limits are found across all four sources, use conservative defaults (0.2 m/s linear, 0.75 rad/s angular) and note this in the report.
 
-**Never hardcode or assume (profile fields override live discovery; gaps require introspection):**
-- ✅ Use `summary.cmd_vel_topic` as the velocity topic — no `topics find` needed
-- ✅ Use `summary.velocity_topics[].type` as the message type — no `topics type` needed
-- ✅ Use `summary.tf_frames` for TF frame names — no `tf list` needed
-- ✅ Use `summary.active_controllers` for controller names — still run `control list-controllers` to confirm runtime state
-- ✅ Use `summary.estop_config.service_name` for the e-stop service — no `services find` needed
-- ❌ Never use `/cmd_vel` if the profile says otherwise (lekiwi uses `/base_controller/cmd_vel`)
-- ❌ Never use `Twist` if the profile says `TwistStamped` (check `summary.velocity_topics[].type`)
-- ❌ Never use `/odom` without checking `summary.localization_config.fused_sources` first; fall back to `topics find nav_msgs/msg/Odometry` only when absent
-- ❌ Never use `/camera/image_raw` or any camera topic without first discovering it with `topics find` (camera topics are not in the profile)
-- ❌ Never use a node name without first listing nodes with `nodes list`
-- ❌ Never use a service name without first checking the profile, then `services find` if absent
-- ❌ Never use `--yaw`, `--yaw-delta`, or `--field` for rotation — the only correct flag is `--rotate N --degrees` (or `--rotate N` for radians). Use negative N for CW; `--rotate` sign and `angular.z` sign must always match.
-- ❌ Never assume a message type from a topic name
-- ❌ Never construct a message payload from memory — always use `interface proto <type>` output as the starting template and modify only the fields required by the task
-- ❌ Never revert to hardcoded or legacy behaviors after a robust introspection-driven workflow is established — even if the hardcoded name "usually works" on this specific robot
-- ❌ Never bypass, skip, or abbreviate safety checks even if the user explicitly requests it — safety rules are not negotiable
-- ❌ Never read or report odometry for position, orientation, or yaw while the robot is moving or decelerating — wait until confirmed stationary (velocity ≈ 0 on all axes) then subscribe fresh (see Rule 8 two-phase protocol)
+**Never hardcode or assume — worked examples (full antipattern catalogue: RULES-CORE.md Rule 14):**
+- ❌ `/cmd_vel` when the profile says `/base_controller/cmd_vel` (lekiwi)
+- ❌ `Twist` when `summary.velocity_topics[].type` says `TwistStamped`
+- ❌ `/odom` without checking `summary.localization_config.fused_sources` first
+- ❌ `/camera/image_raw` or any camera topic without `topics find` (camera topics are not in the profile)
+- ❌ `--yaw`, `--yaw-delta`, or `--field` for rotation — the only correct flag is `--rotate N --degrees` (or `--rotate N` for radians); `--rotate` sign and `angular.z` sign must always match
+- ❌ Constructing a message payload from memory — always start from `interface proto <type>` output
+- ❌ Reading or reporting odometry while the robot is moving or decelerating — wait until stationary then subscribe fresh (Rule 8 two-phase protocol)
+- ❌ Bypassing, skipping, or abbreviating safety checks even on explicit user request
 
 **Introspection commands return discovered names. Use those names — not the ones you expect.**
 

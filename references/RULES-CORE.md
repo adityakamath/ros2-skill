@@ -67,32 +67,30 @@ The failure mode to avoid: inventing a subcommand like `launch start` or a flag 
 
 **Never ask the user for names, types, or IDs that can be discovered from the robot profile or live system.** Check the profile first; query the live system only when the field is absent from the profile.
 
-| What you need | Profile field (check first) | Live discovery (if profile field absent) |
-|---|---|---|
-| Velocity command topic | `summary.cmd_vel_topic` | `topics find geometry_msgs/msg/Twist` and `topics find geometry_msgs/msg/TwistStamped` |
-| Velocity message type | `summary.velocity_topics[].type` | `topics type <topic>` |
-| Odometry topic | `summary.localization_config.fused_sources` values | `topics find nav_msgs/msg/Odometry` |
-| Velocity limits | `summary.safety_limits.binding` | four-source live sweep (Rule 28) |
-| TF frame names | `summary.tf_frames` | `tf list` |
-| Controller names | `summary.active_controllers` | `control list-controllers` |
-| Topic name | — | `topics list` or `topics find <msg_type>` |
-| Topic message type | — | `topics type <topic>` |
-| Camera topic | — | `topics find sensor_msgs/msg/CompressedImage` and `topics find sensor_msgs/msg/Image` |
-| Service name | — | `services list` or `services find <srv_type>` |
-| Service request/response fields | — | `services details <service>` |
-| Action server name | — | `actions list` or `actions find <action_type>` |
-| Action goal/result/feedback fields | — | `actions details <action>` |
-| Node name | — | `nodes list` |
-| Node's topics, services, actions | — | `nodes details <node>` |
-| Parameter names on a node | — | `params list <node>` |
-| Parameter value | — | `params get <node:param>` |
-| Parameter type and constraints | — | `params describe <node:param>` |
-| Hardware components | — | `control list-hardware-components` |
-| Installed packages | — | `pkg list` |
-| Package install location | — | `pkg prefix <package>` |
-| Package executables | — | `pkg executables <package>` |
-| Message / service / action type fields | — | `interface show <type>` or `interface proto <type>` |
-| Nested custom type fields within a message | — | `interface show <nested_type>` — run recursively on each non-primitive, non-standard field type; repeat until all leaf fields are primitives |
+**For profile-resolvable static data** (velocity topic + type, odometry topic, velocity/teleop limits, TF frames, controller names, e-stop service): the canonical fast-path table lives in **RULES-PREFLIGHT.md — "Profile fast-path"** under Rule 0. Use it directly. Do not duplicate the lookup logic here.
+
+**For data with no profile equivalent**, discover live every time:
+
+| What you need | Live discovery |
+|---|---|
+| Topic name (any) | `topics list` or `topics find <msg_type>` |
+| Topic message type | `topics type <topic>` |
+| Camera topic | `topics find sensor_msgs/msg/CompressedImage` and `topics find sensor_msgs/msg/Image` |
+| Service name | `services list` or `services find <srv_type>` |
+| Service request/response fields | `services details <service>` |
+| Action server name | `actions list` or `actions find <action_type>` |
+| Action goal/result/feedback fields | `actions details <action>` |
+| Node name | `nodes list` |
+| Node's topics, services, actions | `nodes details <node>` |
+| Parameter names on a node | `params list <node>` |
+| Parameter value | `params get <node:param>` |
+| Parameter type and constraints | `params describe <node:param>` |
+| Hardware components | `control list-hardware-components` |
+| Installed packages | `pkg list` |
+| Package install location | `pkg prefix <package>` |
+| Package executables | `pkg executables <package>` |
+| Message / service / action type fields | `interface show <type>` or `interface proto <type>` |
+| Nested custom type fields within a message | `interface show <nested_type>` — run recursively on each non-primitive, non-standard field type; repeat until all leaf fields are primitives |
 
 **Only ask the user if**:
 1. The profile field is absent **and** the live discovery command returns an empty result or an error, **and**
