@@ -2,80 +2,35 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [Unreleased]
-
-### New
-
-- **`summary.sensor_mounts`** — generalised sensor/actuator mount registry in robot profile. Replaces the earlier camera-only `camera_mounts`. Populated during `profile scan` by `_extract_sensor_mounts_from_urdf()` which inspects every URDF joint whose child link name matches any entry in `_SENSOR_LINK_PATTERNS`: `camera`, `depth_camera`, `lidar`, `imu`, `sonar`, `gps`, `gripper`. Each entry stores `{joint, link, sensor_type, xyz, rpy}`. Visual sensors (`camera`, `depth_camera`) additionally carry `image_rotation_deg` derived from the roll angle (≈±π→180°, ≈+π/2→90°, ≈−π/2→−90°). Non-visual sensors store raw pose only — commands that care about orientation can read it directly.
-- **Profile-aware `topics capture-image`**: silently loads the robot profile and checks `summary.sensor_mounts` for visual sensor entries (`camera` / `depth_camera`) with non-zero `image_rotation_deg`. Applies `cv2.rotate()` before writing so the saved file is always correctly oriented. Output includes `profile_applied: bool` and `image_rotated_deg: int`. Pass `--no-profile` to bypass. No change when no profile exists.
-- **`profile annotate "note"`** — new command to append a free-text annotation to the robot profile. Annotations are persisted at the profile root alongside `summary` and `detail`; they survive rescans. `profile show` always includes the `annotations` list in its output so agents see them at session start without a separate call. Agents MUST read and apply annotations — they capture information that static analysis cannot detect (hardware quirks, sensor calibration issues, operational constraints).
-- `load_profile_summary()` public function in `ros2_profile.py`: silent, zero-output loader for any skill module. Returns `None` when no profile is available.
-
-### Changes
-
-- `profile` robot type detection overhauled for accuracy and transparency:
-  - **Tightened `_HUMANOID_HINTS`**: removed `"walking"` and `"balance"` — too generic; both appear in any locomotion/navigation codebase and caused false-positive humanoid classification on non-humanoid platforms (e.g. a mobile robot with a pan-tilt mechanism)
-  - **Token-level package matching** (`_pkg_match_hints`): splits package names on `_`/`-` before matching so `"nao"` no longer spuriously matches `"autonomous"` or `"scenario"`; compound hints (e.g. `"diff_drive"`) still use substring match (specific enough)
-  - **Word-boundary source grep** for ambiguous short tokens (humanoid, pantilt hints)
-  - **Workspace-only scope**: type detection now uses only workspace (`src/`) packages; installed ament infrastructure packages (`nav2_*`, `moveit_*`, …) are excluded from the type-detection pass (they don't identify the robot's own type)
-  - **Humanoid confirmation**: source-code match alone is no longer sufficient to classify a robot as humanoid; requires a package name token match **or** ≥ 4 URDF joints with torso/neck/shoulder/elbow/knee patterns
-  - **Legged confirmation**: package match or ≥ 4 URDF joints with FL/FR/RL/RR leg-naming prefixes or `_hip_`/`_knee_`/`_ankle_` substrings
-  - **`robot_features` field** added to `summary`: supplementary capabilities alongside the primary type (e.g. `["pantilt"]` for a mobile robot with a pan-tilt head); does not change the primary type label
-  - **`robot_type_evidence` field** added to `summary`: per-label dict of signal strings (`"pkg:…"`, `"src:…"`, `"topic:…"`, `"urdf-joint:…"`) explaining exactly which hints fired; enables transparent debugging of mis-classifications
-  - **`_PANTILT_HINTS`** added: `pantilt`, `pan_tilt`, `ptz`, `gimbal`, `pan_controller`, `tilt_controller`
-  - **`_VALID_ROBOT_TYPES`** constant added for validation
-  - `profile scan --robot-type TYPE` / `profile rescan --robot-type TYPE` — user override; skips detection and stores the specified type directly; invalid values are rejected with an error listing valid options
-  - Evidence shows `{"override": ["user-specified: <TYPE>"]}` when an override is active
-- SKILL.md: profile JSON shape updated to show `robot_features` and `robot_type_evidence` fields; detection rules documented with exclusion rationale; `--robot-type` override documented; commands table updated
-
-## [1.0.7] - 2026-05-11
-
-Session-start snapshot, topic list capping, launch params/config/preset, package scaffolding, security hardening, rules audit, log introspection, RULES domain split, auto-hold on motion failure, velocity clamp flags, and robot profile.
+## [1.0.7] - 2026-05-12
 
 ### New Commands
 
-- `profile scan [--workspace PATH] [--name NAME] [--allow-live]` — static-first workspace scan: walks `src/`, queries ament index, parses `package.xml` / launch files / URDF / YAML configs; writes a tiered `.profiles/<robot>_profile.json` with `summary` (packages, launch files, safety limits, robot type, sensor flags) and per-launch-file `detail` sections; each detail entry includes `launch_args` (declared arguments via `--show-args`), `includes` (sub-launch files with `args_forwarded` showing how arguments are passed through), `yaml_files`, `urdf_files`, and `joint_limits`; live graph used as fallback only when `--allow-live` is passed
-- `profile show [--section S]` — load the saved robot profile; without `--section` returns `summary` + list of launch file filenames; `--section summary` / `--section detail` / `--section <launch-filename>` (e.g. `bringup.launch.py`) for progressive disclosure
-- `profile rescan [--launch-file F] [--workspace PATH]` — full or partial rescan; `--launch-file FILENAME` refreshes only that file's launch args without re-walking the workspace
-- `profile list` — list all robot profiles stored in `.profiles/`
-- `context` — compact session-start graph snapshot: topics (capped at 50), services, actions, and nodes in one call
-- `launch new --param key:=value` / `--config-path PATH` / `--preset NAME` — inline params, YAML config forwarding, and preset loading; duplicate session detection warns before launching
-- `pkg create <name>` — scaffold a new ROS 2 package; supports `--build-type`, `--dependencies`, `--node-name`, and other `ros2 pkg create` flags
-- `logs list-runs` / `logs query` / `logs tail` / `logs node-summary` — log file introspection without a live graph; reads `~/.ros/log/`; time filters accept relative (`-30s`, `-5m`) and absolute formats
-- `topics echo-once <topic>` — subscribe and return the first message received, then exit; avoids needing `--max-messages 1` or a short `--duration` for one-shot reads
-- `topics depth-point --topic T --u U --v V` — extract depth at pixel (u, v) from a depth image topic; supports 16UC1 (mm→m) and 32FC1 (native m, NaN-aware) via `struct.unpack_from`; no numpy or cv2 required; returns `{depth_m, invalid, encoding, width, height}` (implements AG-10)
+- `context` — compact session-start snapshot: topics (capped at 50), services, actions, and nodes in one call
+- `profile scan [--workspace PATH] [--name NAME] [--allow-live] [--robot-type TYPE]` — static-first workspace scan; walks `src/`, queries ament index, parses launch / URDF / YAML; writes `.profiles/<robot>_profile.json` with `summary` and per-launch-file `detail` (args, sub-launch includes with forwarded args, joint limits)
+- `profile show [--section <launch-filename>]` — load the saved profile; returns `summary` + `annotations` + section list without `--section`; add `--section` for progressive disclosure
+- `profile rescan [--launch-file F]` — full rescan or fast partial rescan for a single launch file
+- `profile list` — list all saved profiles
+- `profile annotate "note"` — append a free-text note to the profile; notes persist across rescans and are shown at every `profile show`; agents must read and apply them
+- `launch new --param key:=value` / `--config-path PATH` / `--preset NAME` — inline params, YAML config forwarding, and preset loading; duplicate session detection included
+- `pkg create <name>` — scaffold a new ROS 2 package (`--build-type`, `--dependencies`, `--node-name`, etc.)
+- `logs list-runs` / `logs query` / `logs tail` / `logs node-summary` — log introspection without a live graph; reads `~/.ros/log/`; relative (`-30s`, `-5m`) and absolute time filters
+- `topics echo-once <topic>` — subscribe, return first message, exit
+- `topics depth-point --topic T --u U --v V` — depth at pixel (u, v); 16UC1 and 32FC1; returns `{depth_m, invalid, encoding}`
 
 ### Changes
 
-- `topics list` / `ls`: default `--limit` changed from 0 (unlimited) to 50; override with `--limit 0` for the full list; matches the `context` command cap
-- `topics list` / `ls`: `--limit N` flag also added; output includes `truncated: true` and `total` when capped
-- `params get`: accepts extra positional parameter names — `params get /node key1 key2 key3` issues one `GetParameters` RPC; single-key output format unchanged; multi-key returns `{node, parameters: {key: {value, exists}}, count}`
-- `main()`: unhandled exceptions from any command are serialised as `{"error": "...", "type": "<ExceptionClass>"}` instead of raw Python tracebacks
-- `topics publish` / `pub`, `topics publish-sequence`, `topics publish-until`: new `--max-vel N` and `--max-ang N` flags clamp linear (x/y/z) to ±N m/s and angular.z to ±N rad/s before the message is sent; Twist/TwistStamped only; other message types pass through unchanged; clamped axes reported in `velocity_clamped` in the JSON output (implements RH-6)
-- `shlex.quote()` applied to all user-controlled shell inputs; `session_exists` grep pipeline replaced with Python list check; AGENTS.md jailbreak-pattern phrasing removed
-- AGENTS.md: camera/depth pre-flight (camera_info + K matrix + TF frame) and nested `interface show` recursion added to Rule 2; `context` snapshot added to Session Start Step 6; robot profile load added as Session Start Step 7
-- SKILL.md: Session Start Checklist extended to Step 7 (profile load); Robot Profile section added under Common Operations; profile commands added to "Commands Without a Live Graph" table
-- RULES-PREFLIGHT.md Rule 0.1: Step 6 (profile load) added; Rules.md index updated to Steps 0–6
-- RULES-REFERENCE.md: profile commands added to intent→command table (Step 1); Step 5 velocity-limit scan notes profile as a fast-path source if already loaded
-- `.profiles/` output folder introduced (alongside `.artifacts/` and `.presets/`)
-- `profile` structure: no "configurations" concept; `summary.launch_files` is a flat list of launch file filenames as they appear on disk; `detail` is keyed by filename (or `pkg/filename` on clash); no stem-stripping or name derivation
-- `profile rescan --config` replaced by `profile rescan --launch-file <filename>`; `profile show --section` matches launch file filenames directly
-- `profile` robot type detection: 8 values (`humanoid`, `legged`, `aerial`, `underwater`, `surface_vessel`, `mobile_manipulator`, `arm`, `mobile_base`); open-ended hint sets covering package names and source keywords; additive detection with priority ordering
-- Rules: executor starvation diagnostic (Rule 7); real-time scheduling advisory (Rule 0); namespace filtering vocabulary
-- `RULES.md` split into five domain files (`RULES-CORE`, `RULES-PREFLIGHT`, `RULES-MOTION`, `RULES-DIAGNOSTICS`, `RULES-REFERENCE`); `RULES.md` becomes a navigation index; AGENTS.md and SKILL.md updated to reference domain files
-- SKILL.md rewritten to agentskills.io format (76 → 251 lines): `allowed-tools`, `triggers`, session start checklist, progressive disclosure table, log introspection command reference
-
-### Fixes
-
-- `launch new`: `--preset` was winning over `--param` due to inverted prepend order; fixed to `[preset] + [--param] + [positional]`
-- `launch restart`: params and preset were re-applied on restart; fixed to pass `params=None, preset=None`
-- `launch new`: config paths embedded unquoted in tmux shell string; fixed with `shlex.quote()`
-- `launch new`: session-already-exists message contained literal `{session_name}` (missing `f` prefix); fixed
-- `_parse_param_str`: bare args with no separator silently dropped; now passed to arg validator
-- `pkg create`: `package_path` used unresolved relative path; fixed to always emit absolute path
-- `topics publish-sequence`: added `try/finally` auto-hold — on any exit (completion, exception, `KeyboardInterrupt`), publishes 3 zero-velocity messages; Twist/TwistStamped only via `_has_velocity_fields`; Rule 18 updated to cover both `publish-sequence` and `publish-until`
-- `launch new`: positional launch args (e.g. `config:=nav`) were corrupted to `'config'::=nav` and silently dropped; root cause was `_get_launch_arguments()` stripping lines before checking indentation (treating `default:` and `description:` as arg names), followed by a fuzzy-match rename turning `'config':` → `'config'::=nav`; arg validation is now warn-only and always passes args through unchanged
-- `TestExhaustiveParser`: removed stale `publish-continuous` entry from `MINIMAL_ARGS`; added `echo-once` and `depth-point` rows; fixed `TestFuzzyMatch` import (`fuzzy_match` in `ros2_utils`, not `_fuzzy_match` in `ros2_launch`); added missing rows for `pkg create` and all four `logs` commands
+- **Robot profile — sensor mounts:** `summary.sensor_mounts` lists every sensor and actuator found in the URDF (types: `camera`, `depth_camera`, `lidar`, `imu`, `sonar`, `gps`, `gripper`) with `{joint, link, sensor_type, xyz, rpy}`; visual sensors also carry `image_rotation_deg` derived from roll (≈±π → 180°, ≈±π/2 → ±90°)
+- **Robot profile — type detection:** token-level package matching (no substring false-positives); humanoid requires a named-platform package token or ≥ 4 URDF torso/neck/limb joints (generic terms like "walking"/"balance" removed); detection scoped to workspace packages only; `robot_type_evidence` and `robot_features` added to `summary`; `--robot-type TYPE` override flag on `scan` and `rescan`
+- **`topics capture-image`:** profile-aware — reads `sensor_mounts` and applies `cv2.rotate()` automatically when a visual sensor has non-zero `image_rotation_deg`; output includes `profile_applied` and `image_rotated_deg`; `--no-profile` to bypass
+- **`topics list` / `ls`:** default cap changed to 50; `--limit N` added; output includes `truncated` and `total` when capped
+- **`params get`:** multi-key support — `params get /node key1 key2` returns `{parameters: {key: {value, exists}}, count}`
+- **`topics publish` / `publish-sequence` / `publish-until`:** `--max-vel N` / `--max-ang N` clamp linear and angular velocity before send (Twist/TwistStamped only); clamped axes reported in `velocity_clamped`
+- **`topics publish-sequence`:** auto-hold on exit — publishes 3 zero-velocity messages on completion, exception, or interrupt
+- Shell injection hardening: `shlex.quote()` applied to all user-controlled inputs; session grep replaced with Python list check
+- `RULES.md` split into five domain files (`RULES-CORE`, `RULES-PREFLIGHT`, `RULES-MOTION`, `RULES-DIAGNOSTICS`, `RULES-REFERENCE`); `RULES.md` is now a navigation index
+- Session Start Checklist extended to 7 steps: Step 6 = `context` snapshot, Step 7 = `profile show`
+- Unhandled command exceptions serialised as `{"error": "…", "type": "…"}` instead of raw tracebacks
 
 ---
 

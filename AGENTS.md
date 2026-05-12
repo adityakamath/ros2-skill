@@ -98,6 +98,10 @@ These commands do not require ROS to be running or nodes to be active:
 | `daemon status / start / stop` | Manage the ROS daemon |
 | `bag info <file>` | Inspect a recorded bag file |
 | `component types` | List available component types |
+| `pkg list / prefix / executables / xml / create` | Package discovery and scaffolding |
+| `logs list-runs / query / tail / node-summary` | Log file introspection (reads `~/.ros/log/`) |
+| `profile scan / show / rescan / list / annotate` | Workspace profile (static analysis; no graph needed) |
+| `interface list / show / proto / packages / package` | Message/service/action type inspection |
 | `--help` on any command | Inspect flags and subcommands |
 
 All other commands require an active ROS 2 graph (sourced environment + running nodes).

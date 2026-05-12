@@ -1,7 +1,7 @@
 ---
 name: ros2-skill
 description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), diagnostics, battery, system health checks, TF frames, bags, logs, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
-version: "1.0.9"
+version: "1.0.7"
 license: Apache-2.0
 compatibility: "python3, rclpy, ROS 2 environment sourced"
 allowed-tools: ["Bash", "Read"]
