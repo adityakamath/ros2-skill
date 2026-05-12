@@ -906,6 +906,743 @@ _ANGULAR_KEYS = _ANGULAR_Z_KEYS
 
 
 # ---------------------------------------------------------------------------
+# YAML helpers used by the new extractors
+# ---------------------------------------------------------------------------
+
+def _load_yaml(path):
+    """Load a YAML file and return the parsed object, or None on any failure."""
+    try:
+        import yaml
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return yaml.safe_load(fh)
+    except Exception:
+        return None
+
+
+def _deep_get(d, *keys):
+    """Safely traverse a nested dict; return None if any key is missing."""
+    for k in keys:
+        if not isinstance(d, dict):
+            return None
+        d = d.get(k)
+    return d
+
+
+def _walk_dict_items(d, max_depth=8, _depth=0):
+    """Yield (key, value) for every key at every nesting level of *d*."""
+    if _depth > max_depth or not isinstance(d, dict):
+        return
+    for k, v in d.items():
+        yield k, v
+        if isinstance(v, dict):
+            yield from _walk_dict_items(v, max_depth, _depth + 1)
+        elif isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    yield from _walk_dict_items(item, max_depth, _depth + 1)
+
+
+def _find_node_block(d, node_names, depth=0):
+    """Return the ros__parameters (or raw) dict for any node name in *node_names*."""
+    if not isinstance(d, dict) or depth > 5:
+        return None
+    for k, v in d.items():
+        if k in node_names and isinstance(v, dict):
+            return v.get("ros__parameters") or v
+        if isinstance(v, dict):
+            found = _find_node_block(v, node_names, depth + 1)
+            if found is not None:
+                return found
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Drive type + ros2_control config
+# ---------------------------------------------------------------------------
+
+# Maps substrings of ros2_control plugin type strings to drive_type values.
+_DRIVE_TYPE_MAP = [
+    ("OmniWheelDriveController",    "holonomic_omni"),
+    ("MecanumDriveController",      "mecanum"),
+    ("AckermannSteeringController", "ackermann"),
+    ("BicycleSteeringController",   "bicycle"),
+    ("TricycleController",          "tricycle"),
+    ("DiffDriveController",         "differential"),
+    ("omni_wheel_drive",            "holonomic_omni"),
+    ("mecanum_drive_controller",    "mecanum"),
+    ("diff_drive_controller",       "differential"),
+]
+
+_KINEMATICS_PARAM_KEYS = frozenset({
+    "wheel_radius", "wheel_separation", "wheel_separation_multiplier",
+    "robot_radius", "wheel_offset", "wheel_offset_x", "wheel_offset_y",
+    "wheelbase", "traction_wheel_radius", "wheel_count",
+})
+
+
+def _detect_drive_type_from_plugin(plugin_str):
+    pl = plugin_str.lower()
+    for fragment, dtype in _DRIVE_TYPE_MAP:
+        if fragment.lower() in pl:
+            return dtype
+    return None
+
+
+def _extract_ros2_control_config(all_yaml_files):
+    """Scan ros2_control YAML files and return drive/kinematics/odometry config.
+
+    Returns:
+      drive_type                : str | None
+      kinematics                : {param: value} | None
+      controller_update_rate_hz : int | None
+      odom_frame_ids            : {odom_topic, base_frame_id, odom_frame_id} | None
+      controller_plugins        : [str, ...]
+    """
+    drive_type = None
+    kinematics = {}
+    update_rate = None
+    odom_ids = {}
+    plugins = []
+
+    def _process(node, depth=0):
+        nonlocal drive_type, update_rate
+        if not isinstance(node, dict) or depth > 8:
+            return
+        # controller_manager block — has update_rate + controller type declarations
+        cm = node.get("controller_manager")
+        if isinstance(cm, dict):
+            cm_params = cm.get("ros__parameters") or {}
+            if isinstance(cm_params, dict):
+                rate = cm_params.get("update_rate")
+                if rate is not None and update_rate is None:
+                    try:
+                        update_rate = int(rate)
+                    except (TypeError, ValueError):
+                        pass
+                # Controllers declared as  ctrl_name: {type: plugin.Type}
+                for ctrl_k, ctrl_v in cm_params.items():
+                    if isinstance(ctrl_v, dict):
+                        ptype = ctrl_v.get("type", "")
+                        if ptype and ptype not in plugins:
+                            plugins.append(ptype)
+                        if drive_type is None and ptype:
+                            drive_type = _detect_drive_type_from_plugin(ptype) or drive_type
+
+        # Any block with ros__parameters → kinematics keys + frame IDs
+        rp = node.get("ros__parameters")
+        if isinstance(rp, dict):
+            ptype = rp.get("type") or node.get("type") or ""
+            if ptype and "/" in ptype and ptype not in plugins:
+                plugins.append(ptype)
+            if drive_type is None and ptype:
+                drive_type = _detect_drive_type_from_plugin(ptype) or drive_type
+            for k, v in rp.items():
+                if k in _KINEMATICS_PARAM_KEYS and isinstance(v, (int, float)):
+                    kinematics[k] = v
+                elif k in ("odom_frame_id", "odom_frame") and isinstance(v, str) and v:
+                    odom_ids.setdefault("odom_frame_id", v)
+                elif k in ("base_frame_id", "base_link_frame") and isinstance(v, str) and v:
+                    odom_ids.setdefault("base_frame_id", v)
+                elif k in ("odom_topic", "odometry_topic") and isinstance(v, str) and v:
+                    odom_ids.setdefault("odom_topic", v)
+
+        for k, v in node.items():
+            if isinstance(v, dict):
+                _process(v, depth + 1)
+
+    for yf in all_yaml_files:
+        data = _load_yaml(yf)
+        if isinstance(data, dict):
+            _process(data)
+
+    return {
+        "drive_type": drive_type,
+        "kinematics": kinematics if kinematics else None,
+        "controller_update_rate_hz": update_rate,
+        "odom_frame_ids": odom_ids if odom_ids else None,
+        "controller_plugins": plugins,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Hardware interfaces from URDF <ros2_control> tags
+# ---------------------------------------------------------------------------
+
+def _extract_hardware_interfaces_from_urdf(urdf_path):
+    """Parse <ros2_control> elements and return a list of hardware interface records.
+
+    Each record:
+      name               : str
+      type               : "system" | "actuator" | "sensor"
+      plugin             : str
+      joints             : [str, ...]
+      command_interfaces : [str, ...]
+      state_interfaces   : [str, ...]
+      hardware_params    : {name: value} | None
+    """
+    records = []
+    try:
+        tree = ET.parse(str(urdf_path))
+        root = tree.getroot()
+    except Exception:
+        return records
+
+    for rc in root.findall(".//ros2_control"):
+        name = rc.get("name", "")
+        rc_type = rc.get("type", "system")
+        plugin = ""
+        hw_params = {}
+
+        hw_el = rc.find("hardware")
+        if hw_el is not None:
+            pl = hw_el.find("plugin")
+            if pl is not None:
+                plugin = (pl.text or "").strip()
+            for p in hw_el.findall("param"):
+                pname = p.get("name", "")
+                pval = (p.text or "").strip()
+                if pname:
+                    try:
+                        pval = int(pval)
+                    except (ValueError, TypeError):
+                        try:
+                            pval = float(pval)
+                        except (ValueError, TypeError):
+                            pass
+                    hw_params[pname] = pval
+
+        joints, cmd_ifaces, state_ifaces = [], [], []
+        for joint_el in rc.findall("joint"):
+            jname = joint_el.get("name", "")
+            if jname:
+                joints.append(jname)
+            for ci in joint_el.findall("command_interface"):
+                n = ci.get("name", "")
+                if n and n not in cmd_ifaces:
+                    cmd_ifaces.append(n)
+            for si in joint_el.findall("state_interface"):
+                n = si.get("name", "")
+                if n and n not in state_ifaces:
+                    state_ifaces.append(n)
+        for sensor_el in rc.findall("sensor"):
+            for si in sensor_el.findall("state_interface"):
+                n = si.get("name", "")
+                if n and n not in state_ifaces:
+                    state_ifaces.append(n)
+
+        records.append({
+            "name": name,
+            "type": rc_type,
+            "plugin": plugin,
+            "joints": joints,
+            "command_interfaces": cmd_ifaces,
+            "state_interfaces": state_ifaces,
+            "hardware_params": hw_params if hw_params else None,
+        })
+
+    return records
+
+
+# ---------------------------------------------------------------------------
+# LiDAR config
+# ---------------------------------------------------------------------------
+
+_LIDAR_YAML_KEYS = frozenset({
+    "laser_scan_topic_name", "product_name", "port_name", "serial_baudrate",
+    "range_min", "range_max", "scan_mode", "ip_address",
+    "filter_chain", "scan_filter_chain", "laser_scan_filter_chain",
+})
+_LIDAR_FNAME_HINTS = (
+    "laser", "lidar", "rplidar", "sllidar", "urg", "velodyne",
+    "ouster", "livox", "hokuyo", "ldlidar",
+)
+_LIDAR_EXTRACT_KEYS = frozenset({
+    "product_name", "laser_scan_topic_name", "frame_id", "port_name",
+    "serial_port", "serial_baudrate", "range_min", "range_max",
+    "angle_min", "angle_max", "scan_frequency", "ip_address",
+})
+
+
+def _extract_lidar_config(all_yaml_files):
+    """Return list of LiDAR config dicts found in YAML files."""
+    configs = []
+    for yf in all_yaml_files:
+        fname = pathlib.Path(yf).name.lower()
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+        all_keys = {str(k).lower() for k, _ in _walk_dict_items(data)}
+        is_lidar = bool(_LIDAR_YAML_KEYS & all_keys) or \
+                   any(h in fname for h in _LIDAR_FNAME_HINTS)
+        if not is_lidar:
+            continue
+        cfg = {"config_file": pathlib.Path(yf).name, "path": yf}
+        for k, v in _walk_dict_items(data):
+            if str(k).lower() in _LIDAR_EXTRACT_KEYS:
+                cfg[str(k).lower()] = v
+        if "filter_chain" in all_keys or "scan_filter_chain" in all_keys or \
+                "laser_scan_filter_chain" in all_keys:
+            cfg["is_filter_chain"] = True
+        configs.append(cfg)
+    return configs
+
+
+# ---------------------------------------------------------------------------
+# Camera config
+# ---------------------------------------------------------------------------
+
+_CAMERA_YAML_KEYS = frozenset({
+    "image_width", "image_height", "distortion_model", "camera_matrix",
+    "distortion_coefficients", "i_pipeline_type", "i_fps", "i_enable_vio",
+    "camera_name", "projection_matrix",
+})
+_CAMERA_FNAME_HINTS = (
+    "camera", "oakd", "realsense", "webcam", "zed", "calibration",
+    "basler", "flir", "v4l",
+)
+_CAMERA_EXTRACT_KEYS = frozenset({
+    "image_width", "image_height", "distortion_model", "camera_name", "frame_id",
+    "i_pipeline_type", "i_fps", "i_rgb_fps", "i_depth_fps",
+    "i_enable_vio", "i_enable_imu",
+})
+
+
+def _extract_camera_configs(all_yaml_files):
+    """Return list of camera config dicts found in YAML files."""
+    configs = []
+    for yf in all_yaml_files:
+        fname = pathlib.Path(yf).name.lower()
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+        all_keys = {str(k).lower() for k, _ in _walk_dict_items(data)}
+        is_cam = bool(_CAMERA_YAML_KEYS & all_keys) or \
+                 any(h in fname for h in _CAMERA_FNAME_HINTS)
+        if not is_cam:
+            continue
+        cfg = {"config_file": pathlib.Path(yf).name, "path": yf}
+        for k, v in _walk_dict_items(data):
+            kl = str(k).lower()
+            if kl in _CAMERA_EXTRACT_KEYS:
+                cfg[kl] = v
+            elif kl == "camera_matrix" and isinstance(v, dict):
+                d_vals = v.get("data")
+                if isinstance(d_vals, list) and len(d_vals) == 9:
+                    cfg["camera_matrix"] = d_vals
+        configs.append(cfg)
+    return configs
+
+
+# ---------------------------------------------------------------------------
+# Localization config (EKF / AMCL)
+# ---------------------------------------------------------------------------
+
+_EKF_NODE_NAMES = frozenset({"ekf_filter_node", "ekf_node", "robot_localization"})
+_AMCL_NODE_NAMES = frozenset({"amcl"})
+
+
+def _extract_localization_config(all_yaml_files):
+    """Return localization dict from EKF and/or AMCL YAML files, or None."""
+    result = {}
+    for yf in all_yaml_files:
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+        ekf = _find_node_block(data, _EKF_NODE_NAMES)
+        if isinstance(ekf, dict):
+            result.setdefault("method", "ekf")
+            result["config_file"] = pathlib.Path(yf).name
+            for k, mapped in (
+                ("frequency",       "frequency_hz"),
+                ("odom_frame",      "odom_frame"),
+                ("base_link_frame", "base_frame"),
+                ("world_frame",     "world_frame"),
+                ("two_d_mode",      "two_d_mode"),
+                ("publish_tf",      "publish_tf"),
+            ):
+                v = ekf.get(k)
+                if v is not None:
+                    result[mapped] = v
+            sources = sorted(
+                sk for sk in ekf
+                if re.match(r"^(odom|imu|pose|twist|gps)\d+$", sk)
+            )
+            if sources:
+                result["fused_sources"] = sources
+
+        amcl = _find_node_block(data, _AMCL_NODE_NAMES)
+        if isinstance(amcl, dict):
+            result.setdefault("method", "amcl")
+            for k in ("robot_model_type", "scan_topic"):
+                v = amcl.get(k)
+                if v is not None:
+                    result[f"amcl_{k}"] = v
+
+    return result if result else None
+
+
+# ---------------------------------------------------------------------------
+# Nav2 config
+# ---------------------------------------------------------------------------
+
+_NAV2_SERVER_KEYS = frozenset({
+    "controller_server", "planner_server", "behavior_server",
+    "bt_navigator", "velocity_smoother", "local_costmap", "global_costmap",
+})
+
+
+def _extract_nav2_config(all_yaml_files):
+    """Return nav2 config dict from nav2_params YAML files, or None."""
+    result = {}
+    for yf in all_yaml_files:
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+        all_keys = {str(k).lower() for k, _ in _walk_dict_items(data)}
+        if not (_NAV2_SERVER_KEYS & all_keys):
+            continue
+        result["config_file"] = pathlib.Path(yf).name
+
+        # Planner
+        planner = _find_node_block(data, {"planner_server"})
+        if isinstance(planner, dict):
+            plugins = planner.get("planner_plugins") or planner.get("plugin_names")
+            if isinstance(plugins, list):
+                result["planner_plugins"] = plugins
+                for pname in plugins:
+                    pb = planner.get(pname, {})
+                    ptype = pb.get("plugin") if isinstance(pb, dict) else None
+                    if ptype:
+                        result.setdefault("planner_plugin_types", {})[pname] = ptype
+
+        # Controller
+        controller = _find_node_block(data, {"controller_server"})
+        if isinstance(controller, dict):
+            plugins = controller.get("controller_plugins") or controller.get("plugin_names")
+            if isinstance(plugins, list):
+                result["controller_plugins"] = plugins
+                for pname in plugins:
+                    pb = controller.get(pname, {})
+                    ptype = pb.get("plugin") if isinstance(pb, dict) else None
+                    if ptype:
+                        result.setdefault("controller_plugin_types", {})[pname] = ptype
+            for k in ("goal_checker_plugins", "progress_checker_plugins"):
+                v = controller.get(k)
+                if isinstance(v, list):
+                    result[k] = v
+            for k, v in _walk_dict_items(controller):
+                kl = str(k).lower()
+                if kl == "xy_goal_tolerance" and isinstance(v, (int, float)):
+                    result.setdefault("xy_goal_tolerance", v)
+                elif kl == "yaw_goal_tolerance" and isinstance(v, (int, float)):
+                    result.setdefault("yaw_goal_tolerance", v)
+
+        # Behaviors
+        behavior = _find_node_block(data, {"behavior_server"})
+        if isinstance(behavior, dict):
+            behaviors = behavior.get("behavior_plugins") or behavior.get("plugin_names")
+            if isinstance(behaviors, list):
+                result["behavior_plugins"] = behaviors
+
+        # Costmap
+        for cm_key, out_key in (("local_costmap", "local"), ("global_costmap", "global")):
+            cm = _find_node_block(data, {cm_key})
+            if isinstance(cm, dict):
+                inner = cm.get(cm_key) or cm
+                rp = (inner.get("ros__parameters") if isinstance(inner, dict) else None) or inner
+                if isinstance(rp, dict):
+                    res = rp.get("resolution")
+                    if res is not None:
+                        result[f"{out_key}_costmap_resolution"] = res
+                    infl = rp.get("inflation_radius")
+                    if infl is not None:
+                        result.setdefault("inflation_radius", infl)
+
+        # Velocity smoother
+        vs = _find_node_block(data, {"velocity_smoother"})
+        if isinstance(vs, dict):
+            for k in ("max_velocity", "max_accel", "max_acceleration"):
+                v = vs.get(k)
+                if v is not None:
+                    result[f"velocity_smoother_{k}"] = v
+
+        if result:
+            break   # first nav2 YAML is enough
+
+    return result if result else None
+
+
+# ---------------------------------------------------------------------------
+# Teleop + e-stop config
+# ---------------------------------------------------------------------------
+
+_TELEOP_NODE_NAMES = frozenset({
+    "teleop_twist_joy_node", "teleop_twist_joy", "joy_teleop",
+    "teleop_node", "joy_node",
+})
+_TELEOP_FNAME_HINTS = ("teleop", "joy")
+_TELEOP_AXIS_KEYS = frozenset({
+    "axis_linear", "axis_linear_x", "axis_linear_y",
+    "axis_angular", "axis_angular_yaw",
+    "enable_button", "enable_turbo_button",
+    "scale_linear", "scale_linear_x", "scale_linear_y",
+    "scale_angular", "scale_angular_yaw",
+})
+
+
+def _extract_teleop_and_estop(all_yaml_files):
+    """Return (teleop_config_dict, estop_config_dict) from teleop YAML files.
+
+    Both may be None when not found.
+    """
+    teleop = None
+    estop = None
+
+    for yf in all_yaml_files:
+        fname = pathlib.Path(yf).name.lower()
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+
+        # Find the teleop parameter block
+        block = None
+        for tname in _TELEOP_NODE_NAMES:
+            b = data.get(tname)
+            if isinstance(b, dict):
+                block = b.get("ros__parameters") or b
+                break
+        if block is None and any(h in fname for h in _TELEOP_FNAME_HINTS):
+            # Search one level deep for any node with teleop axis keys
+            for k, v in data.items():
+                if isinstance(v, dict):
+                    rp = v.get("ros__parameters") or v
+                    rp_keys = {str(kk).lower() for kk in rp} if isinstance(rp, dict) else set()
+                    if _TELEOP_AXIS_KEYS & rp_keys:
+                        block = rp
+                        break
+            if block is None:
+                block = data
+
+        if block is None:
+            continue
+
+        cfg = {"config_file": pathlib.Path(yf).name}
+
+        # Topic
+        for tk in ("topic_name", "publish_topic", "cmd_vel_topic"):
+            v = block.get(tk)
+            if isinstance(v, str) and v:
+                cfg["cmd_vel_topic"] = v
+                break
+
+        # Axis mappings
+        axis = {k: block[k] for k in ("axis_linear", "axis_linear_x", "axis_linear_y",
+                                       "axis_angular", "axis_angular_yaw")
+                if k in block}
+        if axis:
+            cfg["axis_mappings"] = axis
+
+        # Scales
+        scales = {k: block[k] for k in ("scale_linear", "scale_linear_x",
+                                          "scale_linear_y", "scale_angular",
+                                          "scale_angular_yaw", "scale_linear_turbo")
+                  if k in block}
+        if scales:
+            cfg["scales"] = scales
+
+        # Buttons
+        for k in ("enable_button", "enable_turbo_button", "deadman_button"):
+            v = block.get(k)
+            if v is not None:
+                cfg[k] = v
+
+        # Message type
+        msg_type = block.get("interface_type") or block.get("message_type")
+        if msg_type:
+            cfg["msg_type"] = msg_type
+
+        # E-stop service embedded in teleop block
+        for ek in ("emergency_stop", "estop_service", "e_stop"):
+            ev = block.get(ek)
+            if isinstance(ev, str) and ev:
+                estop = {"service_name": ev, "source": pathlib.Path(yf).name}
+                break
+
+        if len(cfg) > 1:
+            teleop = cfg
+            break
+
+    # Fallback estop search across all YAML files
+    if estop is None:
+        for yf in all_yaml_files:
+            data = _load_yaml(yf)
+            if not isinstance(data, dict):
+                continue
+            for k, v in _walk_dict_items(data):
+                kl = str(k).lower()
+                if kl in ("emergency_stop", "estop", "e_stop"):
+                    svc = v if isinstance(v, str) else \
+                          (v.get("service_name") or v.get("name") if isinstance(v, dict) else None)
+                    if svc:
+                        estop = {"service_name": svc, "source": pathlib.Path(yf).name}
+                        break
+            if estop:
+                break
+
+    return teleop, estop
+
+
+# ---------------------------------------------------------------------------
+# TF frame inventory
+# ---------------------------------------------------------------------------
+
+_FRAME_KEY_MAP = {
+    "map_frame":      "map_frame",
+    "global_frame":   "map_frame",
+    "odom_frame":     "odom_frame",
+    "odom_frame_id":  "odom_frame",
+    "base_link_frame":"base_frame",
+    "base_frame_id":  "base_frame",
+    "base_frame":     "base_frame",
+}
+
+
+def _extract_tf_frames(all_urdf_files, all_yaml_files):
+    """Return TF frame inventory from URDF link names and config YAML frame IDs."""
+    urdf_links = []
+    seen_links: set = set()
+    for uf in all_urdf_files:
+        try:
+            tree = ET.parse(str(uf))
+            root = tree.getroot()
+            for link_el in root.findall(".//link"):
+                lname = link_el.get("name", "")
+                if lname and lname not in seen_links:
+                    seen_links.add(lname)
+                    urdf_links.append(lname)
+        except Exception:
+            continue
+
+    frames = {v: None for v in ("map_frame", "odom_frame", "base_frame")}
+    for yf in all_yaml_files:
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+        for k, v in _walk_dict_items(data):
+            kl = str(k).lower()
+            if kl not in _FRAME_KEY_MAP or not isinstance(v, str) or not v:
+                continue
+            target = _FRAME_KEY_MAP[kl]
+            if frames.get(target) is None:
+                # world_frame in EKF can be "map" or "odom" — classify by value
+                if kl == "world_frame":
+                    target = "map_frame" if "map" in v.lower() else "odom_frame"
+                frames[target] = v
+
+    return {
+        "urdf_links": urdf_links,
+        "map_frame": frames["map_frame"],
+        "odom_frame": frames["odom_frame"],
+        "base_frame": frames["base_frame"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Launch configurations (args with choices) + active controllers
+# ---------------------------------------------------------------------------
+
+def _extract_launch_arg_choices(launch_file):
+    """Return {arg_name: {default, choices, description}} from a Python launch file.
+
+    Parses DeclareLaunchArgument calls.  Falls back to {} for non-Python files.
+    """
+    path = pathlib.Path(launch_file)
+    if not path.name.endswith(".launch.py"):
+        return {}
+    import ast as _ast
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        tree = _ast.parse(text, filename=str(path))
+    except Exception:
+        return {}
+    result = {}
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Call):
+            continue
+        if _ast_call_name(node) != "DeclareLaunchArgument":
+            continue
+        if not node.args:
+            continue
+        arg_name = _ast_to_str(node.args[0])
+        if not arg_name or arg_name.startswith("$"):
+            continue
+        entry = {}
+        for kw in node.keywords:
+            if kw.arg == "default_value":
+                entry["default"] = _ast_to_str(kw.value)
+            elif kw.arg == "choices" and isinstance(kw.value, (_ast.List, _ast.Tuple)):
+                choices = [_ast_to_str(e) for e in kw.value.elts]
+                entry["choices"] = [c for c in choices if c and not c.startswith("$")]
+            elif kw.arg == "description":
+                entry["description"] = _ast_to_str(kw.value)
+        if entry:
+            result[arg_name] = entry
+    return result
+
+
+def _extract_active_controllers(all_launch_files):
+    """Return sorted list of unique controller names spawned across all launch files.
+
+    Parses Python launch files for Node(executable='spawner', ...) calls.
+    """
+    import ast as _ast
+    controllers = []
+    seen: set = set()
+    for lf in all_launch_files:
+        path = pathlib.Path(lf)
+        if not path.name.endswith(".launch.py"):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            tree = _ast.parse(text, filename=str(path))
+        except Exception:
+            continue
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            fname = _ast_call_name(node)
+            ctrl_name = None
+            if fname == "Node":
+                exe = None
+                args_list = None
+                for kw in node.keywords:
+                    if kw.arg == "executable":
+                        exe = _ast_to_str(kw.value)
+                    elif kw.arg == "arguments" and isinstance(kw.value, (_ast.List, _ast.Tuple)):
+                        args_list = [_ast_to_str(e) for e in kw.value.elts]
+                if exe and "spawner" in exe.lower():
+                    if node.args:
+                        ctrl_name = _ast_to_str(node.args[0])
+                    elif args_list:
+                        ctrl_name = next(
+                            (a for a in args_list
+                             if a and not a.startswith("-") and not a.startswith("$")),
+                            None,
+                        )
+            elif "spawner" in fname.lower() and fname != "Node":
+                ctrl_name = _ast_to_str(node.args[0]) if node.args else None
+                if not ctrl_name:
+                    for kw in node.keywords:
+                        if kw.arg in ("controller_names", "controller_name", "name"):
+                            ctrl_name = _ast_to_str(kw.value)
+
+            if ctrl_name and not ctrl_name.startswith("$") and ctrl_name not in seen:
+                seen.add(ctrl_name)
+                controllers.append(ctrl_name)
+    return sorted(controllers)
+
+
+# ---------------------------------------------------------------------------
 # Sensor / actuator mount classification
 # ---------------------------------------------------------------------------
 
@@ -1448,6 +2185,46 @@ def _run_static_scan(ws_path, distro, allow_live=False,
                 seen_sensor_links.add(link)
                 sensor_mounts.append(mount)
 
+    # --- 4b. ros2_control config ---
+    scan_steps.append("ros2_control_config")
+    ros2_ctrl = _extract_ros2_control_config(all_yaml_files)
+
+    # --- 4c. Hardware interfaces from URDF <ros2_control> tags ---
+    scan_steps.append("hardware_interfaces")
+    hardware_interfaces: list = []
+    seen_hw_names: set = set()
+    for uf in all_urdf_files:
+        for iface in _extract_hardware_interfaces_from_urdf(uf):
+            if iface["name"] not in seen_hw_names:
+                seen_hw_names.add(iface["name"])
+                hardware_interfaces.append(iface)
+
+    # --- 4d. Sensor configs (LiDAR, camera) ---
+    scan_steps.append("sensor_configs")
+    lidar_config = _extract_lidar_config(all_yaml_files)
+    camera_configs = _extract_camera_configs(all_yaml_files)
+
+    # --- 4e. Localization + Nav2 ---
+    scan_steps.append("nav_config")
+    localization_config = _extract_localization_config(all_yaml_files)
+    nav2_config = _extract_nav2_config(all_yaml_files)
+
+    # --- 4f. Teleop + e-stop ---
+    scan_steps.append("teleop_config")
+    teleop_config, estop_config = _extract_teleop_and_estop(all_yaml_files)
+
+    # --- 4g. TF frame inventory ---
+    scan_steps.append("tf_frames")
+    tf_frames = _extract_tf_frames(all_urdf_files, all_yaml_files)
+
+    # --- 4h. Active controllers ---
+    scan_steps.append("active_controllers")
+    active_controllers = _extract_active_controllers(all_launch_files)
+
+    # cmd_vel_topic: prefer teleop config, fall back to ros2_control odom block
+    cmd_vel_topic = (teleop_config or {}).get("cmd_vel_topic") or \
+                    (ros2_ctrl.get("odom_frame_ids") or {}).get("cmd_vel_topic")
+
     # --- 5. Sensor / feature detection ---
     scan_steps.append("feature_detection")
     all_pkg_names_lower = [n.lower() for n in (ws_pkg_names + all_ament_pkg_names)]
@@ -1569,15 +2346,26 @@ def _run_static_scan(ws_path, distro, allow_live=False,
                 model_name = _get_urdf_robot_name(uf)
                 lf_joints.setdefault(model_name, {}).update(jl)
 
+        # Enrich with choices from DeclareLaunchArgument analysis.
+        arg_choices = _extract_launch_arg_choices(lf)
+
         launch_file_details[key] = {
             "path": lf,
             "package": pkg_dir.name,
             "launch_args": launch_args,
+            "launch_arg_choices": arg_choices,
             "includes": includes,
             "yaml_files": lf_yaml,
             "urdf_files": lf_urdf,
             "joint_limits": lf_joints,
         }
+
+    # Aggregate launch_configurations: args with choices across all launch files.
+    launch_configurations: dict = {}
+    for lf_detail in launch_file_details.values():
+        for arg, entry in lf_detail.get("launch_arg_choices", {}).items():
+            if arg not in launch_configurations:
+                launch_configurations[arg] = entry
 
     return {
         "scan_steps": scan_steps,
@@ -1598,6 +2386,22 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "joint_limits": joint_limits_by_model,
         "sensor_mounts": sensor_mounts,
         "live_topics": live_topics,
+        # New fields
+        "drive_type": ros2_ctrl["drive_type"],
+        "kinematics": ros2_ctrl["kinematics"],
+        "controller_update_rate_hz": ros2_ctrl["controller_update_rate_hz"],
+        "cmd_vel_topic": cmd_vel_topic,
+        "odom_frame_ids": ros2_ctrl["odom_frame_ids"],
+        "hardware_interfaces": hardware_interfaces,
+        "lidar_config": lidar_config,
+        "camera_configs": camera_configs,
+        "localization_config": localization_config,
+        "nav2_config": nav2_config,
+        "teleop_config": teleop_config,
+        "estop_config": estop_config,
+        "tf_frames": tf_frames,
+        "launch_configurations": launch_configurations,
+        "active_controllers": active_controllers,
     }
 
 
@@ -1703,6 +2507,46 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             # (camera, depth_camera) also carry image_rotation_deg — the
             # suggested correction to apply when capturing images.
             "sensor_mounts": sr["sensor_mounts"],
+            # ---- Drive / kinematics ----------------------------------------
+            # drive_type: detected from ros2_control controller plugin name.
+            # One of: differential, holonomic_omni, mecanum, ackermann,
+            # bicycle, tricycle, or null when not detectable.
+            "drive_type": sr["drive_type"],
+            # kinematics: geometry params from controller ros__parameters
+            # (wheel_radius, robot_radius, wheel_separation, etc.)
+            "kinematics": sr["kinematics"],
+            "controller_update_rate_hz": sr["controller_update_rate_hz"],
+            # cmd_vel_topic: actual topic the base controller subscribes to.
+            # Derived from teleop YAML topic_name (preferred) or controller params.
+            "cmd_vel_topic": sr["cmd_vel_topic"],
+            # odom_frame_ids: {odom_topic, base_frame_id, odom_frame_id}
+            # from the controller's ros__parameters block.
+            "odom_frame_ids": sr["odom_frame_ids"],
+            # ---- Hardware --------------------------------------------------
+            # hardware_interfaces: one entry per <ros2_control> URDF tag.
+            # Each entry has plugin, type, joints, command/state interfaces,
+            # and hardware params (serial port, baud rate, I2C address, etc.)
+            "hardware_interfaces": sr["hardware_interfaces"],
+            # ---- Sensors ---------------------------------------------------
+            "lidar_config": sr["lidar_config"],
+            "camera_configs": sr["camera_configs"],
+            # ---- Navigation ------------------------------------------------
+            "localization_config": sr["localization_config"],
+            "nav2_config": sr["nav2_config"],
+            # ---- Teleop / e-stop -------------------------------------------
+            "teleop_config": sr["teleop_config"],
+            "estop_config": sr["estop_config"],
+            # ---- TF frames -------------------------------------------------
+            # tf_frames: {urdf_links: [...], map_frame, odom_frame, base_frame}
+            "tf_frames": sr["tf_frames"],
+            # ---- Launch ----------------------------------------------------
+            # launch_configurations: args with declared choices across all
+            # launch files — tells the agent which variants can be launched
+            # (e.g. config:=base|pantilt|k2)
+            "launch_configurations": sr["launch_configurations"],
+            # active_controllers: unique controller names spawned by any
+            # launch file in the workspace.
+            "active_controllers": sr["active_controllers"],
         },
         # ------------------------------------------------------------------ #
         # DETAIL — per launch file; load on demand via --section <filename>.  #

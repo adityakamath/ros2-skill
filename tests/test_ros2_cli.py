@@ -5011,6 +5011,472 @@ class TestProfileAnnotate(unittest.TestCase):
             self.mod._PROFILES_DIR = orig_dir
 
 
+class TestNewProfileExtractors(unittest.TestCase):
+    """Tests for the 14 new profile-extraction functions."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib
+        cls.mod = importlib.import_module("ros2_profile")
+
+    # ------------------------------------------------------------------ helpers
+
+    def _write_yaml(self, d, content):
+        """Write content to a temp file under directory d, return path string."""
+        import tempfile, pathlib
+        f = tempfile.NamedTemporaryFile(
+            dir=d, suffix=".yaml", delete=False, mode="w", encoding="utf-8"
+        )
+        f.write(content)
+        f.close()
+        return f.name
+
+    def _write_urdf(self, d, content):
+        import tempfile
+        f = tempfile.NamedTemporaryFile(
+            dir=d, suffix=".urdf", delete=False, mode="w", encoding="utf-8"
+        )
+        f.write(content)
+        f.close()
+        return f.name
+
+    def _write_launch(self, d, content, name="test.launch.py"):
+        import tempfile, pathlib
+        p = pathlib.Path(d) / name
+        p.write_text(content, encoding="utf-8")
+        return str(p)
+
+    # ------------------------------------------------------------------ drive type
+
+    def test_drive_type_omni(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+controller_manager:
+  ros__parameters:
+    update_rate: 50
+    base_controller:
+      type: omni_wheel_drive_controller/OmniWheelDriveController
+""")
+            result = self.mod._extract_ros2_control_config([yf])
+        self.assertEqual(result["drive_type"], "holonomic_omni")
+
+    def test_drive_type_differential(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+controller_manager:
+  ros__parameters:
+    update_rate: 30
+    base_ctrl:
+      type: diff_drive_controller/DiffDriveController
+""")
+            result = self.mod._extract_ros2_control_config([yf])
+        self.assertEqual(result["drive_type"], "differential")
+
+    def test_controller_update_rate(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+""")
+            result = self.mod._extract_ros2_control_config([yf])
+        self.assertEqual(result["controller_update_rate_hz"], 100)
+
+    def test_kinematics_extracted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+base_controller:
+  ros__parameters:
+    wheel_radius: 0.051
+    robot_radius: 0.132
+    wheel_offset: 1.047
+""")
+            result = self.mod._extract_ros2_control_config([yf])
+        kin = result["kinematics"]
+        self.assertIsNotNone(kin)
+        self.assertAlmostEqual(kin["wheel_radius"], 0.051, places=4)
+        self.assertAlmostEqual(kin["robot_radius"], 0.132, places=4)
+
+    def test_odom_frame_ids_extracted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+base_controller:
+  ros__parameters:
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+    odom_topic: /base_controller/odometry
+""")
+            result = self.mod._extract_ros2_control_config([yf])
+        odom = result["odom_frame_ids"]
+        self.assertIsNotNone(odom)
+        self.assertEqual(odom["odom_frame_id"], "odom")
+        self.assertEqual(odom["base_frame_id"], "base_footprint")
+        self.assertEqual(odom["odom_topic"], "/base_controller/odometry")
+
+    def test_no_ros2_control_yaml_returns_none(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "some_key: 42\n")
+            result = self.mod._extract_ros2_control_config([yf])
+        self.assertIsNone(result["drive_type"])
+        self.assertIsNone(result["kinematics"])
+
+    # ------------------------------------------------------------------ hardware interfaces
+
+    def test_hardware_interfaces_from_urdf(self):
+        import tempfile
+        urdf = """\
+<?xml version="1.0"?>
+<robot name="test_robot">
+  <ros2_control name="my_base" type="system">
+    <hardware>
+      <plugin>my_pkg/MyHW</plugin>
+      <param name="serial_port">/dev/ttyUSB0</param>
+      <param name="serial_baudrate">1000000</param>
+    </hardware>
+    <joint name="left_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="right_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+</robot>
+"""
+        with tempfile.TemporaryDirectory() as d:
+            uf = self._write_urdf(d, urdf)
+            result = self.mod._extract_hardware_interfaces_from_urdf(uf)
+        self.assertEqual(len(result), 1)
+        hw = result[0]
+        self.assertEqual(hw["name"], "my_base")
+        self.assertEqual(hw["plugin"], "my_pkg/MyHW")
+        self.assertIn("left_wheel_joint", hw["joints"])
+        self.assertIn("right_wheel_joint", hw["joints"])
+        self.assertIn("velocity", hw["command_interfaces"])
+        self.assertIn("position", hw["state_interfaces"])
+        self.assertEqual(hw["hardware_params"]["serial_port"], "/dev/ttyUSB0")
+        self.assertEqual(hw["hardware_params"]["serial_baudrate"], 1000000)
+
+    def test_hardware_interfaces_empty_urdf(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            uf = self._write_urdf(d, '<robot name="r"><link name="base_link"/></robot>')
+            result = self.mod._extract_hardware_interfaces_from_urdf(uf)
+        self.assertEqual(result, [])
+
+    # ------------------------------------------------------------------ lidar config
+
+    def test_lidar_config_by_key(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+laser_node:
+  ros__parameters:
+    product_name: LDLiDAR_LD19
+    laser_scan_topic_name: scan
+    port_name: /dev/ttyLIDAR
+    serial_baudrate: 230400
+    range_min: 0.02
+    range_max: 12.0
+""")
+            result = self.mod._extract_lidar_config([yf])
+        self.assertEqual(len(result), 1)
+        cfg = result[0]
+        self.assertEqual(cfg["product_name"], "LDLiDAR_LD19")
+        self.assertAlmostEqual(cfg["range_min"], 0.02, places=4)
+        self.assertAlmostEqual(cfg["range_max"], 12.0, places=4)
+
+    def test_lidar_config_by_filename(self):
+        import tempfile, pathlib
+        with tempfile.TemporaryDirectory() as d:
+            # Named "laser_filter_k2.yaml" — should be detected by filename
+            p = pathlib.Path(d) / "laser_filter_k2.yaml"
+            p.write_text("some_key: value\n", encoding="utf-8")
+            result = self.mod._extract_lidar_config([str(p)])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["config_file"], "laser_filter_k2.yaml")
+
+    def test_non_lidar_yaml_ignored(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "robot_name: mybot\nversion: 1\n")
+            result = self.mod._extract_lidar_config([yf])
+        self.assertEqual(result, [])
+
+    # ------------------------------------------------------------------ camera config
+
+    def test_camera_config_calibration_yaml(self):
+        import tempfile, pathlib
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "camera_calibration.yaml"
+            p.write_text("""\
+image_width: 640
+image_height: 480
+distortion_model: rational_polynomial
+camera_name: webcam
+""", encoding="utf-8")
+            result = self.mod._extract_camera_configs([str(p)])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["image_width"], 640)
+        self.assertEqual(result[0]["distortion_model"], "rational_polynomial")
+
+    def test_camera_config_oakd_yaml(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+oak:
+  ros__parameters:
+    i_pipeline_type: RGBD
+    i_fps: 30.0
+    i_enable_vio: true
+    i_enable_imu: true
+""")
+            result = self.mod._extract_camera_configs([yf])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["i_pipeline_type"], "RGBD")
+        self.assertTrue(result[0]["i_enable_vio"])
+
+    # ------------------------------------------------------------------ localization
+
+    def test_ekf_config_extracted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+ekf_filter_node:
+  ros__parameters:
+    frequency: 50.0
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom
+    two_d_mode: true
+    odom0: /base_controller/odometry
+    imu0: /imu/data
+""")
+            result = self.mod._extract_localization_config([yf])
+        self.assertIsNotNone(result)
+        self.assertEqual(result["method"], "ekf")
+        self.assertAlmostEqual(result["frequency_hz"], 50.0, places=1)
+        self.assertEqual(result["odom_frame"], "odom")
+        self.assertEqual(result["base_frame"], "base_footprint")
+        self.assertIn("odom0", result["fused_sources"])
+        self.assertIn("imu0", result["fused_sources"])
+
+    def test_localization_returns_none_when_absent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "not_ekf: true\n")
+            result = self.mod._extract_localization_config([yf])
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------ nav2
+
+    def test_nav2_config_extracted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+controller_server:
+  ros__parameters:
+    controller_plugins: [FollowPath]
+    FollowPath:
+      plugin: nav2_mppi_controller::MPPIController
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.25
+planner_server:
+  ros__parameters:
+    planner_plugins: [GridBased]
+    GridBased:
+      plugin: nav2_navfn_planner::NavfnPlanner
+behavior_server:
+  ros__parameters:
+    behavior_plugins: [spin, backup, drive_on_heading, wait]
+""")
+            result = self.mod._extract_nav2_config([yf])
+        self.assertIsNotNone(result)
+        self.assertIn("FollowPath", result["controller_plugins"])
+        self.assertIn("GridBased", result["planner_plugins"])
+        self.assertIn("spin", result["behavior_plugins"])
+        self.assertAlmostEqual(result["xy_goal_tolerance"], 0.25, places=3)
+
+    def test_nav2_returns_none_when_absent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "foo: bar\n")
+            result = self.mod._extract_nav2_config([yf])
+        self.assertIsNone(result)
+
+    # ------------------------------------------------------------------ teleop + estop
+
+    def test_teleop_config_extracted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+teleop_twist_joy_node:
+  ros__parameters:
+    topic_name: /base_controller/cmd_vel
+    enable_button: 9
+    axis_linear_x: 1
+    axis_angular_yaw: 2
+    scale_linear: 0.13
+    scale_angular: 0.44
+""")
+            teleop, estop = self.mod._extract_teleop_and_estop([yf])
+        self.assertIsNotNone(teleop)
+        self.assertEqual(teleop["cmd_vel_topic"], "/base_controller/cmd_vel")
+        self.assertEqual(teleop["enable_button"], 9)
+        self.assertIn("scale_linear", teleop["scales"])
+        self.assertAlmostEqual(teleop["scales"]["scale_linear"], 0.13, places=4)
+        self.assertIsNone(estop)
+
+    def test_estop_from_teleop_yaml(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+teleop_twist_joy_node:
+  ros__parameters:
+    topic_name: /cmd_vel
+    emergency_stop: /robot/emergency_stop
+""")
+            teleop, estop = self.mod._extract_teleop_and_estop([yf])
+        self.assertIsNotNone(estop)
+        self.assertEqual(estop["service_name"], "/robot/emergency_stop")
+
+    def test_no_teleop_returns_none(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, "nav2_params: true\n")
+            teleop, estop = self.mod._extract_teleop_and_estop([yf])
+        self.assertIsNone(teleop)
+        self.assertIsNone(estop)
+
+    # ------------------------------------------------------------------ tf frames
+
+    def test_tf_frames_from_urdf(self):
+        import tempfile
+        urdf = """\
+<?xml version="1.0"?>
+<robot name="mybot">
+  <link name="base_link"/>
+  <link name="base_footprint"/>
+  <link name="laser_frame"/>
+</robot>
+"""
+        with tempfile.TemporaryDirectory() as d:
+            uf = self._write_urdf(d, urdf)
+            result = self.mod._extract_tf_frames([uf], [])
+        self.assertIn("base_link", result["urdf_links"])
+        self.assertIn("laser_frame", result["urdf_links"])
+
+    def test_tf_frames_from_yaml(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            yf = self._write_yaml(d, """\
+ekf_filter_node:
+  ros__parameters:
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom
+""")
+            result = self.mod._extract_tf_frames([], [yf])
+        self.assertEqual(result["odom_frame"], "odom")
+        self.assertEqual(result["base_frame"], "base_footprint")
+
+    # ------------------------------------------------------------------ launch arg choices
+
+    def test_launch_arg_choices_extracted(self):
+        import tempfile
+        content = """\
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            'config',
+            default_value='base',
+            choices=['base', 'pantilt', 'k2'],
+            description='Robot hardware configuration',
+        ),
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='false',
+        ),
+    ])
+"""
+        with tempfile.TemporaryDirectory() as d:
+            lf = self._write_launch(d, content)
+            result = self.mod._extract_launch_arg_choices(lf)
+        self.assertIn("config", result)
+        self.assertEqual(result["config"]["choices"], ["base", "pantilt", "k2"])
+        self.assertEqual(result["config"]["default"], "base")
+        self.assertIn("use_sim_time", result)
+        self.assertEqual(result["use_sim_time"]["default"], "false")
+        self.assertNotIn("choices", result["use_sim_time"])
+
+    def test_launch_arg_choices_non_python_returns_empty(self):
+        import tempfile, pathlib
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "bringup.launch.xml"
+            p.write_text("<launch/>\n", encoding="utf-8")
+            result = self.mod._extract_launch_arg_choices(str(p))
+        self.assertEqual(result, {})
+
+    # ------------------------------------------------------------------ active controllers
+
+    def test_active_controllers_from_spawner(self):
+        import tempfile
+        content = """\
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+def generate_launch_description():
+    return LaunchDescription([
+        Node(
+            package='controller_manager',
+            executable='spawner',
+            arguments=['joint_state_broadcaster'],
+        ),
+        Node(
+            package='controller_manager',
+            executable='spawner',
+            arguments=['base_controller', '--controller-manager', '/controller_manager'],
+        ),
+    ])
+"""
+        with tempfile.TemporaryDirectory() as d:
+            lf = self._write_launch(d, content)
+            result = self.mod._extract_active_controllers([lf])
+        self.assertIn("joint_state_broadcaster", result)
+        self.assertIn("base_controller", result)
+        self.assertEqual(len(result), 2)
+
+    def test_active_controllers_deduplicates(self):
+        import tempfile
+        # Same controller declared in two launch files
+        content = """\
+from launch import LaunchDescription
+from launch_ros.actions import Node
+def generate_launch_description():
+    return LaunchDescription([
+        Node(package='controller_manager', executable='spawner',
+             arguments=['joint_state_broadcaster']),
+    ])
+"""
+        with tempfile.TemporaryDirectory() as d:
+            lf1 = self._write_launch(d, content, "a.launch.py")
+            lf2 = self._write_launch(d, content, "b.launch.py")
+            result = self.mod._extract_active_controllers([lf1, lf2])
+        self.assertEqual(result.count("joint_state_broadcaster"), 1)
+
+
 class TestPkgMatchHints(unittest.TestCase):
     """_pkg_match_hints uses token-level matching to avoid short-token false positives."""
 
