@@ -330,7 +330,15 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
     "launch_files": ["bringup.launch.py", "nav2_bringup.launch.py"],  ← filenames from workspace; keys into detail
     "urdf_files": ["/path/to/robot.urdf.xacro"],
     "velocity_topics": ["/cmd_vel"],
-    "safety_limits": {"linear_x": 0.5, "linear_y": null, "angular_z": 1.0, "source": "yaml_or_urdf"},
+    "safety_limits": {
+      "sources": [                        ← one entry per YAML config that had a velocity limit
+        {"file": "teleop_joy.yaml", "path": "...", "linear_x": 0.5, "linear_y": 0.3, "angular_z": 1.0},
+        {"file": "nav2_params.yaml", "path": "...", "linear_x": 0.3, "linear_y": null, "angular_z": 0.8}
+      ],
+      "binding": {                        ← most restrictive per axis across all sources + URDF
+        "linear_x": 0.3, "linear_y": 0.3, "angular_z": 0.8
+      }
+    },
     "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false,
     "sensor_mounts": [          ← every sensor/actuator link found in URDF
       {                         ← sensor_type: camera|depth_camera|lidar|imu|sonar|gps|gripper
@@ -387,7 +395,7 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
 
 **If detection is wrong:** run `profile scan --robot-type <type>` to override. The evidence field always shows what matched so you can see why a type was chosen.
 
-Use `summary.safety_limits.linear_x` as the `--max-vel` ceiling and `summary.safety_limits.angular_z` as the `--max-ang` ceiling (Rule 28). `linear_y` is populated for holonomic robots; `null` for diff-drive. Use `summary.launch_files` to see what launch files exist in the workspace; load any one's full detail with `--section <filename>`.
+Use `summary.safety_limits.binding.linear_x` as the `--max-vel` ceiling and `summary.safety_limits.binding.angular_z` as the `--max-ang` ceiling (Rule 28). `binding.linear_y` is set for holonomic robots. `sources` lists every config file that contributed a limit — useful when multiple teleop configs are present. Use `summary.launch_files` to see what launch files exist in the workspace; load any one's full detail with `--section <filename>`.
 
 ---
 

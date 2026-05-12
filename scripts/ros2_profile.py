@@ -1396,9 +1396,12 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         all_src_files.extend(pkg.get("src_files", []))
 
     # --- 3. Safety limits from YAML ---
-    # Track linear x, linear y, and angular z independently so teleop configs
-    # (which often publish per-axis scale values) populate the right field.
+    # Each YAML file that contains at least one velocity limit is stored as a
+    # separate source entry so the caller can see which config drove which limit.
+    # The binding (most restrictive per axis across all sources) is computed here
+    # and augmented in step 4 with URDF safety_controller values.
     scan_steps.append("yaml_limits")
+    limit_sources: list = []   # [{file, path, linear_x, linear_y, angular_z}]
     best_lin_x, best_lin_y, best_ang_z = None, None, None
 
     def _upd_best(current, candidate):
@@ -1408,9 +1411,17 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 
     for yf in all_yaml_files:
         lx, ly, az = _extract_limits_from_yaml(yf)
-        best_lin_x = _upd_best(best_lin_x, lx)
-        best_lin_y = _upd_best(best_lin_y, ly)
-        best_ang_z = _upd_best(best_ang_z, az)
+        if any(v is not None for v in (lx, ly, az)):
+            limit_sources.append({
+                "file": pathlib.Path(yf).name,
+                "path": yf,
+                "linear_x": lx,
+                "linear_y": ly,
+                "angular_z": az,
+            })
+            best_lin_x = _upd_best(best_lin_x, lx)
+            best_lin_y = _upd_best(best_lin_y, ly)
+            best_ang_z = _upd_best(best_ang_z, az)
 
     # --- 4. Joint limits and sensor mounts from URDF ---
     # joint_limits_by_model: {model_name: {joint_name: {velocity, effort, type}}}
@@ -1513,15 +1524,20 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     )
 
     # --- 9. Safety limits final ---
-    limits_source = "none"
-    if any(v is not None for v in (best_lin_x, best_lin_y, best_ang_z)):
-        limits_source = "yaml_or_urdf"
-
+    # safety_limits has two sections:
+    #   sources  — one entry per YAML config that contained at least one limit;
+    #              lets the caller see which teleop / planner / controller file
+    #              drove each value.
+    #   binding  — the most restrictive (minimum) value per axis across all
+    #              YAML sources and URDF safety_controller elements; this is
+    #              what agents pass to --max-vel / --max-ang.
     safety_limits = {
-        "linear_x": best_lin_x,   # max linear-x (forward) velocity in m/s
-        "linear_y": best_lin_y,   # max linear-y (strafe) velocity in m/s; None for diff-drive
-        "angular_z": best_ang_z,  # max angular-z (yaw) velocity in rad/s
-        "source": limits_source,
+        "sources": limit_sources,
+        "binding": {
+            "linear_x": best_lin_x,
+            "linear_y": best_lin_y,
+            "angular_z": best_ang_z,
+        },
     }
 
     # --- 10. Launch file details (one entry per file, keyed by filename) ---
