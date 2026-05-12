@@ -1,0 +1,3527 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-12T13:22:21.381196+00:00",
+  "robot_name": "ros2",
+  "workspace": "/home/ubuntu/ros2_ws",
+  "ros_distro": "kilted",
+  "scan_steps": [
+    "ament_index",
+    "workspace_walk",
+    "yaml_limits",
+    "urdf_limits",
+    "ros2_control_config",
+    "hardware_interfaces",
+    "sensor_configs",
+    "nav_config",
+    "teleop_config",
+    "tf_frames",
+    "active_controllers",
+    "feature_detection"
+  ],
+  "summary": {
+    "robot_type": "legged",
+    "robot_features": [
+      "pantilt"
+    ],
+    "robot_type_evidence": {
+      "legged": [
+        "src:SCSerial.cpp",
+        "src:SyncWritePos.cpp"
+      ],
+      "underwater": [
+        "src:sts_hardware_interface.cpp",
+        "src:HLSCL.cpp",
+        "src:SCS.cpp",
+        "src:SCSCL.cpp",
+        "src:SCSCL.cpp"
+      ],
+      "arm": [
+        "src:mixed_mode.launch.py",
+        "src:mixed_mode.launch.py",
+        "src:mixed_mode.launch.py",
+        "src:single_motor_position.launch.py",
+        "src:single_motor_position.launch.py"
+      ],
+      "mobile_base": [
+        "topic:/cmd_vel"
+      ],
+      "pantilt": [
+        "src:MidpointCalib.cpp"
+      ]
+    },
+    "packages": [
+      "sts_hardware_interface",
+      "bno055_hardware_interface",
+      "ldlidar_ros2",
+      "quest_teleop",
+      "gstreamer_ros_babel_fish",
+      "ros_camera_server",
+      "ros_camera_server_msgs",
+      "depthai_bridge",
+      "depthai_filters",
+      "depthai_descriptions",
+      "depthai_ros_driver",
+      "depthai_examples",
+      "depthai_ros_msgs",
+      "depthai-ros",
+      "lekiwi_navigation",
+      "lekiwi_bringup",
+      "lekiwi_description",
+      "lekiwi_control"
+    ],
+    "launch_files": [
+      "bno055.launch.py",
+      "calibration.launch.py",
+      "camera_server.launch.py",
+      "det2d_usb_cam_overlay.launch.py",
+      "driver.launch.py",
+      "driver_as_part_of_a_robot.launch.py",
+      "example_det2d_overlay.launch.py",
+      "example_feature_3d.launch.py",
+      "example_feature_tracker.launch.py",
+      "example_multicam.launch.py",
+      "example_seg_overlay.launch.py",
+      "example_segmentation.launch.py",
+      "example_wls_filter.launch.py",
+      "laser.launch.py",
+      "ld06.launch.py",
+      "ld14.launch.py",
+      "ld14p.launch.py",
+      "ld19.launch.py",
+      "lekiwi.launch.py",
+      "lekiwi_control/lekiwi.launch.py",
+      "mixed_mode.launch.py",
+      "motor_diagnostics.launch.py",
+      "nav.launch.py",
+      "oak_t.launch.py",
+      "oakd.launch.py",
+      "pointcloud.launch.py",
+      "rgbd_pcl.launch.py",
+      "rtabmap.launch.py",
+      "server.launch.yaml",
+      "single_motor_position.launch.py",
+      "single_motor_velocity.launch.py",
+      "spatial_bb.launch.py",
+      "sr_poe_rgbd_pcl.launch.py",
+      "sr_rgbd_pcl.launch.py",
+      "stereo_from_rosbag.launch.py",
+      "teleop.launch.py",
+      "test_bno055.launch.py",
+      "test_mixed_mode.launch.py",
+      "test_motor_diagnostics.launch.py",
+      "test_single_motor_position.launch.py",
+      "test_single_motor_velocity.launch.py",
+      "thermal_temp.launch.py",
+      "viewer_ld06.launch.py",
+      "viewer_ld14.launch.py",
+      "viewer_ld14p.launch.py",
+      "viewer_ld19.launch.py",
+      "vio.launch.py",
+      "webcam.launch.py"
+    ],
+    "urdf_files": [
+      "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/bno055.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/bno055.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_descriptions/urdf/base_descr.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_descriptions/urdf/base_descr.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_descriptions/urdf/depthai_descr.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_descriptions/urdf/depthai_descr.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_descriptions/urdf/include/base_macro.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_descriptions/urdf/include/base_macro.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_descriptions/urdf/include/depthai_macro.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_descriptions/urdf/include/depthai_macro.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/base/base.common.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/base/base.control.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/base/base.module.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/base/base.urdf",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/base/base.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/base/base.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/k2.common.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/k2.control.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/k2.urdf",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/k2.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/k2.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/pantilt/oakd_s2.module.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/pantilt/pantilt.common.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/pantilt/pantilt.control.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/pantilt/pantilt.module.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/pantilt/pantilt.urdf",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/pantilt/pantilt.urdf.xacro",
+      "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/pantilt/pantilt.urdf.xacro"
+    ],
+    "velocity_topics": [
+      "/cmd_vel"
+    ],
+    "has_lidar": true,
+    "has_camera": true,
+    "has_imu": true,
+    "has_nav2": false,
+    "safety_limits": {
+      "sources": [
+        {
+          "file": "control.yaml",
+          "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/base/control.yaml",
+          "linear_x": 0.13,
+          "linear_y": null,
+          "angular_z": 0.44
+        },
+        {
+          "file": "control.yaml",
+          "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/k2/control.yaml",
+          "linear_x": 0.13,
+          "linear_y": null,
+          "angular_z": 0.44
+        }
+      ],
+      "binding": {
+        "linear_x": 0.13,
+        "linear_y": null,
+        "angular_z": 0.44
+      }
+    },
+    "joint_limits": {
+      "mixed_mode_robot": {
+        "arm_joint_1": {
+          "velocity": 5.0,
+          "effort": 1.0,
+          "type": "revolute"
+        },
+        "arm_joint_2": {
+          "velocity": 5.0,
+          "effort": 1.0,
+          "type": "revolute"
+        },
+        "gripper_joint_1": {
+          "velocity": 2.0,
+          "effort": 1.0,
+          "type": "revolute"
+        },
+        "gripper_joint_2": {
+          "velocity": 2.0,
+          "effort": 1.0,
+          "type": "revolute"
+        }
+      },
+      "single_motor_position": {
+        "arm_joint": {
+          "velocity": 5.0,
+          "effort": 1.0,
+          "type": "revolute"
+        }
+      },
+      "lekiwi": {
+        "left_wheel_joint": {
+          "velocity": 4.433204476989503,
+          "effort": 2.942,
+          "type": "continuous"
+        },
+        "back_wheel_joint": {
+          "velocity": 4.433204476989503,
+          "effort": 2.942,
+          "type": "continuous"
+        },
+        "right_wheel_joint": {
+          "velocity": 4.433204476989503,
+          "effort": 2.942,
+          "type": "continuous"
+        }
+      },
+      "k2": {
+        "left_wheel_joint": {
+          "velocity": 4.433204476989503,
+          "effort": 2.942,
+          "type": "continuous"
+        },
+        "back_wheel_joint": {
+          "velocity": 4.433204476989503,
+          "effort": 2.942,
+          "type": "continuous"
+        },
+        "right_wheel_joint": {
+          "velocity": 4.433204476989503,
+          "effort": 2.942,
+          "type": "continuous"
+        },
+        "pan_joint": {
+          "velocity": 1000000.0,
+          "effort": 2.942,
+          "type": "revolute"
+        },
+        "tilt_joint": {
+          "velocity": 1000000.0,
+          "effort": 2.942,
+          "type": "revolute"
+        }
+      },
+      "pantilt": {
+        "pan_joint": {
+          "velocity": 1000000.0,
+          "effort": 2.942,
+          "type": "revolute"
+        },
+        "tilt_joint": {
+          "velocity": 1000000.0,
+          "effort": 2.942,
+          "type": "revolute"
+        }
+      }
+    },
+    "sensor_mounts": [
+      {
+        "joint": "gripper_joint_1",
+        "link": "gripper_link_1",
+        "sensor_type": "gripper",
+        "xyz": [
+          0.2,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "joint": "gripper_joint_2",
+        "link": "gripper_link_2",
+        "sensor_type": "gripper",
+        "xyz": [
+          0.2,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "joint": "imu_joint",
+        "link": "imu_link",
+        "sensor_type": "imu",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "joint": "imu_frame_joint",
+        "link": "imu_frame",
+        "sensor_type": "imu",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "joint": "${camera_name}_rgb_camera_joint",
+        "link": "${camera_name}_${rgb_name}_${frame_suffix}",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "${camera_name}_rgb_camera_optical_joint",
+        "link": "${camera_name}_${rgb_name}_${optical_frame_suffix}",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "${camera_name}_left_camera_joint",
+        "link": "${camera_name}_${left_name}_${frame_suffix}",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "${camera_name}_left_camera_optical_joint",
+        "link": "${camera_name}_${left_name}_${optical_frame_suffix}",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "${camera_name}_right_camera_joint",
+        "link": "${camera_name}_${right_name}_${frame_suffix}",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "${camera_name}_right_camera_optical_joint",
+        "link": "${camera_name}_${right_name}_${optical_frame_suffix}",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "${camera_name}_right_camera_joint",
+        "link": "${camera_name}_cam_e_${frame_suffix}",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          -0.025,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "${camera_name}_right_camera_optical_joint",
+        "link": "${camera_name}_cam_e_${optical_frame_suffix}",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "laser_joint",
+        "link": "laser_link",
+        "sensor_type": "lidar",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "joint": "laser_frame_joint",
+        "link": "laser_frame",
+        "sensor_type": "lidar",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "joint": "camera_joint",
+        "link": "camera_link",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "camera_frame_joint",
+        "link": "camera",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      },
+      {
+        "joint": "oak_imu_frame_joint",
+        "link": "oak_imu_frame",
+        "sensor_type": "imu",
+        "xyz": [
+          -0.008,
+          -0.037945,
+          -0.00079
+        ],
+        "rpy": [
+          3.141593,
+          1.570796,
+          0.0
+        ]
+      },
+      {
+        "joint": "${imu_frame}_joint",
+        "link": "${imu_frame}",
+        "sensor_type": "imu",
+        "xyz": [
+          -0.008,
+          -0.037945,
+          -0.00079
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "joint": "${camera_name}_model_origin_joint",
+        "link": "${camera_name}_model_origin",
+        "sensor_type": "camera",
+        "xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "image_rotation_deg": 0
+      }
+    ],
+    "drive_type": "holonomic_omni",
+    "kinematics": {
+      "wheel_offset": 1.0471975511965976,
+      "robot_radius": 0.132239,
+      "wheel_radius": 0.051
+    },
+    "controller_update_rate_hz": 100,
+    "cmd_vel_topic": null,
+    "odom_frame_ids": {
+      "odom_frame_id": "odom",
+      "base_frame_id": "base_footprint"
+    },
+    "hardware_interfaces": [
+      {
+        "name": "sts_system",
+        "type": "system",
+        "plugin": "sts_hardware_interface/STSHardwareInterface",
+        "joints": [
+          "arm_joint_1",
+          "arm_joint_2",
+          "wheel_joint_1",
+          "wheel_joint_2",
+          "gripper_joint_1",
+          "gripper_joint_2"
+        ],
+        "command_interfaces": [
+          "position",
+          "velocity",
+          "acceleration",
+          "effort"
+        ],
+        "state_interfaces": [
+          "position",
+          "velocity",
+          "effort",
+          "voltage",
+          "temperature",
+          "current",
+          "is_moving"
+        ],
+        "hardware_params": {
+          "serial_port": "$(arg serial_port)",
+          "baud_rate": "$(arg baud_rate)",
+          "communication_timeout_ms": 100,
+          "use_sync_write": "true",
+          "enable_mock_mode": "$(arg use_mock)",
+          "max_velocity_steps": 3400,
+          "reset_states_on_activate": "true"
+        }
+      },
+      {
+        "name": "bno055_sensor",
+        "type": "sensor",
+        "plugin": "bno055_hardware_interface/BNO055HardwareInterface",
+        "joints": [],
+        "command_interfaces": [],
+        "state_interfaces": [
+          "orientation.x",
+          "orientation.y",
+          "orientation.z",
+          "orientation.w",
+          "angular_velocity.x",
+          "angular_velocity.y",
+          "angular_velocity.z",
+          "linear_acceleration.x",
+          "linear_acceleration.y",
+          "linear_acceleration.z"
+        ],
+        "hardware_params": {
+          "i2c_bus": "$(arg i2c_bus)",
+          "i2c_addr": "$(arg i2c_addr)",
+          "axis_remap": "$(arg axis_remap)",
+          "sensor_mode": "$(arg sensor_mode)",
+          "enable_mock_mode": "$(arg enable_mock_mode)"
+        }
+      },
+      {
+        "name": "lekiwi_base",
+        "type": "system",
+        "plugin": "sts_hardware_interface/STSHardwareInterface",
+        "joints": [
+          "left_wheel_joint",
+          "back_wheel_joint",
+          "right_wheel_joint"
+        ],
+        "command_interfaces": [
+          "velocity"
+        ],
+        "state_interfaces": [
+          "position",
+          "velocity",
+          "effort",
+          "voltage",
+          "temperature",
+          "current",
+          "is_moving"
+        ],
+        "hardware_params": {
+          "serial_port": "$(arg serial_port)",
+          "baud_rate": "$(arg baud_rate)",
+          "use_sync_write": "$(arg use_sync_write)",
+          "enable_mock_mode": "$(arg use_mock)",
+          "max_velocity_steps": "${sts_max_velocity_steps}",
+          "proportional_acc_max": "${proportional_acc_max}"
+        }
+      },
+      {
+        "name": "lekiwi_imu",
+        "type": "sensor",
+        "plugin": "bno055_hardware_interface/BNO055HardwareInterface",
+        "joints": [],
+        "command_interfaces": [],
+        "state_interfaces": [
+          "orientation.x",
+          "orientation.y",
+          "orientation.z",
+          "orientation.w",
+          "angular_velocity.x",
+          "angular_velocity.y",
+          "angular_velocity.z",
+          "linear_acceleration.x",
+          "linear_acceleration.y",
+          "linear_acceleration.z"
+        ],
+        "hardware_params": {
+          "i2c_bus": "$(arg imu_i2c_bus)",
+          "i2c_addr": "$(arg imu_i2c_addr)",
+          "axis_remap": "$(arg imu_axis_remap)",
+          "sensor_mode": "$(arg imu_sensor_mode)",
+          "enable_mock_mode": "$(arg use_mock)"
+        }
+      },
+      {
+        "name": "pt100_control",
+        "type": "system",
+        "plugin": "sts_hardware_interface/STSHardwareInterface",
+        "joints": [
+          "pan_joint",
+          "tilt_joint"
+        ],
+        "command_interfaces": [
+          "position"
+        ],
+        "state_interfaces": [
+          "position",
+          "velocity",
+          "effort",
+          "voltage",
+          "temperature",
+          "current",
+          "is_moving"
+        ],
+        "hardware_params": {
+          "serial_port": "$(arg serial_port)",
+          "baud_rate": "$(arg baud_rate)",
+          "communication_timeout_ms": 100,
+          "use_sync_write": "$(arg use_sync_write)",
+          "enable_mock_mode": "$(arg use_mock)",
+          "max_velocity_steps": "${sts_max_velocity_steps}",
+          "reset_states_on_activate": "true"
+        }
+      }
+    ],
+    "lidar_config": [
+      {
+        "config_file": "laser.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
+        "product_name": "LDLiDAR_LD19",
+        "laser_scan_topic_name": "scan",
+        "frame_id": "laser_frame",
+        "port_name": "/dev/ttyLIDAR",
+        "serial_baudrate": 230400,
+        "range_min": 0.02,
+        "range_max": 12.0
+      },
+      {
+        "config_file": "laser_filter_k2.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
+        "is_filter_chain": true
+      }
+    ],
+    "camera_configs": [
+      {
+        "config_file": "camera_server_config.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/quest_teleop/config/camera_server_config.yaml"
+      },
+      {
+        "config_file": "example_camera_info.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/ros_camera_server/ros_camera_server/config/example_camera_info.yaml",
+        "image_width": 1920,
+        "image_height": 1080,
+        "camera_name": "example_camera",
+        "camera_matrix": [
+          3.0,
+          0.0,
+          160.0,
+          0.0,
+          3.0,
+          120.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "distortion_model": "plumb_bob"
+      },
+      {
+        "config_file": "usb_cam_overlay.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "i_pipeline_type": "rgb"
+      },
+      {
+        "config_file": "left.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration/left.yaml",
+        "image_width": 1280,
+        "image_height": 720,
+        "camera_name": "/left",
+        "camera_matrix": [
+          800.40414,
+          0.0,
+          638.37063,
+          0.0,
+          799.68286,
+          360.37479,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "distortion_model": "plumb_bob"
+      },
+      {
+        "config_file": "rgb.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration/rgb.yaml",
+        "image_width": 1280,
+        "image_height": 720,
+        "camera_name": "/rgb",
+        "camera_matrix": [
+          1007.03765,
+          0.0,
+          693.05655,
+          0.0,
+          1007.59267,
+          356.9163,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "distortion_model": "plumb_bob"
+      },
+      {
+        "config_file": "right.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration/right.yaml",
+        "image_width": 1280,
+        "image_height": 720,
+        "camera_name": "/right",
+        "camera_matrix": [
+          801.10787,
+          0.0,
+          661.27048,
+          0.0,
+          802.27862,
+          362.70452,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "distortion_model": "plumb_bob"
+      },
+      {
+        "config_file": "calibration.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "i_pipeline_type": "RGBStereo"
+      },
+      {
+        "config_file": "driver.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "i_pipeline_type": "RGBD"
+      },
+      {
+        "config_file": "isaac_vslam.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "i_enable_imu": true,
+        "i_pipeline_type": "depth"
+      },
+      {
+        "config_file": "multicam_example.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "i_pipeline_type": "stereo"
+      },
+      {
+        "config_file": "oak_d_sr.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "i_pipeline_type": "Depth"
+      },
+      {
+        "config_file": "oak_t.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "i_pipeline_type": "Thermal"
+      },
+      {
+        "config_file": "pcl.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "i_pipeline_type": "depth"
+      },
+      {
+        "config_file": "rgbd.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "i_pipeline_type": "rgbd"
+      },
+      {
+        "config_file": "rtabmap.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "i_pipeline_type": "rgbd",
+        "i_enable_vio": true,
+        "i_fps": 30.0
+      },
+      {
+        "config_file": "segmentation.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "i_pipeline_type": "rgb"
+      },
+      {
+        "config_file": "sr_poe_rgbd.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "i_enable_imu": false,
+        "i_pipeline_type": "rgbtof",
+        "i_fps": 30.0
+      },
+      {
+        "config_file": "sr_rgbd.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "i_pipeline_type": "Depth"
+      },
+      {
+        "config_file": "stereo_from_rosbag.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "i_pipeline_type": "rgbd"
+      },
+      {
+        "config_file": "vio.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "i_pipeline_type": "rgbd",
+        "i_enable_vio": true,
+        "i_fps": 60.0
+      },
+      {
+        "config_file": "yolo.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "i_pipeline_type": "RGBD"
+      },
+      {
+        "config_file": "yolo_spatial.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml",
+        "i_pipeline_type": "RGBD"
+      },
+      {
+        "config_file": "oakd_vio.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
+        "i_pipeline_type": "RGBD",
+        "i_enable_imu": true,
+        "i_enable_vio": true,
+        "i_fps": 15.0
+      },
+      {
+        "config_file": "oakd_vio_pcl.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
+        "i_pipeline_type": "RGBD",
+        "i_enable_imu": true,
+        "i_enable_vio": true,
+        "i_fps": 30.0
+      },
+      {
+        "config_file": "webcam.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml"
+      },
+      {
+        "config_file": "webcam_calibration.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml",
+        "image_width": 640,
+        "image_height": 480,
+        "camera_name": "USBCamera_USBCamera__base_axi_pcie_120000_rp1_usb_300000_1_1_0_32e6_9221_640x480",
+        "camera_matrix": [
+          719.9532032048179,
+          0.0,
+          341.729237923363,
+          0.0,
+          720.5131653458442,
+          194.1066634964482,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "distortion_model": "rational_polynomial"
+      }
+    ],
+    "localization_config": {
+      "method": "ekf",
+      "config_file": "ekf_odom.yaml",
+      "frequency_hz": 50.0,
+      "odom_frame": "odom",
+      "base_frame": "base_footprint",
+      "world_frame": "odom",
+      "two_d_mode": true,
+      "publish_tf": true,
+      "fused_sources": [
+        "odom0"
+      ]
+    },
+    "nav2_config": null,
+    "teleop_config": null,
+    "estop_config": null,
+    "tf_frames": {
+      "urdf_links": [
+        "base_link",
+        "arm_link_1",
+        "arm_link_2",
+        "wheel_link_1",
+        "wheel_link_2",
+        "gripper_link_1",
+        "gripper_link_2",
+        "arm_link",
+        "wheel_link",
+        "imu_link",
+        "imu_frame",
+        "$(arg parent_frame)",
+        "${camera_name}_${rgb_name}_${frame_suffix}",
+        "${camera_name}_${rgb_name}_${optical_frame_suffix}",
+        "${camera_name}_${left_name}_${frame_suffix}",
+        "${camera_name}_${left_name}_${optical_frame_suffix}",
+        "${camera_name}_${right_name}_${frame_suffix}",
+        "${camera_name}_${right_name}_${optical_frame_suffix}",
+        "${camera_name}_cam_e_${frame_suffix}",
+        "${camera_name}_cam_e_${optical_frame_suffix}",
+        "laser_link",
+        "laser_frame",
+        "camera_link",
+        "camera",
+        "left_wheel_link",
+        "back_wheel_link",
+        "right_wheel_link",
+        "base_footprint",
+        "pantilt_base_link",
+        "pan_link",
+        "tilt_link",
+        "oak_link",
+        "oak_imu_frame",
+        "oak_link_model_origin",
+        "${base_frame}",
+        "${imu_frame}",
+        "${camera_name}_model_origin"
+      ],
+      "map_frame": "map",
+      "odom_frame": "odom",
+      "base_frame": "base_footprint"
+    },
+    "launch_configurations": {
+      "config_file": {
+        "default": "pkg:sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "description": "Path to diagnostics config YAML"
+      },
+      "i2c_bus": {
+        "default": "1",
+        "description": "I2C bus number (e.g. 1 → /dev/i2c-1)"
+      },
+      "i2c_addr": {
+        "default": "28",
+        "description": "I2C device address in hex without 0x prefix (default: 28 = 0x28)"
+      },
+      "axis_remap": {
+        "default": "P1",
+        "description": "BNO055 axis placement configuration: P0-P7 (see datasheet Table 3-4)"
+      },
+      "enable_mock_mode": {
+        "default": "false",
+        "description": "Use mock/simulation mode (no hardware required)"
+      },
+      "sensor_mode": {
+        "default": "NDOF",
+        "description": "BNO055 fusion mode: NDOF (absolute, 9-DOF), NDOF_FMC_OFF (absolute, fast mag-cal disabled), IMUPLUS (relative, 6-DOF, no magnetometer)"
+      },
+      "calib_file": {
+        "default": "",
+        "description": "Absolute path to calibration YAML file (see config/bno055_calib.yaml). Empty = start uncalibrated and rely on in-sensor auto-calibration."
+      },
+      "publish_tf": {
+        "default": "true",
+        "description": "Publish a dynamic world→base_link TF from IMU orientation for RViz visualization"
+      },
+      "publish_diagnostics": {
+        "default": "true",
+        "description": "Run the bno055_diagnostics companion node to publish sensor health and calibration status to /diagnostics at 1 Hz"
+      },
+      "name": {
+        "default": "oak"
+      },
+      "params_file": {
+        "default": "$depthai_filters_prefix/config/usb_cam_overlay.yaml"
+      },
+      "rviz_config": {
+        "default": "$depthai_filters_prefix/config/spatial_bb.rviz"
+      },
+      "size": {
+        "default": "8x6"
+      },
+      "square": {
+        "default": "0.108"
+      },
+      "type": {
+        "default": "mono"
+      },
+      "namespace": {
+        "default": ""
+      },
+      "parent_frame": {
+        "default": "oak_parent_frame"
+      },
+      "camera_model": {
+        "default": "OAK-D-PRO"
+      },
+      "cam_pos_x": {
+        "default": "0.0"
+      },
+      "cam_pos_y": {
+        "default": "0.0"
+      },
+      "cam_pos_z": {
+        "default": "0.0"
+      },
+      "cam_roll": {
+        "default": "0.0"
+      },
+      "cam_pitch": {
+        "default": "0.0"
+      },
+      "cam_yaw": {
+        "default": "0.0"
+      },
+      "use_rviz": {
+        "default": "false"
+      },
+      "rsp_use_composition": {
+        "default": "true"
+      },
+      "publish_tf_from_calibration": {
+        "default": "true",
+        "description": "Enables TF publishing from camera calibration file."
+      },
+      "imu_from_descr": {
+        "default": "false",
+        "description": "Enables IMU publishing from URDF."
+      },
+      "override_cam_model": {
+        "default": "false",
+        "description": "Overrides camera model from calibration file."
+      },
+      "use_gdb": {
+        "default": "false"
+      },
+      "use_valgrind": {
+        "default": "false"
+      },
+      "valgrind_args": {
+        "default": "--leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=memcheck.log"
+      },
+      "use_perf": {
+        "default": "false"
+      },
+      "rs_compat": {
+        "default": "false",
+        "description": "Enables compatibility with RealSense nodes."
+      },
+      "pointcloud.enable": {
+        "default": "false"
+      },
+      "enable_color": {
+        "default": "true"
+      },
+      "enable_depth": {
+        "default": "true"
+      },
+      "enable_infra1": {
+        "default": "false"
+      },
+      "enable_infra2": {
+        "default": "false"
+      },
+      "depth_module.depth_profile": {
+        "default": "640,400,30"
+      },
+      "rgb_camera.color_profile": {
+        "default": "640,400,30"
+      },
+      "depth_module.infra_profile": {
+        "default": "640,400,30"
+      },
+      "rectify_rgb": {
+        "default": "False"
+      },
+      "rosbag_path": {
+        "default": ""
+      },
+      "fusion_mode": {
+        "default": "base",
+        "description": "EKF sensor fusion mode: base = wheel odom + BNO055 (ekf.yaml); imu = BNO055 only, no wheel odom (ekf_imu.yaml); odom = wheel odom only, no IMU (ekf_odom.yaml)."
+      },
+      "config": {
+        "default": "base",
+        "description": "Robot configuration: base, pantilt, or k2"
+      },
+      "custom_filter": {
+        "default": "",
+        "description": "(Optional) Name of custom filter config YAML in lekiwi_bringup/config/"
+      },
+      "diagnostics": {
+        "default": "true",
+        "description": "Launch motor and IMU diagnostics nodes"
+      },
+      "pointcloud": {
+        "default": "false",
+        "description": "Enable RGBD point cloud output from OAK-D (uses oakd_vio_pcl.yaml)"
+      },
+      "serial_port": {
+        "default": "/dev/ttySERVO",
+        "description": "Serial port for STS motor communication"
+      },
+      "use_mock": {
+        "default": "false",
+        "description": "Use mock/simulation mode (no hardware required)"
+      },
+      "pan_center_steps": {
+        "default": "2048",
+        "description": "Encoder step that maps to 0 rad for the pan joint"
+      },
+      "tilt_center_steps": {
+        "default": "2646",
+        "description": "Encoder step that maps to 0 rad for the tilt joint"
+      },
+      "teleop_config": {
+        "default": "pkg:lekiwi_control/config/$config/teleop.yaml",
+        "description": "Path to the joy_teleop configuration file"
+      }
+    },
+    "active_controllers": [
+      "base_controller",
+      "imu_sensor_broadcaster",
+      "joint_state_broadcaster",
+      "pantilt_controller"
+    ]
+  },
+  "detail": {
+    "mixed_mode.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/sts_hardware_interface/launch/mixed_mode.launch.py",
+      "package": "sts_hardware_interface",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/.github/dependabot.yml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity_controllers.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro"
+      ],
+      "joint_limits": {
+        "mixed_mode_robot": {
+          "arm_joint_1": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "arm_joint_2": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_1": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_2": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        },
+        "single_motor_position": {
+          "arm_joint": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        }
+      }
+    },
+    "motor_diagnostics.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/sts_hardware_interface/launch/motor_diagnostics.launch.py",
+      "package": "sts_hardware_interface",
+      "launch_args": {
+        "config_file": null
+      },
+      "launch_arg_choices": {
+        "config_file": {
+          "default": "pkg:sts_hardware_interface/config/motor_diagnostics_config.yaml",
+          "description": "Path to diagnostics config YAML"
+        }
+      },
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/.github/dependabot.yml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity_controllers.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro"
+      ],
+      "joint_limits": {
+        "mixed_mode_robot": {
+          "arm_joint_1": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "arm_joint_2": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_1": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_2": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        },
+        "single_motor_position": {
+          "arm_joint": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        }
+      }
+    },
+    "single_motor_position.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/sts_hardware_interface/launch/single_motor_position.launch.py",
+      "package": "sts_hardware_interface",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/.github/dependabot.yml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity_controllers.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro"
+      ],
+      "joint_limits": {
+        "mixed_mode_robot": {
+          "arm_joint_1": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "arm_joint_2": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_1": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_2": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        },
+        "single_motor_position": {
+          "arm_joint": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        }
+      }
+    },
+    "single_motor_velocity.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/sts_hardware_interface/launch/single_motor_velocity.launch.py",
+      "package": "sts_hardware_interface",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/.github/dependabot.yml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity_controllers.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro"
+      ],
+      "joint_limits": {
+        "mixed_mode_robot": {
+          "arm_joint_1": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "arm_joint_2": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_1": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_2": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        },
+        "single_motor_position": {
+          "arm_joint": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        }
+      }
+    },
+    "test_mixed_mode.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/sts_hardware_interface/test/test_mixed_mode.launch.py",
+      "package": "sts_hardware_interface",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "$mixed_mode_launch",
+          "package": null,
+          "file": null,
+          "args_forwarded": {
+            "use_mock": "true",
+            "gui": "false"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/.github/dependabot.yml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity_controllers.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro"
+      ],
+      "joint_limits": {
+        "mixed_mode_robot": {
+          "arm_joint_1": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "arm_joint_2": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_1": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_2": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        },
+        "single_motor_position": {
+          "arm_joint": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        }
+      }
+    },
+    "test_motor_diagnostics.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/sts_hardware_interface/test/test_motor_diagnostics.launch.py",
+      "package": "sts_hardware_interface",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "$diagnostics_launch",
+          "package": null,
+          "file": null,
+          "args_forwarded": {}
+        },
+        {
+          "source": "$single_motor_launch",
+          "package": null,
+          "file": null,
+          "args_forwarded": {
+            "use_mock": "true",
+            "gui": "false"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/.github/dependabot.yml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity_controllers.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro"
+      ],
+      "joint_limits": {
+        "mixed_mode_robot": {
+          "arm_joint_1": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "arm_joint_2": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_1": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_2": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        },
+        "single_motor_position": {
+          "arm_joint": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        }
+      }
+    },
+    "test_single_motor_position.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/sts_hardware_interface/test/test_single_motor_position.launch.py",
+      "package": "sts_hardware_interface",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "$single_motor_position_launch",
+          "package": null,
+          "file": null,
+          "args_forwarded": {
+            "use_mock": "true",
+            "gui": "false"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/.github/dependabot.yml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity_controllers.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro"
+      ],
+      "joint_limits": {
+        "mixed_mode_robot": {
+          "arm_joint_1": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "arm_joint_2": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_1": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_2": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        },
+        "single_motor_position": {
+          "arm_joint": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        }
+      }
+    },
+    "test_single_motor_velocity.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/sts_hardware_interface/test/test_single_motor_velocity.launch.py",
+      "package": "sts_hardware_interface",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "$single_motor_launch",
+          "package": null,
+          "file": null,
+          "args_forwarded": {
+            "use_mock": "true",
+            "gui": "false"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/.github/dependabot.yml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/motor_diagnostics_config.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position_controllers.yaml",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity_controllers.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/mixed_mode.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_position.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/sts_hardware_interface/config/single_motor_velocity.urdf.xacro"
+      ],
+      "joint_limits": {
+        "mixed_mode_robot": {
+          "arm_joint_1": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "arm_joint_2": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_1": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          },
+          "gripper_joint_2": {
+            "velocity": 2.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        },
+        "single_motor_position": {
+          "arm_joint": {
+            "velocity": 5.0,
+            "effort": 1.0,
+            "type": "revolute"
+          }
+        }
+      }
+    },
+    "bno055.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/launch/bno055.launch.py",
+      "package": "bno055_hardware_interface",
+      "launch_args": {
+        "i2c_bus": null,
+        "i2c_addr": null,
+        "axis_remap": null,
+        "enable_mock_mode": null,
+        "sensor_mode": null,
+        "calib_file": null,
+        "publish_tf": null,
+        "publish_diagnostics": null
+      },
+      "launch_arg_choices": {
+        "i2c_bus": {
+          "default": "1",
+          "description": "I2C bus number (e.g. 1 → /dev/i2c-1)"
+        },
+        "i2c_addr": {
+          "default": "28",
+          "description": "I2C device address in hex without 0x prefix (default: 28 = 0x28)"
+        },
+        "axis_remap": {
+          "default": "P1",
+          "description": "BNO055 axis placement configuration: P0-P7 (see datasheet Table 3-4)"
+        },
+        "enable_mock_mode": {
+          "default": "false",
+          "description": "Use mock/simulation mode (no hardware required)"
+        },
+        "sensor_mode": {
+          "default": "NDOF",
+          "description": "BNO055 fusion mode: NDOF (absolute, 9-DOF), NDOF_FMC_OFF (absolute, fast mag-cal disabled), IMUPLUS (relative, 6-DOF, no magnetometer)"
+        },
+        "calib_file": {
+          "default": "",
+          "description": "Absolute path to calibration YAML file (see config/bno055_calib.yaml). Empty = start uncalibrated and rely on in-sensor auto-calibration."
+        },
+        "publish_tf": {
+          "default": "true",
+          "description": "Publish a dynamic world→base_link TF from IMU orientation for RViz visualization"
+        },
+        "publish_diagnostics": {
+          "default": "true",
+          "description": "Run the bno055_diagnostics companion node to publish sensor health and calibration status to /diagnostics at 1 Hz"
+        }
+      },
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/bno055_calib.yaml",
+        "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/imu_broadcaster.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/bno055.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/bno055.urdf.xacro"
+      ],
+      "joint_limits": {}
+    },
+    "test_bno055.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/test/test_bno055.launch.py",
+      "package": "bno055_hardware_interface",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "$bno055_launch",
+          "package": null,
+          "file": null,
+          "args_forwarded": {}
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/bno055_calib.yaml",
+        "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/imu_broadcaster.yaml"
+      ],
+      "urdf_files": [
+        "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/bno055.urdf.xacro",
+        "/home/ubuntu/ros2_ws/src/bno055_hardware_interface/config/bno055.urdf.xacro"
+      ],
+      "joint_limits": {}
+    },
+    "ld06.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/ldlidar_ros2/launch/ld06.launch.py",
+      "package": "ldlidar_ros2",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "ld14.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/ldlidar_ros2/launch/ld14.launch.py",
+      "package": "ldlidar_ros2",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "ld14p.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/ldlidar_ros2/launch/ld14p.launch.py",
+      "package": "ldlidar_ros2",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "ld19.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/ldlidar_ros2/launch/ld19.launch.py",
+      "package": "ldlidar_ros2",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "viewer_ld06.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/ldlidar_ros2/launch/viewer_ld06.launch.py",
+      "package": "ldlidar_ros2",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "pkg:ldlidar_ros2//launch/ld06.launch.py",
+          "package": "ldlidar_ros2",
+          "file": "ld06.launch.py",
+          "args_forwarded": {}
+        }
+      ],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "viewer_ld14.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/ldlidar_ros2/launch/viewer_ld14.launch.py",
+      "package": "ldlidar_ros2",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "pkg:ldlidar_ros2//launch/ld14.launch.py",
+          "package": "ldlidar_ros2",
+          "file": "ld14.launch.py",
+          "args_forwarded": {}
+        }
+      ],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "viewer_ld14p.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/ldlidar_ros2/launch/viewer_ld14p.launch.py",
+      "package": "ldlidar_ros2",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "pkg:ldlidar_ros2//launch/ld14p.launch.py",
+          "package": "ldlidar_ros2",
+          "file": "ld14p.launch.py",
+          "args_forwarded": {}
+        }
+      ],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "viewer_ld19.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/ldlidar_ros2/launch/viewer_ld19.launch.py",
+      "package": "ldlidar_ros2",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "pkg:ldlidar_ros2//launch/ld19.launch.py",
+          "package": "ldlidar_ros2",
+          "file": "ld19.launch.py",
+          "args_forwarded": {}
+        }
+      ],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "camera_server.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/quest_teleop/launch/camera_server.launch.py",
+      "package": "quest_teleop",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/quest_teleop/config/camera_server_config.yaml",
+        "/home/ubuntu/ros2_ws/src/quest_teleop/config/odom_config.yaml",
+        "/home/ubuntu/ros2_ws/src/quest_teleop/config/pantilt_config.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "teleop.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/quest_teleop/launch/teleop.launch.py",
+      "package": "quest_teleop",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/quest_teleop/config/camera_server_config.yaml",
+        "/home/ubuntu/ros2_ws/src/quest_teleop/config/odom_config.yaml",
+        "/home/ubuntu/ros2_ws/src/quest_teleop/config/pantilt_config.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "server.launch.yaml": {
+      "path": "/home/ubuntu/ros2_ws/src/ros_camera_server/ros_camera_server/launch/server.launch.yaml",
+      "package": "ros_camera_server",
+      "launch_args": {
+        "name": null,
+        "config_path": null,
+        "sigterm_timeout": null,
+        "sigkill_timeout": null,
+        "log_level": null,
+        "startup_delay": null
+      },
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/ros_camera_server/ros_camera_server/config/client.yaml",
+        "/home/ubuntu/ros2_ws/src/ros_camera_server/ros_camera_server/config/config.yaml",
+        "/home/ubuntu/ros2_ws/src/ros_camera_server/ros_camera_server/config/example_camera_info.yaml",
+        "/home/ubuntu/ros2_ws/src/ros_camera_server/ros_camera_server/config/server.yaml",
+        "/home/ubuntu/ros2_ws/src/ros_camera_server/ros_camera_server/launch/server.launch.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "det2d_usb_cam_overlay.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/launch/det2d_usb_cam_overlay.launch.py",
+      "package": "depthai_filters",
+      "launch_args": {},
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_filters_prefix/config/usb_cam_overlay.yaml"
+        }
+      },
+      "includes": [
+        {
+          "source": "$filters_prefix/launch/example_det2d_overlay.launch.py",
+          "package": null,
+          "file": "example_det2d_overlay.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/detection.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/feature_tracker.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/spatial_bb.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/wls.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "example_det2d_overlay.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/launch/example_det2d_overlay.launch.py",
+      "package": "depthai_filters",
+      "launch_args": {
+        "name": null,
+        "params_file": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_filters_prefix/config/detection.yaml"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/detection.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/feature_tracker.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/spatial_bb.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/wls.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "example_feature_3d.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/launch/example_feature_3d.launch.py",
+      "package": "depthai_filters",
+      "launch_args": {
+        "name": null,
+        "params_file": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_filters_prefix/config/feature_tracker.yaml"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/detection.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/feature_tracker.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/spatial_bb.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/wls.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "example_feature_tracker.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/launch/example_feature_tracker.launch.py",
+      "package": "depthai_filters",
+      "launch_args": {
+        "name": null,
+        "params_file": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_filters_prefix/config/feature_tracker.yaml"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/detection.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/feature_tracker.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/spatial_bb.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/wls.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "example_seg_overlay.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/launch/example_seg_overlay.launch.py",
+      "package": "depthai_filters",
+      "launch_args": {
+        "name": null,
+        "params_file": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/segmentation.yaml"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/example_segmentation.launch.py",
+          "package": null,
+          "file": "example_segmentation.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/detection.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/feature_tracker.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/spatial_bb.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/wls.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "example_wls_filter.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/launch/example_wls_filter.launch.py",
+      "package": "depthai_filters",
+      "launch_args": {},
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_filters_prefix/config/wls.yaml"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/detection.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/feature_tracker.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/spatial_bb.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/wls.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "spatial_bb.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/launch/spatial_bb.launch.py",
+      "package": "depthai_filters",
+      "launch_args": {
+        "name": null,
+        "params_file": null,
+        "rviz_config": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_filters_prefix/config/spatial_bb.yaml"
+        },
+        "rviz_config": {
+          "default": "$depthai_filters_prefix/config/spatial_bb.rviz"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/detection.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/feature_tracker.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/spatial_bb.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/wls.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "thermal_temp.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/launch/thermal_temp.launch.py",
+      "package": "depthai_filters",
+      "launch_args": {
+        "name": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/oak_t.launch.py",
+          "package": null,
+          "file": "oak_t.launch.py",
+          "args_forwarded": {
+            "name": "$name"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/detection.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/feature_tracker.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/spatial_bb.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/usb_cam_overlay.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_filters/config/wls.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "calibration.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/calibration.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "size": null,
+        "square": null,
+        "type": null,
+        "params_file": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "size": {
+          "default": "8x6"
+        },
+        "square": {
+          "default": "0.108"
+        },
+        "type": {
+          "default": "mono"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/calibration.yaml"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "driver.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/driver.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "namespace": null,
+        "parent_frame": null,
+        "camera_model": null,
+        "cam_pos_x": null,
+        "cam_pos_y": null,
+        "cam_pos_z": null,
+        "cam_roll": null,
+        "cam_pitch": null,
+        "cam_yaw": null,
+        "params_file": null,
+        "use_rviz": null,
+        "rviz_config": null,
+        "rsp_use_composition": null,
+        "publish_tf_from_calibration": null,
+        "imu_from_descr": null,
+        "override_cam_model": null,
+        "use_gdb": null,
+        "use_valgrind": null,
+        "valgrind_args": null,
+        "use_perf": null,
+        "rs_compat": null,
+        "pointcloud.enable": null,
+        "enable_color": null,
+        "enable_depth": null,
+        "enable_infra1": null,
+        "enable_infra2": null,
+        "depth_module.depth_profile": null,
+        "rgb_camera.color_profile": null,
+        "depth_module.infra_profile": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "namespace": {
+          "default": ""
+        },
+        "parent_frame": {
+          "default": "oak_parent_frame"
+        },
+        "camera_model": {
+          "default": "OAK-D-PRO"
+        },
+        "cam_pos_x": {
+          "default": "0.0"
+        },
+        "cam_pos_y": {
+          "default": "0.0"
+        },
+        "cam_pos_z": {
+          "default": "0.0"
+        },
+        "cam_roll": {
+          "default": "0.0"
+        },
+        "cam_pitch": {
+          "default": "0.0"
+        },
+        "cam_yaw": {
+          "default": "0.0"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/driver.yaml"
+        },
+        "use_rviz": {
+          "default": "false"
+        },
+        "rviz_config": {
+          "default": "$depthai_prefix/config/rviz/rgbd.rviz"
+        },
+        "rsp_use_composition": {
+          "default": "true"
+        },
+        "publish_tf_from_calibration": {
+          "default": "true",
+          "description": "Enables TF publishing from camera calibration file."
+        },
+        "imu_from_descr": {
+          "default": "false",
+          "description": "Enables IMU publishing from URDF."
+        },
+        "override_cam_model": {
+          "default": "false",
+          "description": "Overrides camera model from calibration file."
+        },
+        "use_gdb": {
+          "default": "false"
+        },
+        "use_valgrind": {
+          "default": "false"
+        },
+        "valgrind_args": {
+          "default": "--leak-check=full --show-leak-kinds=all --track-origins=yes --verbose --log-file=memcheck.log"
+        },
+        "use_perf": {
+          "default": "false"
+        },
+        "rs_compat": {
+          "default": "false",
+          "description": "Enables compatibility with RealSense nodes."
+        },
+        "pointcloud.enable": {
+          "default": "false"
+        },
+        "enable_color": {
+          "default": "true"
+        },
+        "enable_depth": {
+          "default": "true"
+        },
+        "enable_infra1": {
+          "default": "false"
+        },
+        "enable_infra2": {
+          "default": "false"
+        },
+        "depth_module.depth_profile": {
+          "default": "640,400,30"
+        },
+        "rgb_camera.color_profile": {
+          "default": "640,400,30"
+        },
+        "depth_module.infra_profile": {
+          "default": "640,400,30"
+        }
+      },
+      "includes": [
+        {
+          "source": "$urdf_launch_dir/urdf_launch.py",
+          "package": null,
+          "file": "urdf_launch.py",
+          "args_forwarded": {
+            "namespace": "$namespace",
+            "tf_prefix": "$name",
+            "camera_model": "$camera_model",
+            "base_frame": "$name",
+            "parent_frame": "$parent_frame",
+            "cam_pos_x": "$cam_pos_x",
+            "cam_pos_y": "$cam_pos_y",
+            "cam_pos_z": "$cam_pos_z",
+            "cam_roll": "$cam_roll",
+            "cam_pitch": "$cam_pitch",
+            "cam_yaw": "$cam_yaw",
+            "use_composition": "$use_composition",
+            "use_base_descr": "$publish_tf_from_calibration",
+            "rs_compat": "$rs_compat"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "driver_as_part_of_a_robot.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/driver_as_part_of_a_robot.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "camera_model": null,
+        "parent_frame": null,
+        "cam_pos_x": null,
+        "cam_pos_y": null,
+        "cam_pos_z": null,
+        "cam_roll": null,
+        "cam_pitch": null,
+        "cam_yaw": null,
+        "params_file": null,
+        "rectify_rgb": null,
+        "rsp_use_composition": null,
+        "publish_tf_from_calibration": null,
+        "imu_from_descr": null,
+        "override_cam_model": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "camera_model": {
+          "default": "OAK-D"
+        },
+        "parent_frame": {
+          "default": "oak_parent_frame"
+        },
+        "cam_pos_x": {
+          "default": "0.0"
+        },
+        "cam_pos_y": {
+          "default": "0.0"
+        },
+        "cam_pos_z": {
+          "default": "0.0"
+        },
+        "cam_roll": {
+          "default": "0.0"
+        },
+        "cam_pitch": {
+          "default": "0.0"
+        },
+        "cam_yaw": {
+          "default": "0.0"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/rgbd.yaml"
+        },
+        "rectify_rgb": {
+          "default": "False"
+        },
+        "rsp_use_composition": {
+          "default": "false"
+        },
+        "publish_tf_from_calibration": {
+          "default": "false",
+          "description": "Enables TF publishing from camera calibration file."
+        },
+        "imu_from_descr": {
+          "default": "false",
+          "description": "Enables IMU publishing from URDF."
+        },
+        "override_cam_model": {
+          "default": "false",
+          "description": "Overrides camera model from calibration file."
+        }
+      },
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "example_multicam.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/example_multicam.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/rgbd_pcl.launch.py",
+          "package": null,
+          "file": "rgbd_pcl.launch.py",
+          "args_forwarded": {
+            "name": "oak_d_pro",
+            "parent_frame": "map",
+            "params_file": "$params_file",
+            "cam_pos_y": "str(...)"
+          }
+        },
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$cam_name",
+            "parent_frame": "map",
+            "params_file": "$params_file",
+            "cam_pos_y": "str(...)"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "example_segmentation.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/example_segmentation.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "params_file": null,
+        "use_rviz": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/segmentation.yaml"
+        },
+        "use_rviz": {
+          "default": "False"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file",
+            "use_rviz": "$use_rviz",
+            "rviz_config": "$rviz_config"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "oak_t.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/oak_t.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "camera_model": null,
+        "parent_frame": null,
+        "cam_pos_x": null,
+        "cam_pos_y": null,
+        "cam_pos_z": null,
+        "cam_roll": null,
+        "cam_pitch": null,
+        "cam_yaw": null,
+        "params_file": null,
+        "use_rviz": null,
+        "rviz_config": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "camera_model": {
+          "default": "OAK-T"
+        },
+        "parent_frame": {
+          "default": "oak_parent_frame"
+        },
+        "cam_pos_x": {
+          "default": "0.0"
+        },
+        "cam_pos_y": {
+          "default": "0.0"
+        },
+        "cam_pos_z": {
+          "default": "0.0"
+        },
+        "cam_roll": {
+          "default": "0.0"
+        },
+        "cam_pitch": {
+          "default": "0.0"
+        },
+        "cam_yaw": {
+          "default": "0.0"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/oak_t.yaml"
+        },
+        "use_rviz": {
+          "default": "False"
+        },
+        "rviz_config": {
+          "default": "$depthai_prefix/config/rviz/rgbd.rviz"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file",
+            "parent_frame": "$parent_frame",
+            "cam_pos_x": "$cam_pos_x",
+            "cam_pos_y": "$cam_pos_y",
+            "cam_pos_z": "$cam_pos_z",
+            "cam_roll": "$cam_roll",
+            "cam_pitch": "$cam_pitch",
+            "cam_yaw": "$cam_yaw",
+            "use_rviz": "$use_rviz",
+            "rectify_rgb": "false"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "pointcloud.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/pointcloud.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "parent_frame": null,
+        "cam_pos_x": null,
+        "cam_pos_y": null,
+        "cam_pos_z": null,
+        "cam_roll": null,
+        "cam_pitch": null,
+        "cam_yaw": null,
+        "params_file": null,
+        "use_rviz": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "parent_frame": {
+          "default": "oak_parent_frame"
+        },
+        "cam_pos_x": {
+          "default": "0.0"
+        },
+        "cam_pos_y": {
+          "default": "0.0"
+        },
+        "cam_pos_z": {
+          "default": "0.0"
+        },
+        "cam_roll": {
+          "default": "0.0"
+        },
+        "cam_pitch": {
+          "default": "0.0"
+        },
+        "cam_yaw": {
+          "default": "0.0"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/pcl.yaml"
+        },
+        "use_rviz": {
+          "default": "False"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file",
+            "parent_frame": "$parent_frame",
+            "cam_pos_x": "$cam_pos_x",
+            "cam_pos_y": "$cam_pos_y",
+            "cam_pos_z": "$cam_pos_z",
+            "cam_roll": "$cam_roll",
+            "cam_pitch": "$cam_pitch",
+            "cam_yaw": "$cam_yaw",
+            "use_rviz": "$use_rviz"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "rgbd_pcl.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/rgbd_pcl.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "camera_model": null,
+        "parent_frame": null,
+        "cam_pos_x": null,
+        "cam_pos_y": null,
+        "cam_pos_z": null,
+        "cam_roll": null,
+        "cam_pitch": null,
+        "cam_yaw": null,
+        "params_file": null,
+        "use_rviz": null,
+        "rviz_config": null,
+        "rs_compat": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "camera_model": {
+          "default": "OAK-D"
+        },
+        "parent_frame": {
+          "default": "oak_parent_frame"
+        },
+        "cam_pos_x": {
+          "default": "0.0"
+        },
+        "cam_pos_y": {
+          "default": "0.0"
+        },
+        "cam_pos_z": {
+          "default": "0.0"
+        },
+        "cam_roll": {
+          "default": "0.0"
+        },
+        "cam_pitch": {
+          "default": "0.0"
+        },
+        "cam_yaw": {
+          "default": "0.0"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/rgbd.yaml"
+        },
+        "use_rviz": {
+          "default": "False"
+        },
+        "rviz_config": {
+          "default": "$depthai_prefix/config/rviz/rgbd.rviz"
+        },
+        "rs_compat": {
+          "default": "False"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file",
+            "parent_frame": "$parent_frame",
+            "cam_pos_x": "$cam_pos_x",
+            "cam_pos_y": "$cam_pos_y",
+            "cam_pos_z": "$cam_pos_z",
+            "cam_roll": "$cam_roll",
+            "cam_pitch": "$cam_pitch",
+            "cam_yaw": "$cam_yaw",
+            "use_rviz": "$use_rviz",
+            "rs_compat": "$rs_compat"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "rtabmap.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/rtabmap.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "params_file": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/rtabmap.yaml"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "sr_poe_rgbd_pcl.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/sr_poe_rgbd_pcl.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "camera_model": null,
+        "parent_frame": null,
+        "cam_pos_x": null,
+        "cam_pos_y": null,
+        "cam_pos_z": null,
+        "cam_roll": null,
+        "cam_pitch": null,
+        "cam_yaw": null,
+        "params_file": null,
+        "use_rviz": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "camera_model": {
+          "default": "OAK-D-SR-POE"
+        },
+        "parent_frame": {
+          "default": "oak_parent_frame"
+        },
+        "cam_pos_x": {
+          "default": "0.0"
+        },
+        "cam_pos_y": {
+          "default": "0.0"
+        },
+        "cam_pos_z": {
+          "default": "0.0"
+        },
+        "cam_roll": {
+          "default": "0.0"
+        },
+        "cam_pitch": {
+          "default": "0.0"
+        },
+        "cam_yaw": {
+          "default": "0.0"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/sr_poe_rgbd.yaml"
+        },
+        "use_rviz": {
+          "default": "False"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file",
+            "parent_frame": "$parent_frame",
+            "cam_pos_x": "$cam_pos_x",
+            "cam_pos_y": "$cam_pos_y",
+            "cam_pos_z": "$cam_pos_z",
+            "cam_roll": "$cam_roll",
+            "cam_pitch": "$cam_pitch",
+            "cam_yaw": "$cam_yaw",
+            "use_rviz": "$use_rviz"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "sr_rgbd_pcl.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/sr_rgbd_pcl.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "camera_model": null,
+        "parent_frame": null,
+        "cam_pos_x": null,
+        "cam_pos_y": null,
+        "cam_pos_z": null,
+        "cam_roll": null,
+        "cam_pitch": null,
+        "cam_yaw": null,
+        "params_file": null,
+        "use_rviz": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "camera_model": {
+          "default": "OAK-D-SR"
+        },
+        "parent_frame": {
+          "default": "oak_parent_frame"
+        },
+        "cam_pos_x": {
+          "default": "0.0"
+        },
+        "cam_pos_y": {
+          "default": "0.0"
+        },
+        "cam_pos_z": {
+          "default": "0.0"
+        },
+        "cam_roll": {
+          "default": "0.0"
+        },
+        "cam_pitch": {
+          "default": "0.0"
+        },
+        "cam_yaw": {
+          "default": "0.0"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/sr_rgbd.yaml"
+        },
+        "use_rviz": {
+          "default": "False"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file",
+            "parent_frame": "$parent_frame",
+            "cam_pos_x": "$cam_pos_x",
+            "cam_pos_y": "$cam_pos_y",
+            "cam_pos_z": "$cam_pos_z",
+            "cam_roll": "$cam_roll",
+            "cam_pitch": "$cam_pitch",
+            "cam_yaw": "$cam_yaw",
+            "use_rviz": "$use_rviz"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "stereo_from_rosbag.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/stereo_from_rosbag.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {},
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/stereo_from_rosbag.yaml"
+        },
+        "use_rviz": {
+          "default": "True"
+        },
+        "rosbag_path": {
+          "default": ""
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file",
+            "use_rviz": "$use_rviz",
+            "rviz_config": "$rviz_config"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "vio.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/launch/vio.launch.py",
+      "package": "depthai_ros_driver",
+      "launch_args": {
+        "name": null,
+        "camera_model": null,
+        "parent_frame": null,
+        "cam_pos_x": null,
+        "cam_pos_y": null,
+        "cam_pos_z": null,
+        "cam_roll": null,
+        "cam_pitch": null,
+        "cam_yaw": null,
+        "params_file": null,
+        "use_rviz": null,
+        "rviz_config": null,
+        "rs_compat": null
+      },
+      "launch_arg_choices": {
+        "name": {
+          "default": "oak"
+        },
+        "camera_model": {
+          "default": "OAK-D-S2"
+        },
+        "parent_frame": {
+          "default": "oak_parent_frame"
+        },
+        "cam_pos_x": {
+          "default": "0.0"
+        },
+        "cam_pos_y": {
+          "default": "0.0"
+        },
+        "cam_pos_z": {
+          "default": "0.0"
+        },
+        "cam_roll": {
+          "default": "0.0"
+        },
+        "cam_pitch": {
+          "default": "0.0"
+        },
+        "cam_yaw": {
+          "default": "0.0"
+        },
+        "params_file": {
+          "default": "$depthai_prefix/config/vio.yaml"
+        },
+        "use_rviz": {
+          "default": "False"
+        },
+        "rviz_config": {
+          "default": "$depthai_prefix/config/rviz/vio.rviz"
+        },
+        "rs_compat": {
+          "default": "False"
+        }
+      },
+      "includes": [
+        {
+          "source": "$depthai_prefix/launch/driver.launch.py",
+          "package": null,
+          "file": "driver.launch.py",
+          "args_forwarded": {
+            "name": "$name",
+            "params_file": "$params_file",
+            "parent_frame": "$parent_frame",
+            "cam_pos_x": "$cam_pos_x",
+            "cam_pos_y": "$cam_pos_y",
+            "cam_pos_z": "$cam_pos_z",
+            "cam_roll": "$cam_roll",
+            "cam_pitch": "$cam_pitch",
+            "cam_yaw": "$cam_yaw",
+            "use_rviz": "$use_rviz",
+            "rs_compat": "$rs_compat"
+          }
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/calibration.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/driver.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/isaac_vslam.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/low_bandwidth.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/multicam_example.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_pro_w.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_d_sr.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/oak_t.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/rtabmap.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/segmentation.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_poe_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/sr_rgbd.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/stereo_from_rosbag.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/vio.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo.yaml",
+        "/home/ubuntu/ros2_ws/src/depthai-ros/depthai_ros_driver/config/yolo_spatial.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "nav.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/launch/nav.launch.py",
+      "package": "lekiwi_navigation",
+      "launch_args": {
+        "fusion_mode": null
+      },
+      "launch_arg_choices": {
+        "fusion_mode": {
+          "default": "base",
+          "description": "EKF sensor fusion mode: base = wheel odom + BNO055 (ekf.yaml); imu = BNO055 only, no wheel odom (ekf_imu.yaml); odom = wheel odom only, no IMU (ekf_odom.yaml)."
+        }
+      },
+      "includes": [],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "laser.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/laser.launch.py",
+      "package": "lekiwi_bringup",
+      "launch_args": {
+        "config": null,
+        "custom_filter": null
+      },
+      "launch_arg_choices": {
+        "config": {
+          "default": "base",
+          "description": "Robot configuration: base, pantilt, or k2"
+        },
+        "custom_filter": {
+          "default": "",
+          "description": "(Optional) Name of custom filter config YAML in lekiwi_bringup/config/"
+        }
+      },
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "lekiwi.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/lekiwi.launch.py",
+      "package": "lekiwi_bringup",
+      "launch_args": {
+        "config": null,
+        "diagnostics": null,
+        "fusion_mode": null,
+        "pointcloud": null
+      },
+      "launch_arg_choices": {
+        "config": {
+          "default": "base",
+          "description": "Bringup configuration: base, pantilt, or k2"
+        },
+        "diagnostics": {
+          "default": "true",
+          "description": "Launch motor and IMU diagnostics nodes"
+        },
+        "fusion_mode": {
+          "default": "base",
+          "description": "EKF sensor fusion mode (passed to nav.launch.py): base = wheel odom + BNO055; imu = BNO055 only (test platform); odom = wheel odom only (mock / debug)."
+        },
+        "pointcloud": {
+          "default": "false",
+          "description": "Enable RGBD point cloud output from OAK-D (uses oakd_vio_pcl.yaml)"
+        }
+      },
+      "includes": [
+        {
+          "source": "<f-string>",
+          "package": null,
+          "file": null,
+          "args_forwarded": {}
+        }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "oakd.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/oakd.launch.py",
+      "package": "lekiwi_bringup",
+      "launch_args": {
+        "pointcloud": null
+      },
+      "launch_arg_choices": {
+        "pointcloud": {
+          "default": "false",
+          "description": "Use oakd_vio_pcl.yaml (with RGBD point cloud) instead of oakd_vio.yaml."
+        }
+      },
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "webcam.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/webcam.launch.py",
+      "package": "lekiwi_bringup",
+      "launch_args": {},
+      "launch_arg_choices": {},
+      "includes": [],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
+      ],
+      "urdf_files": [],
+      "joint_limits": {}
+    },
+    "lekiwi_control/lekiwi.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/launch/lekiwi.launch.py",
+      "package": "lekiwi_control",
+      "launch_args": {
+        "config": null,
+        "serial_port": null,
+        "use_mock": null,
+        "diagnostics": null,
+        "pan_center_steps": null,
+        "tilt_center_steps": null,
+        "teleop_config": null
+      },
+      "launch_arg_choices": {
+        "config": {
+          "default": "base",
+          "description": "Robot configuration to launch: base, pantilt, or k2"
+        },
+        "serial_port": {
+          "default": "/dev/ttySERVO",
+          "description": "Serial port for STS motor communication"
+        },
+        "use_mock": {
+          "default": "false",
+          "description": "Use mock/simulation mode (no hardware required)"
+        },
+        "diagnostics": {
+          "default": "true",
+          "description": "Launch motor and IMU diagnostics nodes"
+        },
+        "pan_center_steps": {
+          "default": "2048",
+          "description": "Encoder step that maps to 0 rad for the pan joint"
+        },
+        "tilt_center_steps": {
+          "default": "2646",
+          "description": "Encoder step that maps to 0 rad for the tilt joint"
+        },
+        "teleop_config": {
+          "default": "pkg:lekiwi_control/config/$config/teleop.yaml",
+          "description": "Path to the joy_teleop configuration file"
+        }
+      },
+      "includes": [
+        {
+          "source": "pkg:sts_hardware_interface/launch/motor_diagnostics.launch.py",
+          "package": "sts_hardware_interface",
+          "file": "motor_diagnostics.launch.py",
+          "args_forwarded": {}
+        }
+      ],
+      "yaml_files": [],
+      "urdf_files": [],
+      "joint_limits": {}
+    }
+  }
+}

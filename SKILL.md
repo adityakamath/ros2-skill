@@ -77,7 +77,18 @@ python3 {baseDir}/scripts/ros2_cli.py context          # topics (cap 50), servic
 # Step 7 — robot profile (load if available; skip if absent)
 python3 {baseDir}/scripts/ros2_cli.py profile show
 # → robot_type, packages, launch_files, velocity_topics, safety_limits, sensor_flags
-# If absent: build once with  profile scan [--workspace PATH]
+# If absent: build once, using these rules derived from the user's request:
+#
+#   ONE robot named  → pass --name <robot_name>  (pkg filter is auto-derived from the name)
+#     python3 {baseDir}/scripts/ros2_cli.py profile scan --name lekiwi
+#     python3 {baseDir}/scripts/ros2_cli.py profile scan --name depthai
+#
+#   MULTIPLE robots named  → pass --packages <r1>,<r2> plus --name <combined_label>
+#     python3 {baseDir}/scripts/ros2_cli.py profile scan --packages lekiwi,quest_teleop --name lekiwi_quest
+#
+#   NO robot name given (bare "create a profile" / "scan workspace")  → omit both flags
+#     python3 {baseDir}/scripts/ros2_cli.py profile scan
+#
 # Use summary.safety_limits as the --max-vel / --max-ang ceiling (Rule 28).
 ```
 
@@ -285,8 +296,17 @@ python3 {baseDir}/scripts/ros2_cli.py tf echo <source_frame> <target_frame>
 Build once; load every session. The profile captures robot type, packages, launch files (as filenames from the workspace), velocity topics, safety limits, and sensor flags — eliminating per-session re-discovery.
 
 ```bash
-# Scan the workspace and write .profiles/<robot>_profile.json
+# Scan the entire workspace and write .profiles/<robot>_profile.json
+# Omit --packages to include every package in <ws>/src/ (full workspace profile).
 python3 {baseDir}/scripts/ros2_cli.py profile scan [--workspace /path/to/ros2_ws] [--name my_robot]
+
+# Scope the scan to one robot's packages using fuzzy pattern matching.
+# --packages accepts a comma-separated list of substrings; any package whose
+# name OR path contains a pattern is included.  Unrelated workspace deps are
+# excluded automatically.  Robot name defaults to the first pattern.
+python3 {baseDir}/scripts/ros2_cli.py profile scan --packages lekiwi
+python3 {baseDir}/scripts/ros2_cli.py profile scan --packages lekiwi --name lekiwi
+python3 {baseDir}/scripts/ros2_cli.py profile scan --packages lekiwi,soarm --name my_robot
 
 # Add --allow-live to also query the live graph for topics static analysis missed
 python3 {baseDir}/scripts/ros2_cli.py profile scan --allow-live
@@ -302,8 +322,21 @@ python3 {baseDir}/scripts/ros2_cli.py profile show --section summary
 python3 {baseDir}/scripts/ros2_cli.py profile show --section detail
 python3 {baseDir}/scripts/ros2_cli.py profile show --section <launch-filename>   # e.g. bringup.launch.py
 
-# Full rescan (workspace changed) — accepts --robot-type override too
+# Full rescan (workspace changed):
+#   ONE robot named  → pass --name <robot_name>  (pkg filter auto-derived; overrides stored empty filter)
+#     python3 {baseDir}/scripts/ros2_cli.py profile rescan --name lekiwi
+#
+#   MULTIPLE robots named  → pass --packages <r1>,<r2> --name <combined_label>
+#     python3 {baseDir}/scripts/ros2_cli.py profile rescan --packages lekiwi,quest_teleop --name lekiwi_quest
+#
+#   NO robot name given  → omit --name; stored pkg_filter is reused automatically
 python3 {baseDir}/scripts/ros2_cli.py profile rescan [--workspace PATH]
+
+# Override the package filter on rescan (e.g. widen or change scope)
+python3 {baseDir}/scripts/ros2_cli.py profile rescan --packages lekiwi,quest_teleop
+
+# Remove the filter and scan the full workspace on rescan
+python3 {baseDir}/scripts/ros2_cli.py profile rescan --packages ''
 
 # Partial rescan — only refresh launch args for one file (fast)
 python3 {baseDir}/scripts/ros2_cli.py profile rescan --launch-file <launch-filename>
@@ -328,8 +361,8 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
     },
     "packages": ["my_bringup", "my_nav"],
     "launch_files": ["bringup.launch.py", "nav2_bringup.launch.py"],  ← filenames from workspace; keys into detail
-    "urdf_files": ["/path/to/robot.urdf.xacro"],
-    "velocity_topics": ["/cmd_vel"],
+    "urdf_files": ["/path/to/robot.urdf.xacro"],  ← primary packages only; deduplicated
+    "velocity_topics": [{"topic": "/cmd_vel", "type": "geometry_msgs/msg/Twist"}],  ← topic+type objects
     "safety_limits": {
       "sources": [                        ← one entry per YAML config that had a velocity limit
         {"file": "teleop_joy.yaml", "path": "...", "linear_x": 0.5, "linear_y": 0.3, "angular_z": 1.0},
@@ -340,7 +373,7 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
       }
     },
     "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false,
-    "sensor_mounts": [          ← every sensor/actuator link found in URDF
+    "sensor_mounts": [          ← sensor/actuator links from URDF; unresolved xacro variables excluded
       {                         ← sensor_type: camera|depth_camera|lidar|imu|sonar|gps|gripper
         "joint": "camera_joint", "link": "camera_link",
         "sensor_type": "camera",
@@ -440,9 +473,9 @@ These work without ROS running or nodes active:
 | `--help` on any command | Inspect flags and subcommands |
 | `pkg list / prefix / executables / xml` | Package introspection |
 | `pkg create <name> [flags]` | Scaffold a new ROS 2 package |
-| `profile scan [--workspace PATH] [--robot-type TYPE]` | Build robot profile from workspace (static-first); `--robot-type` overrides detection |
+| `profile scan [--workspace PATH] [--packages PATTERNS] [--robot-type TYPE]` | Build robot profile; `--packages lekiwi` fuzzy-matches packages by name/path (comma-separated for multiple patterns); `--robot-type` overrides detection |
 | `profile show [--section S]` | Show saved robot profile or a section (always includes annotations) |
-| `profile rescan [--launch-file F]` | Update existing profile (full or partial) |
+| `profile rescan [--launch-file F] [--packages PATTERNS]` | Update existing profile; `--packages` filter is reused automatically from the saved profile unless overridden |
 | `profile list` | List all saved robot profiles |
 | `profile annotate "note"` | Append a free-text note to the profile (read at every session start) |
 

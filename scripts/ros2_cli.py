@@ -1257,7 +1257,12 @@ def build_parser():
     p.add_argument("--workspace", default=None, metavar="PATH",
                    help="Path to ROS 2 workspace (auto-detected if omitted)")
     p.add_argument("--name", default="robot", metavar="NAME",
-                   help="Robot name (default: derived from workspace folder name)")
+                   help="Robot name (default: first --packages pattern, or workspace folder name)")
+    p.add_argument("--packages", default=None, metavar="PATTERNS",
+                   help="Comma-separated fuzzy patterns to scope the scan to one robot's "
+                        "packages (e.g. 'lekiwi' or 'lekiwi,soarm'). Packages whose name "
+                        "or path contains any pattern are included; all others are skipped. "
+                        "Omit to scan the entire workspace.")
     p.add_argument("--allow-live", dest="allow_live", action="store_true",
                    help="Fall back to the live ROS 2 graph when static analysis "
                         "has gaps (requires a running ROS 2 system)")
@@ -1281,6 +1286,10 @@ def build_parser():
                    help="Path to ROS 2 workspace (re-uses saved path if omitted)")
     p.add_argument("--name", default="robot", metavar="NAME",
                    help="Robot name (default: auto-detected from .profiles/)")
+    p.add_argument("--packages", default=None, metavar="PATTERNS",
+                   help="Comma-separated fuzzy patterns to scope the rescan. "
+                        "If omitted, the filter stored in the existing profile is reused. "
+                        "Pass an empty string ('') to remove the filter and scan the full workspace.")
     p.add_argument("--launch-file", dest="launch_file", default=None, metavar="FILENAME",
                    help="Partial rescan: refresh launch args for this launch file only "
                         "(use the filename as shown in 'profile show', e.g. bringup.launch.py)")

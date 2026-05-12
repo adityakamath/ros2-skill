@@ -95,7 +95,9 @@ _IMU_HINTS = {"imu", "ahrs", "mpu", "bno", "vectornav", "xsens", "microstrain"}
 _ARM_HINTS = {
     "arm", "gripper", "manipulator", "moveit", "joint_trajectory",
     "ur3", "ur5", "ur10", "panda", "kuka", "fanuc", "yaskawa",
-    "abb", "kinova", "xarm", "hebi", "dynamixel", "servo",
+    "abb", "kinova", "xarm", "hebi", "dynamixel",
+    # NOTE: "servo" intentionally omitted — servo motors are used in mobile
+    # bases, pan-tilt mechanisms, and legged robots; not specific to arms.
 }
 
 # Ground / wheeled mobile base.
@@ -212,70 +214,209 @@ def _scan_packages_from_ament():
         return {}
 
 
-def _walk_workspace_src(ws_path):
-    """Walk <ws>/src and collect package information.
+def _parse_pkg_filter(pkg_filter):
+    """Normalise *pkg_filter* to a list of lower-case pattern strings.
 
-    Returns a dict:
-    {
-      "packages": [{"name": str, "path": str, "version": str,
-                    "launch_files": [str], "yaml_files": [str],
-                    "urdf_files": [str], "src_files": [str]}],
-    }
+    Accepts:
+    - ``None`` / empty string  → returns ``[]`` (no filtering)
+    - A comma-separated string → splits on commas and strips whitespace
+    - A list of strings        → strips and lower-cases each entry
+
+    Example::
+
+        _parse_pkg_filter("lekiwi, soarm")  # → ["lekiwi", "soarm"]
+        _parse_pkg_filter(["lekiwi"])       # → ["lekiwi"]
+        _parse_pkg_filter(None)             # → []
     """
+    if not pkg_filter:
+        return []
+    if isinstance(pkg_filter, str):
+        return [p.strip().lower() for p in pkg_filter.split(",") if p.strip()]
+    return [p.strip().lower() for p in pkg_filter if p.strip()]
+
+
+def _pkg_matches_filter(pkg_name, pkg_path, patterns):
+    """Return True if *pkg_name* or *pkg_path* contains any of *patterns*.
+
+    Matching is case-insensitive substring matching so ``"lekiwi"`` matches
+    ``lekiwi_bringup``, ``lekiwi_control``, and any path containing
+    ``lekiwi_ros2/lekiwi_control``.
+    """
+    name_lower = pkg_name.lower()
+    path_lower = pkg_path.lower()
+    return any(p in name_lower or p in path_lower for p in patterns)
+
+
+def _walk_workspace_src(ws_path, pkg_filter=None):
+    """Walk ``<ws>/src`` and collect package information.
+
+    *pkg_filter* is a comma-separated string or list of patterns used to
+    restrict which packages are treated as **primary**.  The full ``src/``
+    tree is always indexed; packages whose name **or** path does not contain
+    any pattern are skipped as primary candidates but may still be included
+    as **dependencies** of primary packages (see below).
+
+    **Two-role model:**
+
+    - ``"primary"`` — packages matched by *pkg_filter* (or all packages when
+      no filter is given).  Fully scanned: URDFs, launch files, YAML configs,
+      and source files.
+    - ``"dependency"`` — workspace-local packages that are declared as
+      ``<depend>`` / ``<exec_depend>`` by any primary package but do not
+      themselves match the filter.  Only YAML configs and source files are
+      collected; their standalone launch files and URDFs (which exist for
+      testing/examples of that driver, not for the target robot) are excluded.
+
+    Dependency resolution is **one level deep**: deps-of-deps are not
+    expanded, avoiding pulling in the entire ROS ecosystem.
+
+    When *pkg_filter* is ``None`` or empty, all packages are primary and the
+    dependency role is never used (legacy full-workspace behaviour).
+
+    Returns::
+
+        {
+          "packages":            [...],  # primary + dependency package dicts
+          "pkg_filter":          [...],  # normalised filter patterns (may be [])
+          "matched_dirs":        [...],  # unique parent dirs of primary packages
+          "primary_packages":    [...],  # names of primary packages
+          "dependency_packages": [...],  # names of workspace-local dep packages
+        }
+    """
+    patterns = _parse_pkg_filter(pkg_filter)
     src = pathlib.Path(ws_path) / "src"
     if not src.is_dir():
-        return {"packages": []}
+        return {
+            "packages": [], "pkg_filter": patterns, "matched_dirs": [],
+            "primary_packages": [], "dependency_packages": [],
+        }
 
-    packages = []
+    # ------------------------------------------------------------------
+    # Pass 1: index every package.xml in src/ → {pkg_name: pkg_dir_path}
+    # ------------------------------------------------------------------
+    ws_index: dict[str, pathlib.Path] = {}
+    ws_info: dict[str, dict] = {}
     for pkg_xml in src.rglob("package.xml"):
         pkg_dir = pkg_xml.parent
         info = _parse_package_xml(pkg_xml)
-        info["path"] = str(pkg_dir)
+        ws_index[info["name"]] = pkg_dir
+        ws_info[info["name"]] = info
 
-        # Collect launch files.
+    # ------------------------------------------------------------------
+    # Pass 2: determine primary packages
+    # ------------------------------------------------------------------
+    if patterns:
+        primary_names = {
+            name for name, pkg_dir in ws_index.items()
+            if _pkg_matches_filter(name, str(pkg_dir), patterns)
+        }
+    else:
+        primary_names = set(ws_index.keys())
+
+    # ------------------------------------------------------------------
+    # Pass 3: collect one-level workspace-local dependencies of primaries
+    # ------------------------------------------------------------------
+    dep_names: set = set()
+    if patterns:  # only meaningful when a filter is active
+        for pname in primary_names:
+            for dep in ws_info[pname].get("deps", []):
+                if dep in ws_index and dep not in primary_names:
+                    dep_names.add(dep)
+
+    # ------------------------------------------------------------------
+    # Pass 4: collect file lists for each role
+    # ------------------------------------------------------------------
+    packages = []
+    matched_dirs: set = set()
+
+    def _collect_files(pkg_dir, role):
+        """Return (launch_files, yaml_files, urdf_files, src_files) for a pkg dir."""
+        # Launch files — primary only
         launch_files = []
-        for ext in ("*.launch.py", "*.launch.xml", "*.launch", "*.launch.yaml"):
-            launch_files.extend(pkg_dir.rglob(ext))
-        info["launch_files"] = [str(f) for f in sorted(launch_files)]
+        if role == "primary":
+            for ext in ("*.launch.py", "*.launch.xml", "*.launch", "*.launch.yaml"):
+                launch_files.extend(pkg_dir.rglob(ext))
 
-        # Collect param YAML files.
+        # YAML param files — both roles
         yaml_files = []
         for pattern in ("*.yaml", "*.yml"):
             for yf in pkg_dir.rglob(pattern):
-                # Skip test fixtures and package.xml siblings.
                 if "test" not in yf.parts and yf.name not in ("package.xml",):
                     yaml_files.append(yf)
-        info["yaml_files"] = [str(f) for f in sorted(yaml_files)]
 
-        # Collect URDF / xacro files.
+        # URDF / xacro — primary only
         urdf_files = []
-        for pattern in ("*.urdf", "*.urdf.xacro", "*.xacro"):
-            urdf_files.extend(pkg_dir.rglob(pattern))
-        info["urdf_files"] = [str(f) for f in sorted(urdf_files)]
+        if role == "primary":
+            for pattern in ("*.urdf", "*.urdf.xacro", "*.xacro"):
+                urdf_files.extend(pkg_dir.rglob(pattern))
 
-        # Collect Python / CPP source nodes (for sensor/type hints).
+        # Source files — both roles
         src_files = []
         for pattern in ("*.py", "*.cpp", "*.hpp"):
             for sf in pkg_dir.rglob(pattern):
                 if "test" not in sf.parts:
                     src_files.append(str(sf))
-        info["src_files"] = src_files
 
+        return (
+            [str(f) for f in sorted(launch_files)],
+            [str(f) for f in sorted(yaml_files)],
+            [str(f) for f in sorted(urdf_files)],
+            src_files,
+        )
+
+    for name in sorted(primary_names):
+        pkg_dir = ws_index[name]
+        info = dict(ws_info[name])
+        info["path"] = str(pkg_dir)
+        info["role"] = "primary"
+        lf, yf, uf, sf = _collect_files(pkg_dir, "primary")
+        info["launch_files"] = lf
+        info["yaml_files"] = yf
+        info["urdf_files"] = uf
+        info["src_files"] = sf
+        packages.append(info)
+        matched_dirs.add(str(pkg_dir.parent))
+
+    for name in sorted(dep_names):
+        pkg_dir = ws_index[name]
+        info = dict(ws_info[name])
+        info["path"] = str(pkg_dir)
+        info["role"] = "dependency"
+        lf, yf, uf, sf = _collect_files(pkg_dir, "dependency")
+        info["launch_files"] = lf   # always [] for deps
+        info["yaml_files"] = yf
+        info["urdf_files"] = uf     # always [] for deps
+        info["src_files"] = sf
         packages.append(info)
 
-    return {"packages": packages}
+    return {
+        "packages": packages,
+        "pkg_filter": patterns,
+        "matched_dirs": sorted(matched_dirs),
+        "primary_packages": sorted(primary_names),
+        "dependency_packages": sorted(dep_names),
+    }
 
 
 def _parse_package_xml(path):
-    """Extract name and version from a package.xml file."""
+    """Extract name, version, and runtime deps from a package.xml file."""
     try:
         tree = ET.parse(str(path))
         root = tree.getroot()
         name = (root.findtext("name") or path.parent.name).strip()
         version = (root.findtext("version") or "").strip()
-        return {"name": name, "version": version}
+        # Runtime / build-exec dependencies only — these represent packages that
+        # must be present when the robot actually runs, making them the relevant
+        # set for profile scoping.
+        dep_tags = {"depend", "exec_depend", "build_exec_depend"}
+        deps = sorted({
+            el.text.strip()
+            for el in root
+            if el.tag in dep_tags and el.text and el.text.strip()
+        })
+        return {"name": name, "version": version, "deps": deps}
     except Exception:
-        return {"name": path.parent.name, "version": ""}
+        return {"name": path.parent.name, "version": "", "deps": []}
 
 
 # ---------------------------------------------------------------------------
@@ -712,11 +853,15 @@ def _search_limits_in_dict(d, depth=0):
         # --- Nested dict blocks ---
         elif isinstance(val, dict):
             if kl == "linear":
-                # ros2_control: linear: {x: {max_velocity: N}}
+                # ros2_control: linear: {x: {max_velocity: N}, y: {max_velocity: N}}
                 x_block = val.get("x", {})
                 if isinstance(x_block, dict):
                     mv = x_block.get("max_velocity") or x_block.get("max_vel")
                     lin_x = _upd(lin_x, mv)
+                y_block = val.get("y", {})
+                if isinstance(y_block, dict):
+                    mv = y_block.get("max_velocity") or y_block.get("max_vel")
+                    lin_y = _upd(lin_y, mv)
                 # short form: linear: {max_velocity: N}
                 lin_x = _upd(lin_x, val.get("max_velocity") or val.get("max_vel"))
 
@@ -1263,10 +1408,12 @@ def _extract_localization_config(all_yaml_files):
                 v = ekf.get(k)
                 if v is not None:
                     result[mapped] = v
-            sources = sorted(
-                sk for sk in ekf
+            sources = {
+                sk: ekf[sk]
+                for sk in ekf
                 if re.match(r"^(odom|imu|pose|twist|gps)\d+$", sk)
-            )
+                and isinstance(ekf[sk], str)
+            }
             if sources:
                 result["fused_sources"] = sources
 
@@ -1435,6 +1582,36 @@ def _extract_teleop_and_estop(all_yaml_files):
                 cfg["cmd_vel_topic"] = v
                 break
 
+        # Fallback: joy_teleop action format — topic config nested under "teleop" key
+        # block = {"teleop": {type: topic, topic_name: ..., interface_type: ...}, ...}
+        if "cmd_vel_topic" not in cfg:
+            joy_topic = block.get("teleop")
+            if isinstance(joy_topic, dict) and joy_topic.get("type") == "topic":
+                t_name = joy_topic.get("topic_name")
+                t_type = joy_topic.get("interface_type")
+                if isinstance(t_name, str) and t_name:
+                    cfg["cmd_vel_topic"] = t_name
+                if isinstance(t_type, str) and t_type:
+                    cfg["msg_type"] = t_type
+                # axis_mappings: {"twist-linear-x": {"axis": N, "scale": N}, ...}
+                axis_m = joy_topic.get("axis_mappings", {})
+                if isinstance(axis_m, dict):
+                    joy_scales = {}
+                    for ak, av in axis_m.items():
+                        if isinstance(av, dict) and "scale" in av:
+                            ak_n = ak.replace("twist-", "").replace("-", "_")
+                            if "linear_x" in ak_n:
+                                joy_scales["scale_linear_x"] = av["scale"]
+                            elif "linear_y" in ak_n:
+                                joy_scales["scale_linear_y"] = av["scale"]
+                            elif "angular" in ak_n:
+                                joy_scales["scale_angular_z"] = av["scale"]
+                    if joy_scales and "scales" not in cfg:
+                        cfg["scales"] = joy_scales
+                deadman = joy_topic.get("deadman_buttons")
+                if deadman is not None and "deadman_button" not in cfg:
+                    cfg["deadman_button"] = deadman
+
         # Axis mappings
         axis = {k: block[k] for k in ("axis_linear", "axis_linear_x", "axis_linear_y",
                                        "axis_angular", "axis_angular_yaw")
@@ -1467,6 +1644,35 @@ def _extract_teleop_and_estop(all_yaml_files):
             if isinstance(ev, str) and ev:
                 estop = {"service_name": ev, "source": pathlib.Path(yf).name}
                 break
+
+        # Fallback: joy_teleop action format — estop_enable / estop_disable service entries
+        # block = {"estop_enable": {type: service, service_name: ..., buttons: [...]}, ...}
+        if estop is None:
+            for bk, bv in block.items():
+                if not (isinstance(bv, dict) and bv.get("type") == "service"):
+                    continue
+                if "estop" not in bk.lower():
+                    continue
+                svc = bv.get("service_name")
+                svc_type = bv.get("interface_type")
+                sr_data = (bv.get("service_request") or {}).get("data")
+                # Use the "enable" / activate entry (data: true or key contains "enable")
+                if svc and sr_data is not False:
+                    estop = {
+                        "service_name": svc,
+                        "service_type": svc_type,
+                        "source": pathlib.Path(yf).name,
+                        "activate_buttons": bv.get("buttons"),
+                    }
+                    # Find deactivate entry (data: false)
+                    for bk2, bv2 in block.items():
+                        if bk2 == bk or not isinstance(bv2, dict):
+                            continue
+                        if bv2.get("type") == "service" and "estop" in bk2.lower():
+                            sr2 = (bv2.get("service_request") or {}).get("data")
+                            if sr2 is False:
+                                estop["deactivate_buttons"] = bv2.get("buttons")
+                    break
 
         if len(cfg) > 1:
             teleop = cfg
@@ -1517,7 +1723,10 @@ def _extract_tf_frames(all_urdf_files, all_yaml_files):
             root = tree.getroot()
             for link_el in root.findall(".//link"):
                 lname = link_el.get("name", "")
-                if lname and lname not in seen_links:
+                # Skip unresolved xacro substitution variables
+                if not lname or "${" in lname:
+                    continue
+                if lname not in seen_links:
                     seen_links.add(lname)
                     urdf_links.append(lname)
         except Exception:
@@ -2002,7 +2211,7 @@ def _detect_robot_type(ws_pkg_names, all_src_files, velocity_topics,
     leg_pkg_hits = _pkg_match_hints(_LEGGED_HINTS, ws_pkg_names)
     leg_urdf = _urdf_legged_evidence(joint_limits)
     leg_src_hits = [] if (leg_pkg_hits or leg_urdf) else \
-        _src_match_hints(_LEGGED_HINTS, all_src_files)
+        _src_match_hints(_LEGGED_HINTS, all_src_files, word_boundary=True)
     has_legged = bool(leg_pkg_hits or leg_urdf or leg_src_hits)
     if has_legged:
         sigs = ([f"pkg:{p}" for _, p in leg_pkg_hits[:3]]
@@ -2020,11 +2229,11 @@ def _detect_robot_type(ws_pkg_names, all_src_files, velocity_topics,
             evidence["aerial"] = [f"topic:{t}" for t in aerial_topics[:3]]
 
     # ── Underwater / surface vessel ────────────────────────────────────────────
-    has_underwater = _check(_UNDERWATER_HINTS, "underwater")
-    has_surface_vessel = _check(_SURFACE_VESSEL_HINTS, "surface_vessel")
+    has_underwater = _check(_UNDERWATER_HINTS, "underwater", word_boundary=True)
+    has_surface_vessel = _check(_SURFACE_VESSEL_HINTS, "surface_vessel", word_boundary=True)
 
     # ── Arm — pkg/src hints OR ≥3 non-wheel URDF joints ───────────────────────
-    has_arm = _check(_ARM_HINTS, "arm")
+    has_arm = _check(_ARM_HINTS, "arm", word_boundary=True)
     if not has_arm and joint_limits:
         non_wheel = [n for n in joint_limits if "wheel" not in n.lower()]
         if len(non_wheel) >= 3:
@@ -2106,8 +2315,15 @@ def _make_detail_key(launch_path, existing_keys):
 # ---------------------------------------------------------------------------
 
 def _run_static_scan(ws_path, distro, allow_live=False,
-                     robot_type_override=None, verbose=False):
-    """Execute the full static scan and return a profile dict."""
+                     robot_type_override=None, verbose=False,
+                     pkg_filter=None):
+    """Execute the full static scan and return a profile dict.
+
+    *pkg_filter* is a comma-separated string or list of patterns that restrict
+    which packages are included (e.g. ``"lekiwi"`` collects every package
+    whose name or path contains ``"lekiwi"``).  When *None*, the entire
+    ``<ws>/src/`` tree is included (legacy behaviour).
+    """
     scan_steps = []
 
     # --- 1. Ament index ---
@@ -2117,20 +2333,62 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 
     # --- 2. Workspace src walk ---
     scan_steps.append("workspace_walk")
-    ws_data = _walk_workspace_src(ws_path) if ws_path else {"packages": []}
+    ws_data = _walk_workspace_src(ws_path, pkg_filter=pkg_filter) if ws_path else {
+        "packages": [], "pkg_filter": [], "matched_dirs": [],
+        "primary_packages": [], "dependency_packages": [],
+    }
     ws_packages = ws_data["packages"]
     ws_pkg_names = [p["name"] for p in ws_packages]
+    resolved_pkg_filter = ws_data.get("pkg_filter", [])
+    matched_dirs = ws_data.get("matched_dirs", [])
+    primary_packages = ws_data.get("primary_packages", ws_pkg_names)
+    dependency_packages = ws_data.get("dependency_packages", [])
 
     # Aggregate all source artifacts.
+    # all_* lists include BOTH primary and dependency packages so that
+    # safety-limit YAML, hardware interface configs, and sensor hints from
+    # workspace-local dependencies are captured.
+    # primary_* lists contain ONLY primary packages and are used for robot-type
+    # classification and for robot-specific output (camera configs, etc.) —
+    # dependency driver source code must not influence these.
     all_launch_files = []
     all_yaml_files = []
     all_urdf_files = []
     all_src_files = []
+    primary_pkg_names = []
+    primary_src_files = []
+    primary_yaml_files = []
+    primary_urdf_files = []
     for pkg in ws_packages:
+        role = pkg.get("role", "primary")
         all_launch_files.extend(pkg.get("launch_files", []))
         all_yaml_files.extend(pkg.get("yaml_files", []))
         all_urdf_files.extend(pkg.get("urdf_files", []))
         all_src_files.extend(pkg.get("src_files", []))
+        if role != "dependency":
+            primary_pkg_names.append(pkg["name"])
+            primary_src_files.extend(pkg.get("src_files", []))
+            primary_yaml_files.extend(pkg.get("yaml_files", []))
+            primary_urdf_files.extend(pkg.get("urdf_files", []))
+
+    # Deduplicate URDF paths — the same file may appear under both src/ and
+    # install/ (symlinked), or be collected twice by the workspace walker.
+    # Resolve each path to its real path so that symlinks are collapsed, then
+    # keep insertion order.
+    def _dedup_urdf_list(paths):
+        seen, out = set(), []
+        for p in paths:
+            try:
+                key = str(pathlib.Path(p).resolve())
+            except OSError:
+                key = p
+            if key not in seen:
+                seen.add(key)
+                out.append(p)
+        return out
+
+    all_urdf_files = _dedup_urdf_list(all_urdf_files)
+    primary_urdf_files = _dedup_urdf_list(primary_urdf_files)
 
     # --- 3. Safety limits from YAML ---
     # Each YAML file that contains at least one velocity limit is stored as a
@@ -2179,8 +2437,11 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         lin, _ang = _extract_safety_velocity_from_urdf(uf)
         best_lin_x = _upd_best(best_lin_x, lin)
         # Sensor / actuator mount poses — deduplicated by child link name.
+        # Skip entries whose link/joint names contain unresolved xacro substitutions.
         for mount in _extract_sensor_mounts_from_urdf(uf):
             link = mount["link"]
+            if "${" in link or "${" in mount.get("joint", ""):
+                continue
             if link not in seen_sensor_links:
                 seen_sensor_links.add(link)
                 sensor_mounts.append(mount)
@@ -2190,19 +2451,28 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     ros2_ctrl = _extract_ros2_control_config(all_yaml_files)
 
     # --- 4c. Hardware interfaces from URDF <ros2_control> tags ---
+    # Deduplicate by (plugin, frozenset(joints)) fingerprint — the same physical
+    # hardware block may appear in both a xacro-generated .urdf.xacro and the
+    # compiled .urdf under a different <ros2_control name="..."> label.
     scan_steps.append("hardware_interfaces")
     hardware_interfaces: list = []
     seen_hw_names: set = set()
+    seen_hw_fingerprints: set = set()
     for uf in all_urdf_files:
         for iface in _extract_hardware_interfaces_from_urdf(uf):
-            if iface["name"] not in seen_hw_names:
+            fingerprint = (iface.get("plugin", ""), frozenset(iface.get("joints", [])))
+            if iface["name"] not in seen_hw_names and fingerprint not in seen_hw_fingerprints:
                 seen_hw_names.add(iface["name"])
+                seen_hw_fingerprints.add(fingerprint)
                 hardware_interfaces.append(iface)
 
     # --- 4d. Sensor configs (LiDAR, camera) ---
+    # Camera configs are scoped to primary packages only — dependency packages
+    # (e.g. depthai_ros_driver) include many generic example configs that are not
+    # specific to this robot and would create noise in the profile.
     scan_steps.append("sensor_configs")
     lidar_config = _extract_lidar_config(all_yaml_files)
-    camera_configs = _extract_camera_configs(all_yaml_files)
+    camera_configs = _extract_camera_configs(primary_yaml_files)
 
     # --- 4e. Localization + Nav2 ---
     scan_steps.append("nav_config")
@@ -2288,17 +2558,46 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         if not has_nav2:
             has_nav2 = "navigate_to_pose" in topic_str
 
+    # Add teleop-derived cmd_vel_topic to velocity_topics (YAML-sourced, more accurate
+    # than source-file regex).  Insert at position 0 so it is the primary topic.
+    if teleop_config:
+        tc_topic = teleop_config.get("cmd_vel_topic")
+        if isinstance(tc_topic, str) and tc_topic and tc_topic not in velocity_topics:
+            velocity_topics.insert(0, tc_topic)
+
     # --- 8. Robot type ---
-    # Detection uses workspace packages only — ament-installed infrastructure
-    # packages (nav2, moveit, …) don't characterise the robot's own type.
+    # Detection uses PRIMARY workspace packages only — ament-installed
+    # infrastructure packages and workspace-local dependency drivers do not
+    # characterise the robot's own type.  Using dependency sources here causes
+    # false positives (e.g. servo-library words "stance"/"gait" in
+    # sts_hardware_interface triggering "legged" for a mobile base robot).
     robot_type, robot_features, robot_type_evidence = _detect_robot_type(
-        ws_pkg_names=ws_pkg_names,
-        all_src_files=all_src_files,
+        ws_pkg_names=primary_pkg_names,
+        all_src_files=primary_src_files,
         velocity_topics=velocity_topics,
         joint_limits=_flat_joint_limits,
         has_nav2=has_nav2,
         robot_type_override=robot_type_override,
     )
+
+    # Build velocity topic → message type mapping.
+    # Priority: teleop YAML interface_type > live graph type map > heuristic.
+    velocity_topic_types: dict = {}
+    if teleop_config:
+        tc_topic = teleop_config.get("cmd_vel_topic")
+        tc_type = teleop_config.get("msg_type")
+        if tc_topic and tc_type:
+            velocity_topic_types[tc_topic] = tc_type
+    for t, tp in live_type_map.items():
+        if "cmd_vel" in t.lower() or "vel" in t.lower():
+            velocity_topic_types.setdefault(t, tp)
+    _STAMPED_TOPIC_RE = re.compile(r"stamped|base_controller", re.I)
+    for t in velocity_topics:
+        if t not in velocity_topic_types:
+            velocity_topic_types[t] = (
+                "geometry_msgs/msg/TwistStamped" if _STAMPED_TOPIC_RE.search(t)
+                else "geometry_msgs/msg/Twist"
+            )
 
     # --- 9. Safety limits final ---
     # safety_limits has two sections:
@@ -2372,9 +2671,10 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "ws_packages": ws_pkg_names,
         "ament_packages": all_ament_pkg_names,
         "all_launch_files": all_launch_files,
-        "all_urdf_files": all_urdf_files,
+        "all_urdf_files": primary_urdf_files,
         "launch_file_details": launch_file_details,
         "velocity_topics": velocity_topics,
+        "velocity_topic_types": velocity_topic_types,
         "has_lidar": has_lidar,
         "has_camera": has_camera,
         "has_imu": has_imu,
@@ -2402,6 +2702,11 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "tf_frames": tf_frames,
         "launch_configurations": launch_configurations,
         "active_controllers": active_controllers,
+        # Per-robot scoping
+        "pkg_filter": resolved_pkg_filter,
+        "matched_dirs": matched_dirs,
+        "primary_packages": primary_packages,
+        "dependency_packages": dependency_packages,
     }
 
 
@@ -2474,6 +2779,16 @@ def _build_profile(robot_name, workspace, distro, scan_result):
         "robot_name": robot_name,
         "workspace": workspace,
         "ros_distro": distro,
+        # pkg_filter: patterns used to scope the scan to a specific robot's
+        # packages (e.g. ["lekiwi"]).  Stored here so rescan can reuse it
+        # without the user having to repeat --packages on every rescan.
+        # Empty list means the full workspace was scanned.
+        "pkg_filter": sr.get("pkg_filter", []),
+        # primary_packages: names scanned fully (URDFs, launch files, YAML, src).
+        # dependency_packages: workspace-local deps of primary packages; scanned
+        # for YAML configs and source only (no launch files, no URDFs).
+        "primary_packages": sr.get("primary_packages", []),
+        "dependency_packages": sr.get("dependency_packages", []),
         "scan_steps": sr["scan_steps"],
         # ------------------------------------------------------------------ #
         # SUMMARY — always loaded; compact; one-glance robot overview.        #
@@ -2491,7 +2806,10 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             # Each entry is a key into the detail section.
             "launch_files": sorted(sr["launch_file_details"].keys()),
             "urdf_files": sr["all_urdf_files"],
-            "velocity_topics": sr["velocity_topics"],
+            "velocity_topics": [
+                {"topic": t, "type": sr.get("velocity_topic_types", {}).get(t, "geometry_msgs/msg/Twist")}
+                for t in sr["velocity_topics"]
+            ],
             "has_lidar": sr["has_lidar"],
             "has_camera": sr["has_camera"],
             "has_imu": sr["has_imu"],
@@ -2562,9 +2880,17 @@ def _build_profile(robot_name, workspace, distro, scan_result):
 def cmd_profile_scan(args):
     """Scan the robot workspace and write a robot profile JSON."""
     user_ws = getattr(args, "workspace", None)
-    robot_name = getattr(args, "name", None) or "robot"
+    explicit_name = getattr(args, "name", None)  # None when --name was not given
+    robot_name = explicit_name or "robot"
     allow_live = getattr(args, "allow_live", False)
     robot_type_override = getattr(args, "robot_type", None)
+    pkg_filter = getattr(args, "packages", None)
+
+    # Auto-scope: if --name was given but --packages was not, derive the package
+    # filter from the robot name.  This ensures "profile scan --name lekiwi"
+    # never silently scans the entire workspace.
+    if pkg_filter is None and explicit_name:
+        pkg_filter = explicit_name
 
     if robot_type_override and robot_type_override not in _VALID_ROBOT_TYPES:
         output({
@@ -2595,15 +2921,21 @@ def cmd_profile_scan(args):
         distro=distro,
         allow_live=allow_live,
         robot_type_override=robot_type_override,
+        pkg_filter=pkg_filter,
     )
 
-    # --- Derive robot name from workspace if not provided ---
-    if robot_name == "robot" and ws_path:
-        derived = pathlib.Path(ws_path).name
-        # Strip common suffixes like _ws, _ros2, ros2_
-        derived = re.sub(r"(?:_ws|_ros2|ros2_|_robot)$", "", derived, flags=re.I)
-        if derived and derived != "robot":
-            robot_name = derived
+    # --- Derive robot name ---
+    # If --packages was given and no --name provided, derive from the first pattern.
+    if robot_name == "robot":
+        if pkg_filter:
+            patterns = _parse_pkg_filter(pkg_filter)
+            if patterns:
+                robot_name = patterns[0]
+        elif ws_path:
+            derived = pathlib.Path(ws_path).name
+            derived = re.sub(r"(?:_ws|_ros2|ros2_|_robot)$", "", derived, flags=re.I)
+            if derived and derived != "robot":
+                robot_name = derived
 
     # --- Build and save profile ---
     profile = _build_profile(
@@ -2620,8 +2952,13 @@ def cmd_profile_scan(args):
         "profile_file": profile_file,
         "workspace": ws_path,
         "workspace_status": ws_status,
+        "pkg_filter": scan_result["pkg_filter"],
+        "primary_packages": scan_result["primary_packages"],
+        "dependency_packages": scan_result["dependency_packages"],
+        "matched_dirs": scan_result["matched_dirs"],
         "launch_files_found": sorted(scan_result["launch_file_details"].keys()),
         "packages_found": len(scan_result["ws_packages"]),
+        "packages_scanned": scan_result["ws_packages"],
         "robot_type": scan_result["robot_type"],
         "robot_features": scan_result["robot_features"],
         "robot_type_evidence": scan_result["robot_type_evidence"],
@@ -2748,11 +3085,17 @@ def cmd_profile_rescan(args):
     With --launch-file FILENAME, rescans only that launch file's args
     (fast partial rescan).  Without it, performs a full rescan.
     Pass --robot-type TYPE on a full rescan to override the detected type.
+    Pass --packages PATTERNS to change (or clear) the package filter used for
+    the original scan; omit it to reuse the filter stored in the profile.
+    If --name is given but --packages is not, the package filter is automatically
+    derived from the name (same auto-scope as profile scan).
     """
-    robot_name = getattr(args, "name", None) or "robot"
+    explicit_name = getattr(args, "name", None)  # None when --name was not given
+    robot_name = explicit_name or "robot"
     launch_filter = getattr(args, "launch_file", None)
     user_ws = getattr(args, "workspace", None)
     allow_live = getattr(args, "allow_live", False)
+    pkg_filter_override = getattr(args, "packages", None)
 
     existing = _load_profile(robot_name)
     if existing is None:
@@ -2798,6 +3141,21 @@ def cmd_profile_rescan(args):
     if user_ws is None and existing:
         # Re-use the workspace from the existing profile.
         args.workspace = existing.get("workspace") or None
+
+    # Restore stored pkg_filter unless the user explicitly passed --packages.
+    if pkg_filter_override is None and existing:
+        stored = existing.get("pkg_filter")
+        if stored:
+            # stored is already a list of patterns; join for uniform handling.
+            args.packages = ",".join(stored)
+        elif explicit_name:
+            # Stored filter is empty; auto-derive from the robot name to avoid
+            # producing a full-workspace rescan.
+            args.packages = explicit_name
+    elif pkg_filter_override is None and explicit_name:
+        # No existing profile yet; auto-derive from name.
+        args.packages = explicit_name
+
     cmd_profile_scan(args)
 
     # Re-inject annotations into the freshly written profile (if any exist).
