@@ -331,6 +331,17 @@ topics find geometry_msgs/msg/Twist → wait → topics find TwistStamped → wa
 
 **Runtime state must be re-checked per task.** Controller active/inactive state, node presence, lifecycle state, current joint positions, current odom pose — these can change between tasks: nodes crash, controllers switch, topics appear or disappear.
 
+**Anti-rationalisation clause.** The following claims are all violations of this rule and must not be used to justify live introspection in Path A:
+
+| False claim | Why it is false |
+|---|---|
+| *"Safety requires fresh introspection of names/types every task."* | Names and types do not become unsafe over time. They are static. Safety comes from re-checking runtime state (controller active, robot stationary), not from re-discovering names. |
+| *"Live state is always more accurate than the profile."* | For static data (topic names, types, limits, frame names), live and profile must agree by construction. If they disagree, Rule 0.0b says escalate, not silently switch. |
+| *"Profile data alone is never enough for actuation."* | The profile is enough for the static half. Runtime state (steps in this rule below) provides the dynamic half. Together they are sufficient. Adding redundant live discovery does not improve safety — it hides Rule 0.0b mismatches. |
+| *"Best to be cautious and re-check everything."* | Re-checking profile-covered fields actively reduces safety because it masks profile↔live disagreements (Rule 0.0b). It also wastes time, increasing the window during which the robot's state can change before the command is issued. |
+
+**The correct behaviour:** read static data from the profile, run only the runtime-state checks listed below, then act.
+
 **What must be re-checked at the start of each new task:**
 - Controller state: `control list-controllers` — confirm the controller is still `active`
 - Node presence (for critical nodes): `nodes list`

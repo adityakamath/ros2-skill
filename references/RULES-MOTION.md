@@ -13,6 +13,8 @@
 
 For **any** user request involving movement — regardless of whether a distance or angle is specified — follow this algorithm exactly. Do not skip steps. Do not ask the user anything that can be resolved by running a command.
 
+**Anti-rationalisation clause.** If a profile is loaded (Path A), running live-discovery commands for data the profile already holds is **a rule violation, not extra safety**. The common rationalisations — *"safety requires fresh introspection,"* *"live state is more current,"* *"profile data alone is never enough for actuation"* — are all false in Path A. The profile **is** the source of truth for static data; live calls are reserved for runtime state (controller active/inactive, stationary check, odom rate, payload template). See Rule 14 (RULES-CORE.md) for the full Path A antipattern catalogue and Rule 0.0b for what to do when profile and live disagree.
+
 **Step 1 — Determine the velocity command topic and message type**
 
 **Profile fast-path (mandatory when profile is loaded):**

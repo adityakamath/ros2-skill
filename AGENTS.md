@@ -70,6 +70,31 @@ Run full live introspection: discover topic names, message types, joint mappings
 
 **The goal is to minimise the time between command and execution.** Profile data eliminates discovery latency. Runtime state reads are still required for safety — but there are far fewer of them than a full discovery sweep.
 
+### Path A violation — worked counterexample
+
+User request: *"drive forward 1 m"*. Profile is loaded (Path A active).
+
+**Wrong:**
+```
+1. topics find geometry_msgs/msg/Twist             ❌ Rule 14: profile has summary.cmd_vel_topic
+2. topics find geometry_msgs/msg/TwistStamped      ❌ Rule 14: profile has summary.velocity_topics[].type
+3. topics find nav_msgs/msg/Odometry               ❌ Rule 14: profile has summary.localization_config.fused_sources
+4. topics type <discovered>                        ❌ Rule 14: profile has the type
+5. nodes list && params list <each-node>           ❌ Rule 14: profile has summary.safety_limits.binding
+```
+**Cost:** 5–30 s wasted *and* if any `topics find` returns a topic that disagrees with the profile, the agent silently uses the live answer — masking the disagreement that Rule 0.0b is specifically designed to surface. Live discovery in Path A is **not "extra safety"** — it actively hides safety-relevant mismatches and delays the command. This is the violation. Do not rationalise it as caution.
+
+**Right:**
+```
+1. Read VEL_TOPIC, VEL_TYPE, ODOM_TOPIC, MAX_VEL, MAX_ANG from profile         (0 live calls)
+2. interface proto <VEL_TYPE>                                                  (1 live call, once/session)
+3. control list-controllers                                                    (1 live call — runtime state)
+4. topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2                  (1 live call — stationary + odom liveness)
+5. topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC> ...     (the actual command)
+6. topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2                  (post-motion verify, Rule 8)
+```
+3 live calls before, 1 after. Total pre-command live work: ≤ 5 s, not 30 s.
+
 ---
 
 ## What this skill does
@@ -352,7 +377,7 @@ python3 {baseDir}/scripts/discord_tools.py send-image \
 
 ## Core Rules — index (authoritative content lives in `references/RULES-*.md`)
 
-**Load `references/RULES-CORE.md` and `references/RULES-PREFLIGHT.md` before your first action.** Load `RULES-MOTION.md` before any movement, `RULES-DIAGNOSTICS.md` before any failure-recovery work, `RULES-REFERENCE.md` for intent→command lookups. Use `references/RULES.md` as the index.
+**Always load at session start: `references/RULES-CORE.md`, `references/RULES-PREFLIGHT.md`, `references/RULES-MOTION.md`.** Load `RULES-DIAGNOSTICS.md` on first failure; load `RULES-REFERENCE.md` for intent→command lookups. Use `references/RULES.md` as the index. **`RULES-MOTION.md` is always-load because Rule 3 Step 1 is the authoritative source on the profile fast-path — not loading it leads to the agent reverting to live-discovery habits.**
 
 **These rules have the same authority as the files they reference. Violation of any rule is a critical error requiring immediate self-correction.** The numbering below matches `references/RULES-*.md` exactly — use it to find a rule fast.
 
@@ -642,7 +667,7 @@ The skill uses progressive disclosure — start here, go deeper only if needed:
 | `references/RULES.md` | **Index** — maps each rule number to its domain file. Load this first to find the right file. |
 | `references/RULES-CORE.md` | **Always load** — general agent conduct (Rules 0.5, 1, 2, 4–6, 10–13). Hard constraints. |
 | `references/RULES-PREFLIGHT.md` | **Load at session start and before any action** — introspection protocol (Rule 0), session-start steps (Rule 0.1), lifecycle/QoS/publisher checks (Rules 14, 15, 19). |
-| `references/RULES-MOTION.md` | **Load for any motion command** — movement algorithm (Rule 3), pre-motion check (Rule 9), REP-103/105 (Rule 17), estop/decel/retry rules (Rules 18–25). |
+| `references/RULES-MOTION.md` | **Always load at session start** — Rule 3 Step 1 is the authoritative profile fast-path for motion. Pre-motion check (Rule 9), REP-103/105 (Rule 17), estop/decel/retry rules (Rules 18–25). |
 | `references/RULES-DIAGNOSTICS.md` | **Load when something fails** — failure diagnosis (Rule 7), post-action verification (Rule 8), multi-step sequencing (Rule 16), error recovery tables. |
 | `references/RULES-REFERENCE.md` | **Load for command lookup** — full intent→command table, launch workflow, Discord image delivery (Rule 26), setup. |
 | `references/COMMANDS.md` | Complete command reference with all flags and JSON output examples |

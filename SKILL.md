@@ -103,9 +103,66 @@ Stop and tell the user if Step 1 reports critical failures. Re-run Step 3 before
 
 ---
 
+## Path A operational summary (READ BEFORE EVERY ACTION when profile is loaded)
+
+**When `profile show` returned a non-empty `summary` at Step 7, the session is Path A. In Path A, the profile is the source of truth for static data — running live discovery for data the profile already holds is a rule violation (Rule 14), not extra safety.**
+
+**Use directly from the profile — zero live calls:**
+
+| Need | Profile field | Forbidden in Path A |
+|---|---|---|
+| Velocity command topic | `summary.cmd_vel_topic` | `topics find geometry_msgs/msg/Twist`, `topics find geometry_msgs/msg/TwistStamped` |
+| Velocity message type | `summary.velocity_topics[].type` (entry matching `cmd_vel_topic`) | `topics type <topic>` |
+| Odometry topic | first value of `summary.localization_config.fused_sources` | `topics find nav_msgs/msg/Odometry` |
+| Velocity safety ceiling | `summary.safety_limits.binding.{linear_x,linear_y,angular_z}` | `nodes list` + `params list` sweep for `max/limit/vel/speed/accel` |
+| TF frame names | `summary.tf_frames.{odom_frame,base_frame,map_frame}` | `tf list` for frame names |
+| Controller names | `summary.active_controllers` | using `control list-controllers` to *discover* controller names (still required to check runtime state — see below) |
+| E-stop service | `summary.estop_config.service_name` | `services find std_srvs/srv/SetBool` |
+| Joint names / order / index | `summary.hardware_interfaces[].joints`, `summary.joint_limits` | `params get /controller_manager:joints`, parsing `robot_description` |
+
+**The only live calls still mandatory before motion in Path A** (these read runtime state, which the profile cannot know):
+
+1. `control list-controllers` — confirm the controller named in `summary.active_controllers` is `active` right now.
+2. Subscribe `<ODOM_TOPIC> --max-messages 1 --timeout 2` — confirm robot is stationary (Rule 9). This double-serves as a liveness check on the odom topic.
+3. `interface proto <VEL_TYPE>` — once per session, get the payload template (the type came from the profile, but the field layout did not).
+4. Optional: `topics hz <ODOM_TOPIC> --duration 2` if `publish-until` is being used and you have not confirmed odom rate this session.
+
+**Path A violation — worked counterexample (what NOT to do):**
+
+User request: *"drive forward 1 m"*. Profile is loaded.
+
+```
+❌ topics find geometry_msgs/msg/Twist             # Rule 14: profile has cmd_vel_topic
+❌ topics find geometry_msgs/msg/TwistStamped      # Rule 14: profile has velocity_topics[].type
+❌ topics find nav_msgs/msg/Odometry               # Rule 14: profile has fused_sources
+❌ topics type <discovered_topic>                  # Rule 14: profile has the type
+❌ nodes list && params list <each-node>           # Rule 14: profile has safety_limits.binding
+```
+
+Cost of the violation: 5–30 seconds wasted, **and** if any `topics find` returns a topic that disagrees with the profile, the agent will silently use the live answer — masking the disagreement that Rule 0.0b is specifically designed to surface. Live discovery in Path A is not "extra safety"; it actively hides safety-relevant mismatches and delays the command.
+
+**Correct Path A motion sequence:**
+
+```
+✅ Read VEL_TOPIC, VEL_TYPE, ODOM_TOPIC, MAX_VEL, MAX_ANG from profile  (0 live calls)
+✅ interface proto <VEL_TYPE>                                           (1 live call, once/session)
+✅ control list-controllers                                             (1 live call — runtime state)
+✅ topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2           (1 live call — stationary + liveness)
+✅ topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC>   (the actual command)
+✅ topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2           (post-motion verify, Rule 8)
+```
+
+3 live calls before the command + 1 after. Not the 6–9 live discovery calls of Path B.
+
+**If a profile field is missing** (Rule 0.0a): fall back to live discovery for **that one field only** — the path does not flip. Other fields stay on the profile.
+
+**If a profile field's value disagrees with the live graph** (e.g., `summary.cmd_vel_topic` is not in `topics list`): stop and escalate per Rule 0.0b. Do not silently retry with live discovery.
+
+---
+
 ## Critical Rules
 
-Read the domain-specific rule files from `references/` before the first action. These are hard constraints — not guidelines. Use [`references/RULES.md`](references/RULES.md) as the index to find the right file. At minimum load `RULES-CORE.md` and `RULES-PREFLIGHT.md` before any operation; add `RULES-MOTION.md` for motion tasks and `RULES-DIAGNOSTICS.md` when something fails. Key principles:
+Read the domain-specific rule files from `references/` before the first action. These are hard constraints — not guidelines. Use [`references/RULES.md`](references/RULES.md) as the index to find the right file. **Always load at session start: `RULES-CORE.md`, `RULES-PREFLIGHT.md`, and `RULES-MOTION.md`.** Add `RULES-DIAGNOSTICS.md` when something fails. Key principles:
 
 1. **Two-Path Model — profile first, live fallback.** Path A (profile loaded) uses profile fields for static data and live calls only for runtime state; Path B (no profile) does full live introspection. Path is fixed for the session, decided once at Step 7. Never hardcode names, types, or limits. Full guardrails (field-presence rules, exact field names, escalation on runtime mismatch, auto-rescan gating, scan triggers) live in **RULES-PREFLIGHT.md Rules 0.0, 0.0a, 0.0b, 0.6, 0.7** and **RULES-CORE.md Rules 13, 14**.
 
@@ -144,25 +201,38 @@ python3 {baseDir}/scripts/ros2_cli.py tf list                             # disc
 
 ### Publishing
 
+**Path A (profile loaded):** resolve `<VEL_TOPIC>` and `<VEL_TYPE>` from the profile — do NOT run `topics find` / `topics type`. See "Path A operational summary" above.
+
 ```bash
-# Get payload template first — always
-python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
+# Path A field resolution (no live calls):
+#   VEL_TOPIC     = summary.cmd_vel_topic                          (e.g. /base_controller/cmd_vel)
+#   VEL_TYPE      = summary.velocity_topics[].type                 (e.g. geometry_msgs/msg/TwistStamped)
+#   ODOM_TOPIC    = first value of summary.localization_config.fused_sources   (e.g. /base_controller/odom)
+#   MAX_VEL       = summary.safety_limits.binding.linear_x
+#   MAX_ANG       = summary.safety_limits.binding.angular_z
+# Path B (no profile): discover via `topics find geometry_msgs/msg/Twist` and
+# `topics find geometry_msgs/msg/TwistStamped`, then `topics type` to confirm.
 
-# Single publish (pass velocity ceiling from Rule 28 limit scan)
-python3 {baseDir}/scripts/ros2_cli.py topics publish <topic> '<json>' \
-  --max-vel <linear_ceiling> --max-ang <angular_ceiling>
+# Get payload template once per session — always; the type may be Twist OR TwistStamped
+python3 {baseDir}/scripts/ros2_cli.py interface proto <VEL_TYPE>
+# Twist:        {"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}
+# TwistStamped: {"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{...},"angular":{...}}}
 
-# Closed-loop movement (Euclidean distance)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
-  '{"linear":{"x":0.2},"angular":{"z":0}}' \
-  --monitor <odom_topic> --field pose.pose.position --euclidean --delta 1.0 --timeout 60 \
-  --max-vel <linear_ceiling> --max-ang <angular_ceiling>
+# Single publish
+python3 {baseDir}/scripts/ros2_cli.py topics publish <VEL_TOPIC> '<json matching VEL_TYPE>' \
+  --max-vel <MAX_VEL> --max-ang <MAX_ANG>
+
+# Closed-loop linear (Euclidean distance) — payload shape depends on VEL_TYPE
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '<json matching VEL_TYPE>' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position --euclidean --delta 1.0 --timeout 60 \
+  --max-vel <MAX_VEL> --max-ang <MAX_ANG>
 
 # Closed-loop rotation (sign of --rotate MUST match sign of angular.z)
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
-  '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor <odom_topic> --rotate 90 --degrees --timeout 30 \
-  --max-vel <linear_ceiling> --max-ang <angular_ceiling>
+python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '<json with angular.z = +omega>' \
+  --monitor <ODOM_TOPIC> --rotate 90 --degrees --timeout 30 \
+  --max-vel <MAX_VEL> --max-ang <MAX_ANG>
 
 # Subscribe (read sensor data)
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe <topic> --max-messages 1 --timeout 5
@@ -171,7 +241,7 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe <topic> --max-messages 1 
 python3 {baseDir}/scripts/ros2_cli.py topics echo-once <topic> [--timeout 5]
 ```
 
-**`--max-vel N` / `--max-ang N`** (Twist / TwistStamped only): clamp linear x/y/z to ±N m/s and angular.z to ±N rad/s inside the CLI before the message is sent. Pass the binding velocity ceiling discovered in Rule 28 here. Clamped axes are reported in `velocity_clamped` in the JSON output. Other message types pass through unchanged.
+**`--max-vel N` / `--max-ang N`** (Twist / TwistStamped only): clamp linear x/y/z to ±N m/s and angular.z to ±N rad/s inside the CLI before the message is sent. Pass `summary.safety_limits.binding.linear_x` / `.angular_z` from the profile (Path A) or the Rule 28 limit-scan result (Path B). Clamped axes are reported in `velocity_clamped` in the JSON output. Other message types pass through unchanged.
 
 ### Services and Actions
 
@@ -538,7 +608,7 @@ This skill uses **progressive disclosure**. SKILL.md covers the most common oper
 | [`references/RULES.md`](references/RULES.md) | **Index only** — maps each rule number to its domain file. Load first to navigate the rule set. |
 | [`references/RULES-CORE.md`](references/RULES-CORE.md) | **Always load** — general agent conduct (Rules 0.5, 1, 2, 4–6, 10–13). Hard constraints that apply to every command. Includes mandatory compliance preamble and Quick Decision Card. |
 | [`references/RULES-PREFLIGHT.md`](references/RULES-PREFLIGHT.md) | **Load at session start and before any action** — full pre-flight introspection protocol (Rule 0), session-start steps 0–6 (Rule 0.1), lifecycle/QoS/publisher checks (Rules 14, 15, 19). |
-| [`references/RULES-MOTION.md`](references/RULES-MOTION.md) | **Load for any motion command** — movement algorithm (Rule 3), pre-motion check + Nav2 preemption (Rule 9), REP-103/105 (Rule 17), estop (Rule 18), decel zone (Rule 20), timeout recovery (Rule 21), command limits (Rules 22–23), sequencing (Rule 24), proximity scan (Rule 25). |
+| [`references/RULES-MOTION.md`](references/RULES-MOTION.md) | **Always load at session start** (any mobile-base or arm robot may receive a motion command) — movement algorithm (Rule 3), pre-motion check + Nav2 preemption (Rule 9), REP-103/105 (Rule 17), estop (Rule 18), decel zone (Rule 20), timeout recovery (Rule 21), command limits (Rules 22–23), sequencing (Rule 24), proximity scan (Rule 25). Step 1 of Rule 3 is the authoritative source on the profile fast-path for motion. |
 | [`references/RULES-DIAGNOSTICS.md`](references/RULES-DIAGNOSTICS.md) | **Load when something fails** — failure diagnosis + log-level elevation (Rule 7), post-action verification table (Rule 8), multi-step sequencing (Rule 16), Error Recovery Protocols. |
 | [`references/RULES-REFERENCE.md`](references/RULES-REFERENCE.md) | **Load for command lookup** — full intent→command table (Step 1), sensor search by type (Steps 2–3), message structure (Step 4), velocity limits (Step 5), Launch workflow, Discord image delivery (Rule 26), Setup. |
 | [`references/COMMANDS.md`](references/COMMANDS.md) | Load when you need the exact flag name, argument format, or JSON output structure for a specific command. 4535 lines — use `--help` on the specific subcommand first; only load this file if `--help` is insufficient or unavailable. |
