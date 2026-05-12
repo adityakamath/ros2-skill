@@ -1563,14 +1563,19 @@ def cmd_topics_capture_image(args):
             from ros2_profile import load_profile_summary
             summary = load_profile_summary()
             if summary:
-                mounts = summary.get("camera_mounts", [])
-                non_zero = [m for m in mounts if m.get("image_rotation_deg", 0) != 0]
+                # Filter sensor_mounts to visual sensors only.
+                visual_types = {"camera", "depth_camera"}
+                all_mounts = summary.get("sensor_mounts", [])
+                visual = [m for m in all_mounts
+                          if m.get("sensor_type") in visual_types]
+                non_zero = [m for m in visual
+                            if m.get("image_rotation_deg", 0) != 0]
                 if non_zero:
                     profile_rotation_deg = non_zero[0]["image_rotation_deg"]
                     profile_applied = True
                     if len(non_zero) > 1:
                         profile_note = (
-                            f"Multiple non-upright camera mounts detected "
+                            f"Multiple non-upright visual sensor mounts detected "
                             f"({[m['link'] for m in non_zero]}); applied "
                             f"rotation from first match: {non_zero[0]['link']}"
                         )

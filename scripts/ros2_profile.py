@@ -735,33 +735,84 @@ def _extract_safety_velocity_from_urdf(urdf_path):
 # Camera mount extraction from URDF
 # ---------------------------------------------------------------------------
 
-def _extract_camera_mounts_from_urdf(urdf_path):
-    """Parse a URDF file and return camera mount orientation info.
+# ---------------------------------------------------------------------------
+# Sensor / actuator mount classification
+# ---------------------------------------------------------------------------
 
-    Looks for joints whose **child link** name contains ``camera`` or ``cam``.
-    For each such joint it reads the ``<origin rpy="r p y"/>`` attribute and
-    derives an *image correction rotation* in degrees:
+# Ordered list of (keyword_set, sensor_type) pairs.
+# First match wins; keywords are checked as substrings of the lowercased
+# child link name (e.g. "camera_link" → "camera", "lidar_front" → "lidar").
+_SENSOR_LINK_PATTERNS = [
+    ({"camera", "cam", "rgb", "color"},                                        "camera"),
+    ({"depth", "rgbd", "d435", "d415", "d455", "d457", "l515", "realsense"},  "depth_camera"),
+    ({"lidar", "laser", "scan", "velodyne", "hokuyo", "rplidar", "lms",
+      "vlp", "ouster", "livox", "hesai"},                                      "lidar"),
+    ({"imu", "ahrs", "mpu", "bno", "vectornav", "xsens", "microstrain"},      "imu"),
+    ({"sonar", "ultrasonic", "ultrasound", "ping"},                            "sonar"),
+    ({"gps", "gnss", "navsat"},                                                "gps"),
+    ({"gripper", "hand", "finger", "ee_link", "tool_link", "eef",
+      "end_effector"},                                                          "gripper"),
+]
 
-    ============  ==================================================
-    rpy[0] (roll) Meaning
-    ============  ==================================================
-    ≈ ±π          Camera rolled 180° (upside-down) → rotate image 180°
-    ≈ +π/2        Camera on its left side → rotate image 90° CW
-    ≈ -π/2        Camera on its right side → rotate image 90° CCW
-    ============  ==================================================
 
-    Yaw (rpy[2]) and pitch (rpy[1]) do not affect image up/down orientation
-    and are stored for reference only.
+def _classify_sensor_link(link_name):
+    """Return the sensor type string for a URDF link name, or ``None``.
+
+    Matches are substring-based on the lowercased link name, with the first
+    entry in ``_SENSOR_LINK_PATTERNS`` that has any keyword hit winning.
+    Returns ``None`` when the link is not recognised as a sensor or actuator.
+    """
+    ll = link_name.lower()
+    for keywords, stype in _SENSOR_LINK_PATTERNS:
+        if any(kw in ll for kw in keywords):
+            return stype
+    return None
+
+
+def _image_rotation_from_roll(roll_rad):
+    """Return image-correction degrees for a camera roll angle, or 0.
+
+    ≈ ±π  → 180 (upside-down)
+    ≈ +π/2 → 90  (on its left side)
+    ≈ −π/2 → -90 (on its right side)
+    """
+    if abs(abs(roll_rad) - math.pi) < 0.2:
+        return 180
+    if abs(roll_rad - math.pi / 2.0) < 0.2:
+        return 90
+    if abs(roll_rad + math.pi / 2.0) < 0.2:
+        return -90
+    return 0
+
+
+def _extract_sensor_mounts_from_urdf(urdf_path):
+    """Parse a URDF and return mount pose info for every sensor and actuator.
+
+    Inspects all joints whose **child link name** matches any entry in
+    ``_SENSOR_LINK_PATTERNS`` — cameras, depth cameras, LiDARs, IMUs, sonars,
+    GPS units, grippers, and so on.  For each match the joint's
+    ``<origin xyz="…" rpy="…"/>`` is read and stored verbatim so that any
+    downstream command can reason about the sensor's physical placement.
+
+    For **visual** sensors (``camera``, ``depth_camera``) the field
+    ``image_rotation_deg`` is also included: the suggested image correction
+    derived from the roll angle so that captured frames can be straightened
+    before display or delivery.
 
     Returns a list of dicts (empty list when the URDF cannot be read or no
-    camera joints are found):
-    ::
+    sensor/actuator joints are found):
+
+    .. code-block:: json
 
         {
-          "joint": "camera_joint",
-          "link":  "camera_link",
-          "rpy":   [3.14159, 0.0, 0.0],
-          "image_rotation_deg": 180,   # 0 = already upright; ±90 or 180
+          "joint":       "lidar_joint",
+          "link":        "lidar_front",
+          "sensor_type": "lidar",
+          "xyz":         [0.15, 0.0, 0.25],
+          "rpy":         [0.0, 0.0, 3.14159],
+
+          // Only for camera / depth_camera:
+          "image_rotation_deg": 180
         }
     """
     try:
@@ -776,40 +827,40 @@ def _extract_camera_mounts_from_urdf(urdf_path):
         if child_el is None:
             continue
         child_link = child_el.get("link", "")
-        cl_lower = child_link.lower()
-        if "camera" not in cl_lower and "cam" not in cl_lower:
+        sensor_type = _classify_sensor_link(child_link)
+        if sensor_type is None:
             continue
 
         origin_el = joint.find("origin")
         if origin_el is None:
+            xyz = [0.0, 0.0, 0.0]
             rpy = [0.0, 0.0, 0.0]
         else:
-            rpy_str = origin_el.get("rpy", "0 0 0")
             try:
-                parts = rpy_str.split()
-                rpy = [float(v) for v in parts]
+                xyz = [float(v) for v in origin_el.get("xyz", "0 0 0").split()]
+                if len(xyz) != 3:
+                    xyz = [0.0, 0.0, 0.0]
+            except ValueError:
+                xyz = [0.0, 0.0, 0.0]
+            try:
+                rpy = [float(v) for v in origin_el.get("rpy", "0 0 0").split()]
                 if len(rpy) != 3:
                     rpy = [0.0, 0.0, 0.0]
             except ValueError:
                 rpy = [0.0, 0.0, 0.0]
 
-        roll = rpy[0]
-        # Derive the image correction rotation from the roll angle.
-        if abs(abs(roll) - math.pi) < 0.2:        # ≈ ±180° → upside-down
-            image_rotation_deg = 180
-        elif abs(roll - math.pi / 2.0) < 0.2:     # ≈ +90° → on left side
-            image_rotation_deg = 90
-        elif abs(roll + math.pi / 2.0) < 0.2:     # ≈ -90° → on right side
-            image_rotation_deg = -90
-        else:
-            image_rotation_deg = 0
+        entry = {
+            "joint":       joint.get("name", ""),
+            "link":        child_link,
+            "sensor_type": sensor_type,
+            "xyz":         [round(v, 6) for v in xyz],
+            "rpy":         [round(v, 6) for v in rpy],
+        }
+        # For visual sensors add the actionable image correction.
+        if sensor_type in ("camera", "depth_camera"):
+            entry["image_rotation_deg"] = _image_rotation_from_roll(rpy[0])
 
-        mounts.append({
-            "joint": joint.get("name", ""),
-            "link": child_link,
-            "rpy": [round(v, 6) for v in rpy],
-            "image_rotation_deg": image_rotation_deg,
-        })
+        mounts.append(entry)
 
     return mounts
 
@@ -1184,11 +1235,11 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         if ang and (best_angular is None or ang < best_angular):
             best_angular = ang
 
-    # --- 4. Joint limits and camera mounts from URDF ---
+    # --- 4. Joint limits and sensor mounts from URDF ---
     scan_steps.append("urdf_limits")
     joint_limits = {}
-    camera_mounts: list = []
-    seen_camera_links: set = set()
+    sensor_mounts: list = []
+    seen_sensor_links: set = set()
     for uf in all_urdf_files:
         jl = _extract_joint_limits_from_urdf(uf)
         joint_limits.update(jl)
@@ -1196,12 +1247,12 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         lin, ang = _extract_safety_velocity_from_urdf(uf)
         if lin and (best_linear is None or lin < best_linear):
             best_linear = lin
-        # Camera mount orientation.
-        for mount in _extract_camera_mounts_from_urdf(uf):
+        # Sensor / actuator mount poses — deduplicated by child link name.
+        for mount in _extract_sensor_mounts_from_urdf(uf):
             link = mount["link"]
-            if link not in seen_camera_links:
-                seen_camera_links.add(link)
-                camera_mounts.append(mount)
+            if link not in seen_sensor_links:
+                seen_sensor_links.add(link)
+                sensor_mounts.append(mount)
 
     # --- 5. Sensor / feature detection ---
     scan_steps.append("feature_detection")
@@ -1341,7 +1392,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "robot_type_evidence": robot_type_evidence,
         "safety_limits": safety_limits,
         "joint_limits": joint_limits,
-        "camera_mounts": camera_mounts,
+        "sensor_mounts": sensor_mounts,
         "live_topics": live_topics,
     }
 
@@ -1438,10 +1489,12 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             "has_imu": sr["has_imu"],
             "has_nav2": sr["has_nav2"],
             "safety_limits": sr["safety_limits"],
-            # camera_mounts: per-camera link, the physical mount orientation
-            # extracted from URDF joint origins.  image_rotation_deg is the
-            # correction to apply to captured images before use.
-            "camera_mounts": sr["camera_mounts"],
+            # sensor_mounts: one entry per sensor/actuator link found in URDF.
+            # Stores the physical xyz position and rpy orientation of each
+            # sensor relative to its parent link.  Visual sensors
+            # (camera, depth_camera) also carry image_rotation_deg — the
+            # suggested correction to apply when capturing images.
+            "sensor_mounts": sr["sensor_mounts"],
         },
         # ------------------------------------------------------------------ #
         # DETAIL — per launch file; load on demand via --section <filename>.  #
@@ -1520,7 +1573,7 @@ def cmd_profile_scan(args):
         "robot_type": scan_result["robot_type"],
         "robot_features": scan_result["robot_features"],
         "robot_type_evidence": scan_result["robot_type_evidence"],
-        "camera_mounts": scan_result["camera_mounts"],
+        "sensor_mounts": scan_result["sensor_mounts"],
         "safety_limits": scan_result["safety_limits"],
         "scan_steps": scan_result["scan_steps"],
         "summary": profile["summary"],
@@ -1564,16 +1617,77 @@ def cmd_profile_show(args):
                 "available_sections": available,
             })
     else:
-        # Default: show summary + list of available detail sections.
+        # Default: show summary + annotations + list of available detail sections.
         output({
             "robot_name": robot_name,
             "generated_at": profile.get("generated_at"),
             "workspace": profile.get("workspace"),
             "ros_distro": profile.get("ros_distro"),
             "summary": profile.get("summary", {}),
+            # annotations: free-text notes added by the user via 'profile annotate'.
+            # Always included so agents see them at session-start without an extra call.
+            "annotations": profile.get("annotations", []),
             "detail_sections": list(profile.get("detail", {}).keys()),
             "hint": "Use --section <launch-filename> to load a launch file's full detail.",
         })
+
+
+def cmd_profile_annotate(args):
+    """Append a free-text annotation to the current robot profile.
+
+    Annotations are stored persistently alongside the profile and are
+    returned by every ``profile show`` call.  They are intended for
+    information that cannot be auto-detected from the workspace — e.g.
+    hardware quirks, known sensor calibration issues, or operational
+    constraints that the agent must know about:
+
+        profile annotate "Left motor encoder is worn — odometry drifts right.
+                         Apply a slight left correction to cmd_vel."
+
+        profile annotate "Camera image is horizontally mirrored because it
+                         faces a reflective surface."
+
+    Agents MUST read and apply annotations when executing commands —
+    they are treated as mandatory operational context, not optional hints.
+    """
+    text = getattr(args, "text", None)
+    if not text or not text.strip():
+        output({"error": "Annotation text cannot be empty."})
+        return
+
+    robot_name = getattr(args, "name", None) or "robot"
+
+    # Auto-detect profile if name not provided.
+    existing = _load_profile(robot_name)
+    if existing is None:
+        if _PROFILES_DIR.exists():
+            profiles = sorted(_PROFILES_DIR.glob("*_profile.json"))
+            if len(profiles) == 1:
+                robot_name = profiles[0].name.replace("_profile.json", "")
+                existing = _load_profile(robot_name)
+
+    if existing is None:
+        output({
+            "error": "No profile found to annotate.",
+            "hint": "Run: python3 ros2_cli.py profile scan [--workspace PATH]",
+        })
+        return
+
+    annotation = {
+        "added_at": datetime.now(timezone.utc).isoformat(),
+        "note": text.strip(),
+    }
+    existing.setdefault("annotations", []).append(annotation)
+    _save_profile(existing, name=robot_name)
+
+    output({
+        "success": True,
+        "robot_name": robot_name,
+        "annotation_index": len(existing["annotations"]) - 1,
+        "annotation": annotation,
+        "total_annotations": len(existing["annotations"]),
+        "hint": "Run 'profile show' to see all annotations.",
+    })
 
 
 def cmd_profile_rescan(args):
@@ -1625,11 +1739,21 @@ def cmd_profile_rescan(args):
         return
 
     # Full rescan — delegate to scan.
+    # Preserve any user-added annotations so they survive the rescan.
+    preserved_annotations = (existing or {}).get("annotations", [])
+
     args.name = robot_name
     if user_ws is None and existing:
         # Re-use the workspace from the existing profile.
         args.workspace = existing.get("workspace") or None
     cmd_profile_scan(args)
+
+    # Re-inject annotations into the freshly written profile (if any exist).
+    if preserved_annotations:
+        refreshed = _load_profile(robot_name)
+        if refreshed is not None:
+            refreshed["annotations"] = preserved_annotations
+            _save_profile(refreshed, name=robot_name)
 
 
 def cmd_profile_list(args):

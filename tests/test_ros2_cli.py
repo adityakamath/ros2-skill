@@ -244,6 +244,7 @@ MINIMAL_ARGS = [
     ("profile",  "rescan",   ["profile", "rescan"]),
     ("profile",  "list",     ["profile", "list"]),
     ("profile",  "ls",       ["profile", "ls"]),
+    ("profile",  "annotate", ["profile", "annotate", "test annotation"]),
 ]
 
 
@@ -4639,8 +4640,8 @@ class TestApplyParams(unittest.TestCase):
 # Robot type detection unit tests (ros2_profile helpers)
 # ---------------------------------------------------------------------------
 
-class TestCameraMountExtraction(unittest.TestCase):
-    """_extract_camera_mounts_from_urdf parses URDF for camera joint origins."""
+class TestSensorMountExtraction(unittest.TestCase):
+    """_extract_sensor_mounts_from_urdf parses URDF for all sensor/actuator origins."""
 
     @classmethod
     def setUpClass(cls):
@@ -4653,7 +4654,7 @@ class TestCameraMountExtraction(unittest.TestCase):
             stub.output = lambda d: None
             sys.modules["ros2_utils"] = stub
         import ros2_profile
-        cls.fn = staticmethod(ros2_profile._extract_camera_mounts_from_urdf)
+        cls.fn = staticmethod(ros2_profile._extract_sensor_mounts_from_urdf)
 
     def _write_urdf(self, tmpdir, content):
         import pathlib
@@ -4715,7 +4716,8 @@ class TestCameraMountExtraction(unittest.TestCase):
         self.assertEqual(len(mounts), 1)
         self.assertEqual(mounts[0]["image_rotation_deg"], 90)
 
-    def test_non_camera_joint_ignored(self):
+    def test_lidar_joint_detected(self):
+        """Lidar links are now detected as a separate sensor_type."""
         import tempfile
         urdf = """<?xml version="1.0"?>
 <robot name="test">
@@ -4729,7 +4731,28 @@ class TestCameraMountExtraction(unittest.TestCase):
 </robot>"""
         with tempfile.TemporaryDirectory() as d:
             mounts = self.fn(self._write_urdf(d, urdf))
-        self.assertEqual(mounts, [], "Non-camera joint should not be detected")
+        self.assertEqual(len(mounts), 1)
+        m = mounts[0]
+        self.assertEqual(m["sensor_type"], "lidar")
+        # Lidar is not a visual sensor — no image_rotation_deg.
+        self.assertNotIn("image_rotation_deg", m)
+
+    def test_unrecognized_link_ignored(self):
+        """Links that don't match any sensor pattern return no mounts."""
+        import tempfile
+        urdf = """<?xml version="1.0"?>
+<robot name="test">
+  <link name="base_link"/>
+  <link name="wheel_left_link"/>
+  <joint name="wheel_left_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_left_link"/>
+    <origin xyz="-0.2 0.15 0" rpy="0 0 0"/>
+  </joint>
+</robot>"""
+        with tempfile.TemporaryDirectory() as d:
+            mounts = self.fn(self._write_urdf(d, urdf))
+        self.assertEqual(mounts, [], "Wheel joint should not be detected as a sensor")
 
     def test_empty_urdf_returns_empty(self):
         import tempfile
@@ -4803,7 +4826,7 @@ class TestLoadProfileSummary(unittest.TestCase):
                 profile = {
                     "schema_version": 1,
                     "robot_name": "test_robot",
-                    "summary": {"robot_type": "mobile_base", "camera_mounts": []},
+                    "summary": {"robot_type": "mobile_base", "sensor_mounts": []},
                     "detail": {},
                 }
                 (pathlib.Path(d) / "test_robot_profile.json").write_text(
@@ -4825,6 +4848,167 @@ class TestLoadProfileSummary(unittest.TestCase):
             self.assertIsNone(result)
         finally:
             self.mod._PROFILES_DIR = orig
+
+
+class TestProfileAnnotate(unittest.TestCase):
+    """cmd_profile_annotate appends free-text notes to the robot profile."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def _make_profile(self, tmp_dir, robot_name="mybot"):
+        """Write a minimal profile JSON to tmp_dir and return the path."""
+        import json, pathlib
+        profile = {
+            "schema_version": 1,
+            "robot_name": robot_name,
+            "generated_at": "2026-01-01T00:00:00+00:00",
+            "workspace": "",
+            "ros_distro": "humble",
+            "summary": {"robot_type": "mobile_base", "sensor_mounts": []},
+            "detail": {},
+        }
+        p = pathlib.Path(tmp_dir) / f"{robot_name}_profile.json"
+        p.write_text(json.dumps(profile), encoding="utf-8")
+        return p
+
+    def _run_annotate(self, text, robot_name="mybot"):
+        """Run cmd_profile_annotate with the given text and return collected output."""
+        import argparse
+        results = []
+        orig_output = self.mod.output
+        self.mod.output = results.append
+        try:
+            ns = argparse.Namespace(text=text, name=robot_name)
+            self.mod.cmd_profile_annotate(ns)
+        finally:
+            self.mod.output = orig_output
+        return results
+
+    def test_annotation_appended_to_profile(self):
+        """A note is stored in the profile and reported in the output."""
+        import tempfile, json, pathlib
+        orig_dir = self.mod._PROFILES_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.mod._PROFILES_DIR = pathlib.Path(d)
+                self._make_profile(d)
+
+                results = self._run_annotate("Left encoder is worn.", robot_name="mybot")
+
+            self.assertEqual(len(results), 1)
+            r = results[0]
+            self.assertTrue(r.get("success"))
+            self.assertEqual(r["total_annotations"], 1)
+            self.assertEqual(r["annotation"]["note"], "Left encoder is worn.")
+            self.assertIn("added_at", r["annotation"])
+        finally:
+            self.mod._PROFILES_DIR = orig_dir
+
+    def test_multiple_annotations_accumulate(self):
+        """Each call appends without removing previous notes."""
+        import tempfile, pathlib
+        orig_dir = self.mod._PROFILES_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.mod._PROFILES_DIR = pathlib.Path(d)
+                self._make_profile(d)
+
+                self._run_annotate("Note one.", robot_name="mybot")
+                self._run_annotate("Note two.", robot_name="mybot")
+                results = self._run_annotate("Note three.", robot_name="mybot")
+
+                r = results[0]
+                self.assertEqual(r["total_annotations"], 3)
+                self.assertEqual(r["annotation_index"], 2)
+
+                # Verify all three are on disk.
+                loaded = self.mod._load_profile("mybot")
+                self.assertEqual(len(loaded["annotations"]), 3)
+                notes = [a["note"] for a in loaded["annotations"]]
+                self.assertEqual(notes, ["Note one.", "Note two.", "Note three."])
+        finally:
+            self.mod._PROFILES_DIR = orig_dir
+
+    def test_empty_text_returns_error(self):
+        """An empty or whitespace-only annotation is rejected."""
+        import tempfile, pathlib
+        orig_dir = self.mod._PROFILES_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.mod._PROFILES_DIR = pathlib.Path(d)
+                self._make_profile(d)
+
+                results = self._run_annotate("   ", robot_name="mybot")
+
+            self.assertEqual(len(results), 1)
+            self.assertIn("error", results[0])
+        finally:
+            self.mod._PROFILES_DIR = orig_dir
+
+    def test_no_profile_returns_error(self):
+        """Annotating when no profile exists returns an error dict."""
+        import tempfile, pathlib
+        orig_dir = self.mod._PROFILES_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.mod._PROFILES_DIR = pathlib.Path(d)
+                # No profile file created.
+                results = self._run_annotate("Some note.", robot_name="ghost")
+
+            self.assertEqual(len(results), 1)
+            self.assertIn("error", results[0])
+        finally:
+            self.mod._PROFILES_DIR = orig_dir
+
+    def test_annotation_survives_rescan(self):
+        """Annotations are re-injected after a profile overwrite (rescan pattern)."""
+        import tempfile, pathlib, json
+        orig_dir = self.mod._PROFILES_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.mod._PROFILES_DIR = pathlib.Path(d)
+                self._make_profile(d)
+
+                # Add an annotation.
+                self._run_annotate("Sensor offset calibration needed.", robot_name="mybot")
+                preserved = self.mod._load_profile("mybot").get("annotations", [])
+                self.assertEqual(len(preserved), 1)
+
+                # Simulate what cmd_profile_scan does: overwrite the profile file.
+                fresh = {
+                    "schema_version": 1,
+                    "robot_name": "mybot",
+                    "generated_at": "2026-05-12T00:00:00+00:00",
+                    "workspace": "",
+                    "ros_distro": "humble",
+                    "summary": {"robot_type": "mobile_base", "sensor_mounts": []},
+                    "detail": {},
+                }
+                (pathlib.Path(d) / "mybot_profile.json").write_text(
+                    json.dumps(fresh), encoding="utf-8")
+
+                # Simulate the re-injection step in cmd_profile_rescan.
+                refreshed = self.mod._load_profile("mybot")
+                refreshed["annotations"] = preserved
+                self.mod._save_profile(refreshed, name="mybot")
+
+                final = self.mod._load_profile("mybot")
+                self.assertEqual(len(final.get("annotations", [])), 1)
+                self.assertEqual(
+                    final["annotations"][0]["note"], "Sensor offset calibration needed.")
+        finally:
+            self.mod._PROFILES_DIR = orig_dir
 
 
 class TestPkgMatchHints(unittest.TestCase):

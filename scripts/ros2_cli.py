@@ -171,6 +171,7 @@ from ros2_profile import (
     cmd_profile_show,
     cmd_profile_rescan,
     cmd_profile_list,
+    cmd_profile_annotate,
 )
 from ros2_control import (
     cmd_control_list_controller_types,
@@ -1295,6 +1296,13 @@ def build_parser():
     psub.add_parser("list", help="List all robot profiles in .profiles/")
     psub.add_parser("ls",   help="Alias for list")
 
+    # annotate
+    p = psub.add_parser("annotate",
+                        help="Append a free-text note to the robot profile")
+    p.add_argument("text", help="Annotation text (natural language; stored verbatim)")
+    p.add_argument("--name", default="robot", metavar="NAME",
+                   help="Robot name (default: auto-detected from .profiles/)")
+
     return parser
 
 
@@ -1472,11 +1480,12 @@ DISPATCH = {
     ("logs", "tail"):         cmd_logs_tail,
     ("logs", "node-summary"): cmd_logs_node_summary,
     # profile
-    ("profile", "scan"):    cmd_profile_scan,
-    ("profile", "show"):    cmd_profile_show,
-    ("profile", "rescan"):  cmd_profile_rescan,
-    ("profile", "list"):    cmd_profile_list,
-    ("profile", "ls"):      cmd_profile_list,
+    ("profile", "scan"):     cmd_profile_scan,
+    ("profile", "show"):     cmd_profile_show,
+    ("profile", "rescan"):   cmd_profile_rescan,
+    ("profile", "list"):     cmd_profile_list,
+    ("profile", "ls"):       cmd_profile_list,
+    ("profile", "annotate"): cmd_profile_annotate,
 }
 
 

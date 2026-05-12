@@ -310,6 +310,10 @@ python3 {baseDir}/scripts/ros2_cli.py profile rescan --launch-file <launch-filen
 
 # List all saved profiles
 python3 {baseDir}/scripts/ros2_cli.py profile list
+
+# Append a free-text annotation (shown every session; agent MUST read and apply)
+python3 {baseDir}/scripts/ros2_cli.py profile annotate "Left encoder drifts right — apply 5% left correction to cmd_vel."
+python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror — image is horizontally flipped."
 ```
 
 **Profile JSON shape:**
@@ -328,14 +332,28 @@ python3 {baseDir}/scripts/ros2_cli.py profile list
     "velocity_topics": ["/cmd_vel"],
     "safety_limits": {"linear_max": 0.5, "angular_max": 1.0, "source": "yaml_or_urdf"},
     "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false,
-    "camera_mounts": [          ← per-camera link, URDF joint origin rpy + image correction
-      {
+    "sensor_mounts": [          ← every sensor/actuator link found in URDF
+      {                         ← sensor_type: camera|depth_camera|lidar|imu|sonar|gps|gripper
         "joint": "camera_joint", "link": "camera_link",
-        "rpy": [3.14159, 0.0, 0.0],   ← roll ≈ π → upside-down
-        "image_rotation_deg": 180      ← capture-image applies this automatically
+        "sensor_type": "camera",
+        "xyz": [0.1, 0.0, 0.5],        ← position relative to parent link
+        "rpy": [3.14159, 0.0, 0.0],    ← orientation; roll ≈ π → upside-down
+        "image_rotation_deg": 180       ← visual sensors only; capture-image applies this
+      },
+      {
+        "joint": "lidar_joint", "link": "lidar_front",
+        "sensor_type": "lidar",
+        "xyz": [0.15, 0.0, 0.25], "rpy": [0.0, 0.0, 3.14159]
+        ← lidar pointing backward; no image_rotation_deg (not a visual sensor)
       }
     ]
   },
+  "annotations": [              ← user-added free-text notes; ALWAYS read at session start
+    {
+      "added_at": "2026-05-12T...",
+      "note": "Left motor encoder is worn — odometry drifts right."
+    }
+  ],
   "detail": {                           ← load on demand per launch file
     "bringup.launch.py": {
       "path": "...", "package": "...",
@@ -415,9 +433,10 @@ These work without ROS running or nodes active:
 | `pkg list / prefix / executables / xml` | Package introspection |
 | `pkg create <name> [flags]` | Scaffold a new ROS 2 package |
 | `profile scan [--workspace PATH] [--robot-type TYPE]` | Build robot profile from workspace (static-first); `--robot-type` overrides detection |
-| `profile show [--section S]` | Show saved robot profile or a section |
+| `profile show [--section S]` | Show saved robot profile or a section (always includes annotations) |
 | `profile rescan [--launch-file F]` | Update existing profile (full or partial) |
 | `profile list` | List all saved robot profiles |
+| `profile annotate "note"` | Append a free-text note to the profile (read at every session start) |
 
 ---
 
