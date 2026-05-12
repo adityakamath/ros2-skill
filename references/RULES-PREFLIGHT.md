@@ -149,67 +149,6 @@ When introspection is required, convention-based guessing is not permitted:
 
 **Introspection commands return discovered names. Use those names — not the ones you expect.**
 
-### Rule 0.6 — Conditional auto-rescan after `launch new`
-
-The profile is derived from a static workspace scan of source files (launch files, package manifests, controller YAMLs, URDFs). The natural moment for the profile to drift is **between launches** — the user (or the agent in a previous turn) may have edited a launch arg default, controller YAML, joint limit, or topic remapping. Once a launch file actually starts, the profile must reflect what was just brought up — **but only if a source file has actually changed**.
-
-**Trigger:** every successful `launch new <package> <launch_file> [args...]` (and equivalent `run new`) invoked by the agent.
-
-**Gate — check whether a rescan is needed first.** Run a single cheap source-mtime check against the loaded profile JSON:
-
-```bash
-find "<profile.workspace>/src" \
-  \( -name 'package.xml' -o -name '*.launch.py' -o -name '*.launch.xml' \
-     -o -name '*.launch.yaml' -o -name '*.yaml' -o -name '*.urdf' \
-     -o -name '*.xacro' -o -name '*.srdf' \) \
-  -newer "<profile_json_path>" -print -quit
-```
-
-- `<profile.workspace>` = the `workspace` field of the loaded profile.
-- `<profile_json_path>` = the loaded profile file (typically `.profiles/<name>_profile.json` under the skill root).
-- `-print -quit` returns on the first match — the check is O(matched files), not O(workspace).
-
-**Decision:**
-- **Command prints any path → rescan needed.** At least one profile-relevant source file is newer than the profile.
-- **Command prints nothing → skip the rescan.** Sources are consistent with the loaded profile. Continue.
-
-**Rescan protocol (when needed, executes silently):**
-1. Run `profile scan` with the same args as the loaded profile (`name` / `packages` from `profile.metadata`; bare `profile scan` if absent).
-2. Reload via `profile show`. Re-classify the path (Rule 0.0).
-3. Continue. No retry of any prior operation — the rescan is forward-looking.
-
-**Why this gate matters:**
-- `launch new` is a frequent operation. An unconditional rescan would add seconds to every launch.
-- The `find -newer ... -quit` check is fast (typically < 100 ms) and conclusive — there is no other way for a profile-relevant source file to change.
-- Skipping a rescan when sources are unchanged is **safe by definition**: the profile was derived from those exact sources, so it cannot have drifted from them.
-
-**Why `install/` mtime is not used:** Source files can be edited without rebuilding (launch arg defaults, controller YAML, URDF joint limits). `install/setup.bash` mtime would miss those edits, which are exactly what the rescan must catch.
-
-**Auto-rescan never runs during runtime operations** (publish, subscribe, service call, parameter set, controller switch, etc.). Mid-task `profile scan` is forbidden. Runtime mismatches escalate to the user (Rule 0.0b).
-
-**Skip the gate check entirely if:**
-- The `launch new` call failed — nothing was actually brought up.
-- The profile was just rescanned in the same turn (do not gate-check twice for one event).
-- The launch was invoked by the user directly in their terminal (the agent has no event hook for this).
-
-**Session start (Rule 0.1 Step 7) — advisory only:** If `generated_at` is missing/unparseable after loading the profile, report once and continue. Do not auto-rescan at session start — the user has not yet triggered a launch.
-
-### Rule 0.7 — `profile scan` is permitted only on explicit triggers
-
-`profile scan` is **slow** (full workspace analysis) and **session-mutating** (overwrites the loaded profile). It must be triggered only by one of the following:
-
-1. **User request** — the user explicitly asks (e.g., *"rescan the profile"*, *"rebuild the profile"*, *"profile scan"*).
-2. **First-time bootstrap** — no profile exists yet (Rule 0.1 Step 7).
-3. **Post-launch auto-rescan** — immediately after the agent runs a successful `launch new` (or equivalent `run new`), **and** the source-mtime gate in Rule 0.6 indicates a rescan is needed. Exactly one rescan per launch event.
-
-**Never run `profile scan` because:**
-- It seems prudent or "safer" to refresh — the agent does not get to make that call.
-- A field appears to be missing or empty (use per-field live fallback per Rule 0.0a; that is not staleness).
-- A live operation returned an unexpected result during a runtime operation (escalate per Rule 0.0b; do **not** auto-rescan mid-task).
-- Time has passed since the last rescan — elapsed time is not a staleness signal.
-- A launch just succeeded but the Rule 0.6 source-mtime gate returned no match — the profile is consistent with sources.
-- The same launch has just been auto-rescanned — do not rescan twice for one event.
-
 ### Rule 0.1 — Session-start checks (run once per session, before any task)
 
 **Before executing any user command in a new session, run these checks.** They take seconds and catch the most common causes of silent failure.
@@ -283,6 +222,67 @@ Step 2 (simulated clock check) is the one session-level check that must be **rep
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe /clock --max-messages 1 --timeout 2
 ```
 If no message arrives (even though the clock topic exists): the simulator is paused. **Do not issue any timed command** — all timeouts will fire instantly or block indefinitely depending on whether ROS time is forwarding. Escalate: *"Simulator clock is not advancing. Cannot issue timed commands until the simulator is unpaused."* This check adds under 2 s to every motion pre-flight and prevents the most expensive class of sim-based failures.
+
+### Rule 0.6 — Conditional auto-rescan after `launch new`
+
+The profile is derived from a static workspace scan of source files (launch files, package manifests, controller YAMLs, URDFs). The natural moment for the profile to drift is **between launches** — the user (or the agent in a previous turn) may have edited a launch arg default, controller YAML, joint limit, or topic remapping. Once a launch file actually starts, the profile must reflect what was just brought up — **but only if a source file has actually changed**.
+
+**Trigger:** every successful `launch new <package> <launch_file> [args...]` (and equivalent `run new`) invoked by the agent.
+
+**Gate — check whether a rescan is needed first.** Run a single cheap source-mtime check against the loaded profile JSON:
+
+```bash
+find "<profile.workspace>/src" \
+  \( -name 'package.xml' -o -name '*.launch.py' -o -name '*.launch.xml' \
+     -o -name '*.launch.yaml' -o -name '*.yaml' -o -name '*.urdf' \
+     -o -name '*.xacro' -o -name '*.srdf' \) \
+  -newer "<profile_json_path>" -print -quit
+```
+
+- `<profile.workspace>` = the `workspace` field of the loaded profile.
+- `<profile_json_path>` = the loaded profile file (typically `.profiles/<name>_profile.json` under the skill root).
+- `-print -quit` returns on the first match — the check is O(matched files), not O(workspace).
+
+**Decision:**
+- **Command prints any path → rescan needed.** At least one profile-relevant source file is newer than the profile.
+- **Command prints nothing → skip the rescan.** Sources are consistent with the loaded profile. Continue.
+
+**Rescan protocol (when needed, executes silently):**
+1. Run `profile scan` with the same args as the loaded profile (`name` / `packages` from `profile.metadata`; bare `profile scan` if absent).
+2. Reload via `profile show`. Re-classify the path (Rule 0.0).
+3. Continue. No retry of any prior operation — the rescan is forward-looking.
+
+**Why this gate matters:**
+- `launch new` is a frequent operation. An unconditional rescan would add seconds to every launch.
+- The `find -newer ... -quit` check is fast (typically < 100 ms) and conclusive — there is no other way for a profile-relevant source file to change.
+- Skipping a rescan when sources are unchanged is **safe by definition**: the profile was derived from those exact sources, so it cannot have drifted from them.
+
+**Why `install/` mtime is not used:** Source files can be edited without rebuilding (launch arg defaults, controller YAML, URDF joint limits). `install/setup.bash` mtime would miss those edits, which are exactly what the rescan must catch.
+
+**Auto-rescan never runs during runtime operations** (publish, subscribe, service call, parameter set, controller switch, etc.). Mid-task `profile scan` is forbidden. Runtime mismatches escalate to the user (Rule 0.0b).
+
+**Skip the gate check entirely if:**
+- The `launch new` call failed — nothing was actually brought up.
+- The profile was just rescanned in the same turn (do not gate-check twice for one event).
+- The launch was invoked by the user directly in their terminal (the agent has no event hook for this).
+
+**Session start (Rule 0.1 Step 7) — advisory only:** If `generated_at` is missing/unparseable after loading the profile, report once and continue. Do not auto-rescan at session start — the user has not yet triggered a launch.
+
+### Rule 0.7 — `profile scan` is permitted only on explicit triggers
+
+`profile scan` is **slow** (full workspace analysis) and **session-mutating** (overwrites the loaded profile). It must be triggered only by one of the following:
+
+1. **User request** — the user explicitly asks (e.g., *"rescan the profile"*, *"rebuild the profile"*, *"profile scan"*).
+2. **First-time bootstrap** — no profile exists yet (Rule 0.1 Step 7).
+3. **Post-launch auto-rescan** — immediately after the agent runs a successful `launch new` (or equivalent `run new`), **and** the source-mtime gate in Rule 0.6 indicates a rescan is needed. Exactly one rescan per launch event.
+
+**Never run `profile scan` because:**
+- It seems prudent or "safer" to refresh — the agent does not get to make that call.
+- A field appears to be missing or empty (use per-field live fallback per Rule 0.0a; that is not staleness).
+- A live operation returned an unexpected result during a runtime operation (escalate per Rule 0.0b; do **not** auto-rescan mid-task).
+- Time has passed since the last rescan — elapsed time is not a staleness signal.
+- A launch just succeeded but the Rule 0.6 source-mtime gate returned no match — the profile is consistent with sources.
+- The same launch has just been auto-rescanned — do not rescan twice for one event.
 
 ### Rule 14 — Check lifecycle state before using any managed node's interface
 

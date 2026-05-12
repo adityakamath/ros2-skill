@@ -350,385 +350,54 @@ python3 {baseDir}/scripts/discord_tools.py send-image \
 
 ---
 
-## Core Rules (mandatory — from RULES-*.md)
+## Core Rules — index (authoritative content lives in `references/RULES-*.md`)
 
-**These rules have the same authority as the RULES-*.md files. Violation of any rule here or in any RULES-*.md file is a critical error requiring immediate self-correction.** Before your first action, load the domain-specific rule files relevant to the task from `references/` — they contain full detail, rationale, and edge cases. Use `references/RULES.md` as the index to find the right file quickly. At minimum, load `RULES-CORE.md` and `RULES-PREFLIGHT.md` before any operation.
+**Load `references/RULES-CORE.md` and `references/RULES-PREFLIGHT.md` before your first action.** Load `RULES-MOTION.md` before any movement, `RULES-DIAGNOSTICS.md` before any failure-recovery work, `RULES-REFERENCE.md` for intent→command lookups. Use `references/RULES.md` as the index.
 
-### 1 — Resolve names before you act. Never hardcode names.
+**These rules have the same authority as the files they reference. Violation of any rule is a critical error requiring immediate self-correction.** The numbering below matches `references/RULES-*.md` exactly — use it to find a rule fast.
 
-**Never assume topic, node, service, action, controller, or TF frame names.** Check the robot profile first; if the field is absent, query the live system. Names vary per robot configuration.
+### Rule index
 
-| What you need | Profile field (check first) | Live discovery (if profile field absent) |
+| # | One-line gist | Source file |
 |---|---|---|
-| Velocity command topic | `summary.cmd_vel_topic` | `topics find geometry_msgs/msg/Twist` + `topics find geometry_msgs/msg/TwistStamped` |
-| Velocity message type | `summary.velocity_topics[].type` | `topics type <topic>` |
-| Odometry topic | `summary.localization_config.fused_sources` values | `topics find nav_msgs/msg/Odometry` |
-| Velocity limits | `summary.safety_limits.binding` | four-source live sweep (see Safety section) |
-| TF frame names | `summary.tf_frames` | `tf list` |
-| Controller names | `summary.active_controllers` | `control list-controllers` |
-| Camera topic | — | `topics find sensor_msgs/msg/Image` + `topics find sensor_msgs/msg/CompressedImage` |
-| Node names | — | `nodes list` |
-| Service names | — | `services list` or `services find <type>` |
-| Action server names | — | `actions list` or `actions find <type>` |
-| Component container names / loaded component IDs | — | `component list` |
-| Parameter names on a node | — | `params list <node>` |
-
-**When discovery returns empty — fallback chain:**
-
-1. Restart the daemon and retry: `daemon stop` → `daemon start` → repeat discovery
-2. Check if the relevant node is running: `nodes list` — if absent, the node may not have started
-3. Check lifecycle state: `lifecycle nodes` — inactive nodes publish nothing and serve no requests
-4. Widen the search: `topics list` + scan manually for semantically matching names (e.g. `vel`, `odom`, `camera`)
-5. Try the alternate message type variant (e.g. `TwistStamped` if `Twist` returned empty, or vice versa)
-6. Only if all of the above fail — tell the user what was tried and what returned empty
-
-### 2 — Get the payload template before publishing or calling
-
-Never construct message payloads from memory. Always:
-```bash
-python3 {baseDir}/scripts/ros2_cli.py interface proto <msg_type>
-```
-Copy the output. Modify only the fields required by the task.
-
-**Nested types:** if any field in the template is itself a non-primitive message type (not `bool`, `int*`, `float*`, `string`, `byte`), run `interface show <nested_type>` on it recursively until all leaf fields are primitives. Silently malformed nested fields produce no error — the message is accepted and the payload is wrong.
-
-**Camera / depth topics:** before using any camera or depth image, verify calibration and TF alignment:
-1. `topics find sensor_msgs/msg/CameraInfo` — find the paired `camera_info` topic
-2. `topics subscribe <CAMERA_INFO_TOPIC> --max-messages 1 --timeout 2` — confirm `K` matrix is non-zero (calibrated)
-3. Read `header.frame_id` from the message; confirm it appears in `tf list`
-A camera with a zero `K` matrix is uncalibrated. A camera whose `frame_id` is missing from TF produces wrong spatial results silently. Both conditions must pass before using the camera for any task.
-
-### 3 — Never ask the user for names the robot can provide
-
-If a topic, service, node, or parameter name can be resolved from the **profile** or the live system, resolve it. Check the profile first (instant). Fall back to live discovery only when the profile field is absent. Only ask the user if both return empty and there is genuinely no other way.
-
-### 4 — Verify every action after executing it
-
-Never claim a result without confirming it. Subscribe to the relevant topic or call `params get` to verify the effect occurred. For movement, wait until velocity ≈ 0 before reading position.
-
-### 5 — Never invent commands or flags
-
-If a subcommand or flag is not in `references/COMMANDS.md` or `--help` output, it does not exist. Run `--help` on the parent command, find the correct form, and retry silently — do not report a guess-and-fail to the user.
-
-### 6 — On any error: diagnose, self-correct, retry, report
-
-Never ask the user to diagnose a failure. Work through this sequence autonomously:
-
-1. **Identify** — classify the error: `{"error": "..."}` in output, non-zero exit, no messages arriving, robot did not move
-2. **Near-miss check** — is this a command typo or wrong subcommand? Self-correct and retry silently
-3. **Graph state** — `nodes list`: is the relevant node running?
-4. **Lifecycle state** — `lifecycle nodes`: is the node in `inactive` or `unconfigured` state?
-5. **Retry with flags** — add `--timeout 15 --retries 3` to the command and retry
-6. **QoS mismatch** — if a topic is found but no messages arrive, `topics details <topic>` to inspect publisher QoS; add `--qos-reliability best_effort` or `--qos-reliability reliable` to match the publisher
-7. **System health** — `doctor`: DDS or network issue?
-8. **Escalate** — only after all of the above fail, tell the user what was tried and what the error is
-
-For rule violations specifically: halt → self-correct → retry → report in **one line**.
-
-**Stalled node (running but producing no output):** if a node appears in `nodes list` and its input topics are live (`topics hz` > 0) but it produces no output, suspect executor starvation: `SingleThreadedExecutor` + a blocking callback (timer, service handler, or subscriber) that never returns. Diagnose: elevate log level to DEBUG (see RULES-DIAGNOSTICS.md Rule 7 pre-escalation protocol) and look for a callback that enters but does not return. The CLI cannot expose executor type — check source or report to user. Recommended fix: `MultiThreadedExecutor`. Do not retry the same command expecting a different result.
-
-### 7 — Resolve intent before asking. Never ask what you can infer.
-
-When a user request is ambiguous or incomplete, resolve it yourself — then act. Only ask when genuine ambiguity remains after all options are exhausted.
-
-**Subcommand inference:** Map natural language to the correct subcommand without asking.
-
-| User says | Correct form |
-|---|---|
-| "launch my_robot bringup" | `launch new my_robot_bringup bringup.launch.py` |
-| "kill/stop the launch" | `launch kill <session>` |
-| "take a photo" | discover camera topic → `topics capture-image --topic <discovered>` |
-| "topic list" or "topic" instead of "topics" | self-correct silently per Rule 6, retry with `topics` |
-| "run talker standalone", "standalone component", "component without container" | `component standalone <package> <plugin>` |
-
-**Launch file name resolution** — try in order, act on first match, never ask:
-1. Exact match (`base`)
-2. `<name>.launch.py` (`base.launch.py`)
-3. `<name>.py`
-4. If multiple files match and the intent is genuinely unclear — only then ask.
-
-**Launch parameter flags** — when the user supplies params at launch time, use the right flag:
-
-| User intent | Flag | Notes |
-|---|---|---|
-| Set specific param values | `--param key:=value,key2:=value2` | Comma-separated, any separator (`:=`, `=`, `:`) accepted |
-| Load a YAML config file or directory | `--config-path /path/to/config.yaml` | Directory → all `.yaml`/`.yml` files loaded alphabetically |
-| Apply a saved preset | `--preset <name>` | Reads `.presets/<name>.json`; lowest priority — positional and `--param` override |
-| Override individual preset values | `--preset <name> --param key:=override` | `--param` wins; combined with positional = full three-tier stack |
-
-**Priority order (ROS 2 last-wins):** positional args > `--param` > `--preset`. Always pass them on the same command — never issue a separate `params set` before launching.
-
-**Duplicate detection** — `launch new` checks for a running session with the same package + launch file before starting. If one exists, the response returns `warning` and `existing_session`. Act on it: kill the existing session first (`launch kill <session>`), then retry. Do not launch in parallel unless the user explicitly asks for a second instance.
-
-**Launch package discovery** — when the package is unknown (user says "run the bringup", "launch navigation"): use `launch list <keyword>` to search installed packages, then `launch new <package> <file>` with the result.
-
-| User says... | Search for packages/files containing... |
-|---|---|
-| "bringup", "bring up", "start the robot" | `bringup`, `bringup.launch.py` |
-| "navigation", "nav", "drive autonomously" | `navigation2`, `nav2`, `navigation` |
-| "camera", "vision" | `camera`, `realsense`, `image_pipeline` |
-| "arm", "manipulation", "moveit" | `moveit`, `arm`, `manipulation` |
-| "sim", "simulation", "gazebo" | `gazebo`, `simulation`, `sim` |
-
-If one clear match → launch immediately (Rule 26). If multiple candidates → present list, ask once. If none → ask for exact package/file name.
-
-**Camera / image tasks** — do not ask which topic to use. Discover it:
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Image
-```
-Use the first result. If multiple camera topics exist and the user has not specified, pick the most likely one (e.g. the one matching a known camera node) and proceed.
-
-**Before using any camera data (capture, stream, detection, depth, point cloud, or any camera-dependent task):** verify calibration and TF registration — 1. `topics find sensor_msgs/msg/CameraInfo` to locate the paired `camera_info` topic (it shares a namespace with the image topic). 2. `topics subscribe <CAMERA_INFO_TOPIC> --max-messages 1 --timeout 2` — confirm the `K` intrinsic matrix is non-zero. 3. Read `header.frame_id` from the `camera_info` message; confirm it is present in `tf list`. **A camera with no `camera_info` publisher is uncalibrated. A camera whose `frame_id` is absent from TF produces wrong spatial results.** Both must be satisfied before proceeding.
-
-**When multiple results are returned — tiebreaker heuristics (apply in order):**
-
-1. **Format preference**: `CompressedImage` > `Image`; `TwistStamped` > `Twist` for stamped-capable controllers
-2. **Namespace match**: prefer topics under the robot's primary namespace (e.g. `/<robot_ns>/cmd_vel` > `/cmd_vel`)
-3. **Semantic name match**: topic name contains the expected keyword (`cmd_vel`, `odom`, `camera`, `scan`)
-4. **Publisher count**: prefer topics with active publishers (`topics details <topic>` to check)
-5. **If still ambiguous**: pick the first result, proceed, and note the choice in the report
-
-**Near-miss commands** — `topic` → `topics`, `node` → `nodes`, `service` → `services`, etc.: self-correct and retry silently. Never surface this to the user.
-
-The test: *"Can I resolve this without asking?"* — if yes, resolve it and act.
-
-### 8 — Verify the effect; never trust exit codes alone
-
-A zero-error response means the request was delivered — not that the effect occurred. Always verify:
-
-| Operation | Verification |
-|---|---|
-| `params set` | `params get` — confirm value matches |
-| `control switch-controllers` | `control list-controllers` — confirm new state |
-| `lifecycle set` | `lifecycle get` — confirm target state reached |
-| `actions send` | Check `status` field — `SUCCEEDED` only; `FAILED`/`CANCELED` → diagnose |
-| Movement completion | **Two-phase:** (1) subscribe odom, confirm all velocity axes < 0.01; (2) subscribe again and report position from this stationary reading only |
-| `estop` | Subscribe `<ODOM_TOPIC>` — confirm all velocity axes < 0.01 within **5 s** (10 s for heavy platforms > 20 kg); if still non-zero, report critical failure |
-
-**Never use the words "Done", "Succeeded", "Completed" without running the verification step first.**
-
-### 9 — Confirm robot is stationary before any motion command
-
-Before issuing any velocity command, run in parallel:
-- `topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2` — record start pose (baseline); check all velocity axes < 0.01
-- `nodes list` — confirm velocity controller node is still present
-- `topics hz <ODOM_TOPIC> --duration 2` — confirm rate ≥ 5 Hz (mandatory every motion; never carry forward from a previous command)
-
-If velocity ≥ 0.01 on any axis: send `estop`, verify it took effect, wait 0.5 s, re-read before proceeding.
-
-**Hard gate:** if `estop` fails to stop the robot within the verification window, or the controller node is absent and does not recover, do not proceed — escalate immediately.
-
-**Sequential moves:** the confirmed final stationary position from the prior move serves as the baseline for the next move. Still re-run the velocity check and hz check before each new command.
-
-**Long-motion segmentation (expected duration > 30 s):** break into max-30 s segments. Between segments: estop → verify stopped → `topics hz` → re-record baseline → issue next segment for remaining distance/angle.
-
-**Servo / control-loop task (≥ 10 Hz velocity publishing):** before starting, check CPU scheduling for the control node:
-```bash
-chrt -p $(pgrep -f <NODE_BINARY_NAME>)      # check scheduling policy
-cat /sys/devices/system/cpu/isolated         # check isolated CPUs (empty = none)
-```
-If `SCHED_OTHER` is reported instead of `SCHED_FIFO` or `SCHED_RR`, note it in the pre-task summary — the node may exhibit jitter under load. Use the binary name from `pkg executables <package>` (not the ROS node name). These are advisory checks only — do not block the task.
-
-**Nav2 goal preemption (SG-9):** before issuing any new velocity command, check for an active Nav2 goal:
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions list
-```
-If a `NavigateToPose` or `NavigateThroughPoses` goal is in flight: run `actions cancel <goal_id>`, verify status reaches `CANCELED`, then proceed. A live Nav2 path follower re-issues `/cmd_vel` commands every control cycle — any concurrent velocity command is silently overridden. Rule 23 handles estop for in-flight velocity; this check handles the Nav2 action-goal conflict.
-
-### 10 — Empty discovery: broaden the search, never guess
-
-When `topics find`, `services find`, or `actions find` returns empty:
-1. **Retry once** after 1 s — DDS discovery is eventually-consistent; a newly-started node may not yet be visible
-2. Run `topics list` + `nodes list` in parallel — scan for semantically related names
-3. Check if publishing nodes are actually running (`nodes list`)
-4. Check `nodes details <candidate_node>` for its published topics
-5. Only escalate to the user after all of the above fail — report exactly what was searched and what was found
-
-**Never guess or fall back to a hardcoded name when discovery returns empty.**
-
-### 11 — Use discovered names verbatim; never mutate them
-
-Use topic, service, action, node, and TF frame names exactly as returned — including leading slashes, namespace prefixes, and suffixes. Never strip or add a namespace. If multiple topics of the same type exist, use context keywords to select, then first result, without asking.
-
-**Multi-robot exception:** if topics from multiple distinct robot namespaces are found and no context clue identifies which robot, ask once: *"Which robot?"* — then lock in that namespace for the task.
-
-**Namespace filtering (multi-robot / "use namespace /robot1"):** no `--namespace` flag exists. Apply namespace context by running `topics list` / `nodes list` / `services list` / `actions list` and filtering returned names to those prefixed with the requested namespace (e.g. `/robot1/`). Use only the filtered, fully-qualified names for all subsequent commands in the task.
-
-### 12 — Run independent discovery commands in parallel
-
-When discovering multiple independent facts (velocity topic, odom topic, velocity limits, controller state), issue all commands simultaneously — never sequentially. Only run sequentially when command B requires a result from command A.
-
-### 13 — Profile data is always valid; only live runtime state must be re-discovered per task
-
-**Profile data (from `profile show`) is static workspace analysis — it does not go stale between tasks.** Use `summary.cmd_vel_topic`, `summary.velocity_topics[].type`, `summary.safety_limits.binding`, `summary.localization_config.fused_sources`, and other profile fields directly for every task without re-running discovery.
-
-For **live runtime state**, re-discover per task — this state can change: nodes crash, controllers deactivate, topics appear or disappear. **Never say "I already discovered this" to skip re-discovery of live state.**
-
-| Data | Source | Per-task re-discovery? |
-|---|---|---|
-| Velocity command topic + type | `summary.cmd_vel_topic`, `summary.velocity_topics[].type` | No — use profile directly |
-| Velocity limits | `summary.safety_limits.binding` | No — use profile directly |
-| Odometry topic | `summary.localization_config.fused_sources` | No — use profile directly |
-| TF frame names | `summary.tf_frames` | No — use profile directly |
-| Controller is active | live `control list-controllers` | Yes — confirm state per task |
-| Node is running | live `nodes list` | Yes — nodes can crash or restart |
-
-### 14 — Check lifecycle state before using any managed node
-
-If a node appears in `lifecycle nodes`, check its state with `lifecycle get <node>` before using it. `inactive` nodes silently discard all messages — no error, no warning. Apply `lifecycle set <node> configure` then `lifecycle set <node> activate` if needed, and verify after each transition (Rule 8).
-
-### 15 — Check publisher count and QoS before subscribing
-
-Before subscribing to a topic that must deliver a message within a timeout:
-1. `topics details <topic>` — check `publisher_count`; if 0, do not subscribe (will timeout)
-2. Check publisher QoS profile — if BEST_EFFORT and you need RELIABLE (or vice versa), add the matching `--qos-reliability` flag
-3. `topics hz <topic>` if subscribe times out despite a non-zero publisher count
-
-**For `<ODOM_TOPIC>` specifically:** always run this before the first odom subscribe in any motion workflow — a QoS mismatch silently breaks every closed-loop command.
-
-### 16 — Multi-step tasks: verify each step before starting the next
-
-For sequences (move → rotate, configure → switch → send trajectory): execute step N, verify its effect (Rule 8), only then start step N+1. If step N fails, stop — do not proceed with a partial state. Independent sub-steps within the same phase (e.g. discovering vel topic + odom topic) can and should run in parallel (Rule 12).
-
-### 17 — Follow REP-103 units and coordinate conventions
-
-All message values use SI units. Never put non-SI values into a message field.
-
-| Quantity | Unit |
-|---|---|
-| Linear distance / position | metres (m) |
-| Linear velocity | m/s |
-| Angular position (in payloads) | radians |
-| Angular velocity | rad/s |
-
-Coordinate convention: `x` = forward, `y` = left, `z` = up. Positive `angular.z` = CCW/left; negative = CW/right. `--degrees` in CLI flags is a convenience only — the payload always uses radians.
-
-### 18 — Always run `estop` after `publish-until`, regardless of outcome
-
-`publish-until` does **not** send a stop message when it exits — the robot coasts at the last commanded velocity. Run `estop` immediately after `publish-until` in all three cases: condition met, timeout, or error. After a timeout, `estop` is the **first** action — before diagnosing, before re-reading odom, before reporting. Verify `estop` took effect (Rule 8 estop row): odom velocity < 0.01 within 3 s.
-
-### 19 — Verify QoS compatibility and monitor field before `publish-until`
-
-**Pre-flight gate — run before every `publish-until`:**
-
-1. `topics details <ODOM_TOPIC>` — if `publisher_count == 0`: do not attempt, fall back to open-loop immediately. If `reliability: BEST_EFFORT`: auto-matches (M5), verify `condition_met` in output. QoS mismatch + auto-match failure: fall back to `publish-sequence`, notify user.
-
-2. **Monitor field validation:** subscribe once to `<MONITOR_TOPIC>` and trace the full dotted `--field` path in the returned JSON. Common traps: `twist.linear.x` vs `twist.twist.linear.x` (Odometry), `pose.position.x` vs `pose.pose.position.x`. If the field is absent, stop — re-run `interface show <MSG_TYPE>` to find the correct path. A wrong field path causes `publish-until` to run silently to timeout at full speed.
-
-### 20 — Decel zone is auto-computed; do not add `--slow-last` manually
-
-`publish-until` now auto-computes `--slow-last` and `--slow-factor` for every move from the commanded velocity and discovered params. **Do not add `--slow-last` manually** unless you need to override (observed overshoot, testing).
-
-Auto-compute formula:
-- Linear: `slow_last = v_cmd² / (2 × a_max)`, `slow_factor = v_min / v_cmd`
-- Rotation: `slow_last = ω_cmd² / (2 × α_max)`, `slow_factor = ω_min / ω_cmd`
-
-Params fetched at startup (2 s timeout). Fallbacks when params unavailable: `linear.x=0.125 m/s`, `linear.y=0.1 m/s`, `angular.z=0.375 rad/s` (fine-control floor); accel fallbacks: `0.5 m/s²` linear, `1.0 rad/s²` angular.
-
-Computed values appear in output as `"decel_zone": {"auto_computed": true, "slow_last": X, "slow_factor": Y, "params_source": "..."}`. Report these to the user on any motion command.
-
-### 21 — After `publish-until` timeout, verify position before re-issuing
-
-When `publish-until` exits with `condition_met: false`: (1) run `estop` (Rule 18), (2) read current odom position, (3) compute remaining distance from pre-motion baseline, (4) issue a new `publish-until` for the **remaining** distance only. Never re-issue the original full command — the robot has already moved partway and will overshoot. If two consecutive timeouts occur on the same move, escalate to the user; do not retry autonomously.
-
-**Near-success tolerance:** if delta ≥ (target − 0.05 m) for linear or ≥ (target − 3°) for rotation, treat as success — the robot is within tolerance. Report actual distance moved; do not re-issue.
-
-**`condition_met: false` root cause:** after estop, run `topics hz <ODOM_TOPIC> --duration 2`. If rate = 0 Hz → QoS/publisher issue (not a genuine timeout); fall back to open-loop. If rate > 0 Hz → genuine timeout; apply remaining-distance retry above.
-
-### 22 — Reject motion commands exceeding safe ceilings
-
-If the user requests > 50 m linear or > 3600° rotation in a single command, stop and ask for explicit confirmation before executing. For 10–50 m or 360–3600°: execute but report the scope in the outcome line. These ceilings exist to catch operator typos and runaway commands — not to limit genuine long-range operation. After explicit user confirmation, the ceiling does not apply again for that same command.
-
-### 23 — Any new command during active motion: estop first
-
-If a new user command arrives while a motion is in progress: (1) send `estop` immediately, (2) verify odom velocity < 0.01 within 5 s, (3) then handle the new command from a stationary robot. Never run two motions in parallel. If the new command is "stop" / "halt" / "estop": estop, verify, report — no further motion until the user issues a new motion command.
-
-### 24 — Run session-start health checks before the first task
-
-Before any task in a new session, run all three checks once:
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py doctor          # DDS/graph health — stop if critical failure
-python3 {baseDir}/scripts/ros2_cli.py topics find rosgraph_msgs/msg/Clock  # simulated time?
-python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes  # lifecycle-managed nodes?
-```
-
-If `doctor` reports critical failures: stop and tell the user. Do not operate a robot that fails its health check. If `/clock` is found, verify it is actively publishing before any timed command. If lifecycle nodes exist, check their states — a node in `unconfigured` or `inactive` state silently fails when used. These checks are session-level; do not re-run for every command.
-
-### 25 — Use ros2-skill exclusively; never call the ros2 CLI directly
-
-All ROS 2 interactions go through `python3 {baseDir}/scripts/ros2_cli.py`. Never use `ros2 topic`, `ros2 service`, `ros2 action`, `ros2 param`, `ros2 node`, `ros2 lifecycle`, `ros2 control`, `ros2 doctor`, or any other `ros2` CLI command directly. The ros2-skill CLI provides a consistent JSON interface, structured error handling, and safety wrappers that the raw `ros2` CLI lacks. Direct `ros2` calls bypass all safety rules in this document.
-
-### 26 — Execute without asking or narrating; the user's request is the approval
-
-The user's message is the approval to act. Do not ask for confirmation before executing, do not narrate what you are about to do and wait for a response, do not say "I'll now run X — shall I proceed?". Run Rule 0 discovery in parallel and silently, then execute. Only the final outcome is reported.
-
-The three conditions that permit asking the user: (1) genuine ambiguity that introspection cannot resolve, (2) destructive or irreversible action not specifically authorised by the user's message, (3) motion goal uses a vague quantity word — resolve with the conservative defaults from Rule 5 (RULES-CORE.md) rather than asking. If none apply: just do it.
-
-### 27 — Keep output minimal; report one line per operation
-
-### 28 — Velocity limits: profile first, live scan as fallback
-
-**Fast-path (when profile is loaded and `summary.safety_limits.binding` is present):** Use `summary.safety_limits.binding.linear_x` as `--max-vel` and `summary.safety_limits.binding.angular_z` as `--max-ang`. (`binding.linear_y` is set for holonomic robots.) These are the pre-computed minimum across all YAML configs and URDF limits detected at scan time. Pass them directly and skip the live scan.
-
-**Fallback (only when profile is absent or `summary.safety_limits.binding` is missing):** Discover limits from all four sources in parallel: (1) node parameters — `params list` every node, filter for `max`/`limit`/`vel`/`speed`/`accel`/`scale` (catches teleop `scale_linear`/`scale_angular`); (2) URDF joint limits — if `robot_state_publisher` is running, read `robot_description` and parse `<limit velocity="..."/>` for relevant joints; (3) ros2_control hardware interface limits — `control list-hardware-interfaces` then `params list /controller_manager` for per-joint `<joint>/limits/max_velocity`; (4) YAML config params on controller_manager — `params list /controller_manager` filtered for `<joint>.*limit.*` or `<joint>.*max.*`. Binding ceiling = minimum across all four. YAML config files loaded via `--params-file` land as regular node params (Source 1) — no separate file reading needed.
-
-**Enforce the binding ceiling via `--max-vel` and `--max-ang`:** always pass the computed ceilings to every `topics publish`, `topics publish-sequence`, and `topics publish-until` call. This clamps the velocity inside the CLI before the message reaches the wire — safe even if the commanded value exceeds the limit. If no limits are found, use `--max-vel 0.2 --max-ang 0.75` (conservative defaults) and tell the user.
-
-### 29 — Robot not moving: diagnose before reporting
-
-If odom velocity stays ≈ 0 for > 2 s while commands are being published: (1) run `topics hz <VEL_TOPIC>` — if 0 Hz, commands are not reaching the topic (wrong topic or publish failed); (2) compare commanded velocity to binding ceiling from Rule 28 — if commanded > any limit, the controller is silently discarding the message; **immediately reissue at 90% of the binding ceiling using `--max-vel`/`--max-ang`** and note: *"Reissued at Z m/s (original X m/s exceeded limit Y m/s)"*; (3) if commanded ≤ all limits and still not moving, diagnose controller: `control list-controllers` (is it `active`?), `control list-hardware-components` (hardware `active`?), `nodes list` (controller still running?). Never report "robot not moving" without completing all three steps.
-
-### 30 — Monitor for node crashes on long commands; re-check clock before every timed command
-
-For any command with timeout > 10 s: note the critical nodes (velocity controller, odom publisher) at pre-flight, then check `nodes list` every 10 s during execution. If either disappears: estop immediately and escalate. — Before every timed command (`publish-until`, `publish-sequence`, any `--timeout`), if `/clock` was found at session start, re-verify it is actively publishing (`topics subscribe /clock --max-messages 1 --timeout 2`). If no message arrives: escalate *"Simulator clock not advancing"*; do not issue the timed command.
-
-### 31 — Validate odometry frame_id and TF tree before spatial operations
-
-On first use of `<ODOM_TOPIC>` per session, subscribe for one message and read `header.frame_id`. If non-canonical (not containing `odom`), note to the user once; store the frame for position reporting. If empty, flag as misconfiguration. — Before any TF operation: run `tf list` to confirm frames are present. For sensor frames: run `tf echo <SENSOR_FRAME> <BASE_FRAME> --duration 1` to confirm the transform is not stale. If `tf echo` or `tf lookup` hangs past timeout, suspect a TF cycle — inspect `tf list` for duplicate parent-child relationships. For ongoing stale-frame detection during a task: use `tf monitor <FRAME>` — it continuously watches the frame and reports if updates stop arriving.
-
-### 33 — Conditional and branching task sequences: use fallbacks, enforce retry limits, escalate precisely
-
-When a task step can fail and a recovery path exists, take it autonomously without asking — but enforce hard retry limits.
-
-**Retry limits (never exceed):**
-
-| Situation | Max autonomous retries | On max reached |
-|---|---|---|
-| Motion timeout (`publish-until`) | 1 — remaining distance only (Rule 21) | Escalate: position, target, remaining, cause |
-| Verification failure (Rule 8) | 2 fix+retry cycles (3 attempts total) | Escalate as critical failure |
-| Discovery empty (Rule 10) | 1 broadened search after 1 s | Ask user or declare unavailable |
-| General step failure | 1 | Escalate |
-| Safety failure (estop, controller offline) | **0** — escalate immediately | No autonomous retry |
-
-**Fallback chains (execute without asking, but always notify):**
-
-| Preferred | Fails because | Fallback |
-|---|---|---|
-| `publish-until` closed-loop | No odom / QoS mismatch | `publish-sequence` open-loop — notify user |
-| Discovered topic | Empty result after broadened search | Ask user |
-| Controller A | Fails to activate | Try controller B if known; else escalate |
-
-**Escalation message must include:** what was tried, why it failed, current system state, and **one specific recommended next step** — never a list of options.
-
-**Two consecutive identical failures → escalate immediately. No third attempt.**
-
-### 32 — On any process interrupt, send estop before exiting
-
-If a motion command is interrupted (CLI exception, SIGTERM, keyboard interrupt): treat as a Rule 18 exception case — send `estop` immediately as the first recovery action. Do not assume the robot stopped because the CLI process exited. The velocity controller continues executing the last commanded velocity until it receives a stop command. Any abrupt CLI exit during motion = potential coasting robot = estop required.
-
-| Situation | What to report |
-|---|---|
-| Success | One line: what was done and the key outcome. e.g. *"Done. Moved 1.02 m forward."* |
-| Movement | Start position, end position, actual distance/angle — all from fresh odom reads, never estimated |
-| No topic / source found | Clear error: what was searched, what to try next |
-| Safety triggered | What happened and what estop command was sent |
-| Failure | Error, cause, recovery suggestion |
-
-**Never report by default:** topic name selected (unless unexpected), intermediate discovery steps, command text being run, "I will now…" narration, or unsolicited explanations. The user wants results, not running commentary.
-
-### 34 — Cross-node parameter search: use `params find <pattern>`
+| 0 | Resolve everything before acting — profile first, live for the rest | `RULES-PREFLIGHT.md` |
+| 0.1 | Session-start checks (run once before any task) | `RULES-PREFLIGHT.md` |
+| 0.5 | Never hallucinate commands, flags, names, or message fields | `RULES-CORE.md` |
+| 0.6 | Conditional auto-rescan after `launch new` (find-mtime gated) | `RULES-PREFLIGHT.md` |
+| 0.7 | `profile scan` is permitted only on explicit triggers | `RULES-PREFLIGHT.md` |
+| 1 | Resolve names before you act, never ask, never hardcode | `RULES-CORE.md` |
+| 2 | ros2-skill is the only interface; never invoke the `ros2` CLI directly | `RULES-CORE.md` |
+| 3 | Movement algorithm — fixed pre-flight → command → verify sequence | `RULES-MOTION.md` |
+| 4 | Infer the goal, resolve the details — do not ask for parameters you can derive | `RULES-CORE.md` |
+| 5 | Execute, don't ask — proceed when intent is clear | `RULES-CORE.md` |
+| 6 | Minimal reporting by default — results, not commentary | `RULES-CORE.md` |
+| 7 | Diagnose failures immediately; never ask the user to diagnose | `RULES-DIAGNOSTICS.md` |
+| 8 | Verify the effect; never trust exit codes alone | `RULES-DIAGNOSTICS.md` |
+| 9 | Pre-motion check — confirm the robot is stationary before commanding movement | `RULES-MOTION.md` |
+| 10 | Empty discovery → broaden the search, never guess | `RULES-CORE.md` |
+| 11 | Use discovered names verbatim; never mutate or shorten them | `RULES-CORE.md` |
+| 12 | Run independent discovery commands in parallel | `RULES-CORE.md` |
+| 13 | Profile data persists across the session; runtime state must be re-checked per task | `RULES-CORE.md` |
+| 14 (core) | Path A antipatterns — forbidden static-discovery commands when a profile is loaded | `RULES-CORE.md` |
+| 14 (preflight) | Check lifecycle state before using any managed node's interface | `RULES-PREFLIGHT.md` |
+| 15 | Check publisher and subscriber counts before waiting on a topic | `RULES-PREFLIGHT.md` |
+| 16 | Multi-step tasks — complete and verify each step before starting the next | `RULES-DIAGNOSTICS.md` |
+| 17 | Follow REP-103 and REP-105 at all times (sign conventions, frame conventions) | `RULES-MOTION.md` |
+| 18 | Always run `estop` after `publish-until` and `publish-sequence`, regardless of outcome | `RULES-MOTION.md` |
+| 19 | Verify QoS compatibility before `publish-until` and before any subscribe | `RULES-PREFLIGHT.md` |
+| 20 | Deceleration zone — auto-computed for every `publish-until` move | `RULES-MOTION.md` |
+| 21 | After a `publish-until` timeout, verify position before re-issuing | `RULES-MOTION.md` |
+| 22 | Reject unreasonably large motion commands without explicit confirmation | `RULES-MOTION.md` |
+| 23 | Any new command received while motion is active — stop first | `RULES-MOTION.md` |
+| 24 | Conditional and branching task sequences — fallbacks, retry limits, precise escalation | `RULES-MOTION.md` |
+| 25 | Proximity sensor discovery before motions > 5 s | `RULES-MOTION.md` |
+| 26 | Always use `discord_tools.py` to send files and images to Discord | `RULES-REFERENCE.md` |
+
+**Note on the Rule 14 collision:** `RULES-CORE.md` Rule 14 and `RULES-PREFLIGHT.md` Rule 14 are distinct rules sharing a number. Both are in force.
+
+### Tooling rules (AGENTS.md additions — full text retained because they document specific `ros2_cli.py` subcommands)
+
+#### Rule T1 — Cross-node parameter search: use `params find <pattern>`
 
 When you need to locate a parameter (e.g. `max_vel_x`, `scale`, `joy_vel`) across all running nodes without knowing which node owns it, use `params find <pattern>`. It searches all live node parameter lists case-insensitively and returns every match with its node path and current value. Use it before hard-coding parameter names or guessing nodes.
 
@@ -737,7 +406,7 @@ python3 {baseDir}/scripts/ros2_cli.py params find <pattern>
 python3 {baseDir}/scripts/ros2_cli.py params find <pattern> --node <node_name>  # scope to one node
 ```
 
-### 35 — Visualise the TF tree with `tf tree` before any spatial operation
+#### Rule T2 — Visualise the TF tree with `tf tree` before any spatial operation
 
 Before any spatial task (movement, sensor read, frame lookup), run `tf tree` to see the full parent→child hierarchy. A healthy tree is a single rooted DAG. If the tree shows multiple roots, disconnected frames, or unexpected structure, resolve before proceeding.
 
@@ -746,7 +415,7 @@ python3 {baseDir}/scripts/ros2_cli.py tf tree
 python3 {baseDir}/scripts/ros2_cli.py tf tree --duration 2  # collect longer
 ```
 
-### 36 — Run `tf validate` to detect cycles and multi-parent frames
+#### Rule T3 — Run `tf validate` to detect cycles and multi-parent frames
 
 Run `tf validate` as part of pre-flight for any spatial operation (in addition to `tf tree`). It performs DFS cycle detection and multiple-parent checks. If it reports `"valid": false`, halt all spatial operations and report the offending frames before proceeding.
 
@@ -754,7 +423,7 @@ Run `tf validate` as part of pre-flight for any spatial operation (in addition t
 python3 {baseDir}/scripts/ros2_cli.py tf validate
 ```
 
-### 37 — Check QoS compatibility before publishing or subscribing: use `topics qos-check`
+#### Rule T4 — Check QoS compatibility before publishing or subscribing: use `topics qos-check`
 
 Before publishing to a topic or subscribing via `publish-until`, run `topics qos-check <topic>` if you suspect a mismatch. It cross-compares publisher and subscriber QoS profiles and returns a `compatible` flag plus a suggested `--qos-*` flag to add. An incompatible QoS pair = silent zero messages — the command will run but nothing will happen.
 
@@ -762,7 +431,7 @@ Before publishing to a topic or subscribing via `publish-until`, run `topics qos
 python3 {baseDir}/scripts/ros2_cli.py topics qos-check <topic>
 ```
 
-### 38 — Discover launch files by keyword with `launch list <keyword>`
+#### Rule T5 — Discover launch files by keyword with `launch list <keyword>`
 
 When the user asks to "launch the navigation stack" or "start the robot", but the exact package/file is unknown, use `launch list <keyword>` to search all installed packages. It returns package names and full file paths matching the keyword. Then use `launch new <package> <file>` with the result.
 
@@ -772,22 +441,15 @@ python3 {baseDir}/scripts/ros2_cli.py launch list <keyword>
 
 **Common keywords:** `navigation` / `nav2`, `robot_description` / `urdf`, `teleop`, `camera`, `ros2_control` / `controller`, `gazebo` / `sim`.
 
-### 39 — Proximity sensor discovery before motions > 5 s
+#### Rule T6 — Validate odometry frame_id and TF tree before spatial operations
 
-Before any motion whose estimated duration exceeds 5 s (`distance / v_cmd > 5 s`), scan for proximity sensors:
+On first use of `<ODOM_TOPIC>` per session, subscribe for one message and read `header.frame_id`. If non-canonical (not containing `odom`), note to the user once; store the frame for position reporting. If empty, flag as misconfiguration. — Before any TF operation: run `tf list` to confirm frames are present. For sensor frames: run `tf echo <SENSOR_FRAME> <BASE_FRAME> --duration 1` to confirm the transform is not stale. If `tf echo` or `tf lookup` hangs past timeout, suspect a TF cycle — inspect `tf list` for duplicate parent-child relationships. For ongoing stale-frame detection during a task: use `tf monitor <FRAME>` — it continuously watches the frame and reports if updates stop arriving.
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Range
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/PointCloud2
-```
+#### Rule T7 — On any process interrupt, send estop before exiting
 
-- **Sensor found** → include `"proximity_sensors": [{"topic": "...", "type": "..."}]` in the motion report. Proceed with motion.
-- **No sensor found** → skip silently. Do not warn the user. Proceed with motion.
+If a motion command is interrupted (CLI exception, SIGTERM, keyboard interrupt): treat as a Rule 18 exception case — send `estop` immediately as the first recovery action. Do not assume the robot stopped because the CLI process exited. The velocity controller continues executing the last commanded velocity until it receives a stop command. Any abrupt CLI exit during motion = potential coasting robot = estop required.
 
-Never block motion because no sensor was found. For short moves (≤ 5 s), skip the scan entirely.
-
-### 40 — Controller pre-flight: check hardware component AND hardware interfaces before load/switch
+#### Rule T8 — Controller pre-flight: check hardware component AND hardware interfaces before load/switch
 
 Before any `control load-controller`, `control switch-controllers`, or `control configure-controller`:
 
@@ -798,6 +460,10 @@ Before any `control load-controller`, `control switch-controllers`, or `control 
 **Block condition:** if the hardware component is `inactive`/`unavailable`, OR if the relevant hardware interfaces are not `available/active`, do not proceed. Escalate: *"Hardware component/interfaces not active — cannot load or switch controllers until the hardware is active."* Both checks must pass — a hardware component can be `active` while its interfaces are still `unavailable`, and in that state the controller will load without error but silently discard all commands.
 
 After the operation: `control list-controllers` to confirm the controller reached the expected state (`active` or `inactive`), then `control list-hardware-components` to confirm the hardware component is still `active`.
+
+#### Rule T9 — Critical-node and `/clock` monitoring during long timed commands
+
+For any command with timeout > 10 s: note the critical nodes (velocity controller, odom publisher) at pre-flight, then check `nodes list` every 10 s during execution. If either disappears: estop immediately and escalate. Before every timed command (`publish-until`, `publish-sequence`, any `--timeout`), if `/clock` was found at session start, re-verify it is actively publishing (`topics subscribe /clock --max-messages 1 --timeout 2`). If no message arrives: escalate *"Simulator clock not advancing"*; do not issue the timed command.
 
 ---
 
