@@ -299,7 +299,7 @@ python3 {baseDir}/scripts/ros2_cli.py actions details <action_name>
 
 ### Step 5: Get Safety Limits (for movement)
 
-**Fast-path: if a robot profile was loaded at session start (Rule 0.1 Step 6)**, use `summary.safety_limits.linear_max` and `summary.safety_limits.angular_max` as an initial hard ceiling before running the live sweep below. These are static values derived from workspace analysis — they capture limits baked into YAML configs and URDF at scan time. Pass them immediately via `--max-vel` / `--max-ang`. The live sweep below is still mandatory to catch dynamic parameters not visible at scan time, but the profile limit is a hard upper bound — if the live sweep finds a lower value, use that; if it finds a higher value, keep the profile ceiling.
+**Fast-path: if a robot profile was loaded at session start (Rule 0.1 Step 6)**, use `summary.safety_limits.linear_x` and `summary.safety_limits.angular_z` as an initial hard ceiling before running the live sweep below. (`linear_y` is set for holonomic robots; use it as the strafe ceiling if present.) These are static values derived from workspace analysis — they capture limits baked into YAML configs and URDF at scan time. Pass them immediately via `--max-vel` / `--max-ang`. The live sweep below is still mandatory to catch dynamic parameters not visible at scan time, but the profile limit is a hard upper bound — if the live sweep finds a lower value, use that; if it finds a higher value, keep the profile ceiling.
 
 **ALWAYS check for velocity limits before publishing movement commands. Scan every node.**
 

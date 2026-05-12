@@ -622,7 +622,10 @@ def _parse_yaml_includes(path):
 # ---------------------------------------------------------------------------
 
 def _extract_limits_from_yaml(yaml_path):
-    """Return (linear_max, angular_max) found in a param YAML file, or (None, None)."""
+    """Return ``(linear_x, linear_y, angular_z)`` found in a param YAML file.
+
+    Each element is ``None`` when the axis limit is not found.
+    """
     try:
         import yaml  # PyYAML — available in ROS 2 environments
     except ImportError:
@@ -632,23 +635,29 @@ def _extract_limits_from_yaml(yaml_path):
         with open(yaml_path, encoding="utf-8", errors="replace") as fh:
             data = yaml.safe_load(fh)
         if not isinstance(data, dict):
-            return None, None
+            return None, None, None
         return _search_limits_in_dict(data)
     except Exception:
-        return None, None
+        return None, None, None
 
 
 def _search_limits_in_dict(d, depth=0):
-    """Recursively search a parsed YAML dict for velocity limits.
+    """Recursively search a parsed YAML dict for per-axis velocity limits.
 
-    Handles the common ROS 2 config formats:
+    Returns ``(linear_x, linear_y, angular_z)`` — any element may be ``None``
+    when the corresponding limit is not found in this subtree.
 
-    * Flat keys (Nav2 DWB / TEB / MPPI planner)::
+    Recognised formats
+    ------------------
+    * **Flat keys** (Nav2 DWB / TEB / MPPI planner, teleop flat form)::
 
         max_vel_x: 0.5
+        max_vel_y: 0.3
         max_vel_theta: 1.0
+        scale_linear: 0.5        # teleop_twist_joy flat
+        scale_angular: 1.0
 
-    * Controller-manager nested format (ros2_control DiffDriveController)::
+    * **ros2_control DiffDriveController / AckermannSteering** nested::
 
         linear:
           x:
@@ -657,101 +666,129 @@ def _search_limits_in_dict(d, depth=0):
           z:
             max_velocity: 1.0
 
-    * Short nested format::
+    * **teleop_twist_joy v2** nested scale::
 
-        linear:
-          max_velocity: 0.5
-        angular:
-          max_velocity: 1.0
+        scale_linear:
+          x: 0.5
+          y: 0.3
+        scale_angular:
+          yaw: 1.0
 
-    * List format (velocity_smoother)::
+    * **velocity_smoother** list form::
 
         max_velocity: [0.5, 0.0, 1.0]   # [lin_x, lin_y, ang_z]
     """
     if depth > 8 or not isinstance(d, dict):
-        return None, None
-    linear, angular = None, None
+        return None, None, None
+    lin_x, lin_y, ang_z = None, None, None
+
+    def _upd(current, candidate):
+        """Keep the most restrictive (smallest) non-None value."""
+        if candidate is None or candidate <= 0:
+            return current
+        return float(candidate) if current is None else min(current, float(candidate))
 
     for key, val in d.items():
         kl = key.lower()
 
         # --- Direct numeric value ---
         if isinstance(val, (int, float)) and val > 0:
-            if kl in _LINEAR_KEYS:
-                if linear is None or val < linear:
-                    linear = float(val)
-            elif kl in _ANGULAR_KEYS:
-                if angular is None or val < angular:
-                    angular = float(val)
+            if kl in _LINEAR_X_KEYS:
+                lin_x = _upd(lin_x, val)
+            elif kl in _LINEAR_Y_KEYS:
+                lin_y = _upd(lin_y, val)
+            elif kl in _ANGULAR_Z_KEYS:
+                ang_z = _upd(ang_z, val)
 
-        # --- List format: max_velocity: [lin_x, lin_y, ang_z] ---
+        # --- List form: max_velocity: [lin_x, lin_y, ang_z] ---
         elif isinstance(val, list) and ("max_velocity" in kl or "max_vel" in kl):
-            if len(val) >= 1 and isinstance(val[0], (int, float)) and val[0] > 0:
-                if linear is None:
-                    linear = float(val[0])
-            if len(val) >= 3 and isinstance(val[2], (int, float)) and val[2] > 0:
-                if angular is None:
-                    angular = float(val[2])
+            if len(val) >= 1:
+                lin_x = _upd(lin_x, val[0] if isinstance(val[0], (int, float)) else None)
+            if len(val) >= 2:
+                lin_y = _upd(lin_y, val[1] if isinstance(val[1], (int, float)) else None)
+            if len(val) >= 3:
+                ang_z = _upd(ang_z, val[2] if isinstance(val[2], (int, float)) else None)
 
-        # --- Nested: linear / angular blocks ---
+        # --- Nested dict blocks ---
         elif isinstance(val, dict):
             if kl == "linear":
-                # linear: {x: {max_velocity: N}} or linear: {max_velocity: N}
+                # ros2_control: linear: {x: {max_velocity: N}}
                 x_block = val.get("x", {})
                 if isinstance(x_block, dict):
                     mv = x_block.get("max_velocity") or x_block.get("max_vel")
-                    if isinstance(mv, (int, float)) and mv > 0 and linear is None:
-                        linear = float(mv)
-                mv = val.get("max_velocity") or val.get("max_vel")
-                if isinstance(mv, (int, float)) and mv > 0 and linear is None:
-                    linear = float(mv)
+                    lin_x = _upd(lin_x, mv)
+                # short form: linear: {max_velocity: N}
+                lin_x = _upd(lin_x, val.get("max_velocity") or val.get("max_vel"))
+
             elif kl == "angular":
-                # angular: {z: {max_velocity: N}} or angular: {max_velocity: N}
+                # ros2_control: angular: {z: {max_velocity: N}}
                 z_block = val.get("z", {})
                 if isinstance(z_block, dict):
                     mv = z_block.get("max_velocity") or z_block.get("max_vel")
-                    if isinstance(mv, (int, float)) and mv > 0 and angular is None:
-                        angular = float(mv)
-                mv = val.get("max_velocity") or val.get("max_vel")
-                if isinstance(mv, (int, float)) and mv > 0 and angular is None:
-                    angular = float(mv)
-            else:
-                sub_lin, sub_ang = _search_limits_in_dict(val, depth + 1)
-                if sub_lin is not None and linear is None:
-                    linear = sub_lin
-                if sub_ang is not None and angular is None:
-                    angular = sub_ang
+                    ang_z = _upd(ang_z, mv)
+                # short form: angular: {max_velocity: N}
+                ang_z = _upd(ang_z, val.get("max_velocity") or val.get("max_vel"))
 
-    return linear, angular
+            elif kl == "scale_linear":
+                # teleop_twist_joy v2: scale_linear: {x: N, y: N}
+                if "x" in val:
+                    lin_x = _upd(lin_x, val["x"] if isinstance(val["x"], (int, float)) else None)
+                if "y" in val:
+                    lin_y = _upd(lin_y, val["y"] if isinstance(val["y"], (int, float)) else None)
+
+            elif kl in ("scale_angular", "scale_angular_yaw"):
+                # teleop_twist_joy v2: scale_angular: {yaw: N} or scale_angular: {z: N}
+                for ak in ("yaw", "z"):
+                    if ak in val:
+                        ang_z = _upd(ang_z, val[ak] if isinstance(val[ak], (int, float)) else None)
+
+            else:
+                sub_x, sub_y, sub_z = _search_limits_in_dict(val, depth + 1)
+                lin_x = _upd(lin_x, sub_x)
+                lin_y = _upd(lin_y, sub_y)
+                ang_z = _upd(ang_z, sub_z)
+
+    return lin_x, lin_y, ang_z
 
 
 def _extract_limits_from_yaml_regex(yaml_path):
-    """Fallback: line-by-line regex scan when PyYAML is unavailable."""
-    _LIN_PATS = [re.compile(r"(?:^|\s)" + re.escape(k) + r"\s*:\s*([\d.]+)")
-                 for k in _LINEAR_KEYS]
-    _ANG_PATS = [re.compile(r"(?:^|\s)" + re.escape(k) + r"\s*:\s*([\d.]+)")
-                 for k in _ANGULAR_KEYS]
-    linear, angular = None, None
+    """Fallback: line-by-line regex scan when PyYAML is unavailable.
+
+    Returns ``(linear_x, linear_y, angular_z)`` — any element may be ``None``.
+    """
+    _LIN_X_PATS = [re.compile(r"(?:^|\s)" + re.escape(k) + r"\s*:\s*([\d.]+)")
+                   for k in _LINEAR_X_KEYS]
+    _LIN_Y_PATS = [re.compile(r"(?:^|\s)" + re.escape(k) + r"\s*:\s*([\d.]+)")
+                   for k in _LINEAR_Y_KEYS]
+    _ANG_Z_PATS = [re.compile(r"(?:^|\s)" + re.escape(k) + r"\s*:\s*([\d.]+)")
+                   for k in _ANGULAR_Z_KEYS]
+    lin_x, lin_y, ang_z = None, None, None
     try:
         text = pathlib.Path(yaml_path).read_text(encoding="utf-8", errors="replace")
     except Exception:
-        return None, None
+        return None, None, None
 
     for line in text.splitlines():
         stripped = line.strip()
-        for pat in _LIN_PATS:
+        for pat in _LIN_X_PATS:
             m = pat.search(stripped)
             if m:
                 v = float(m.group(1))
-                if v > 0 and (linear is None or v < linear):
-                    linear = v
-        for pat in _ANG_PATS:
+                if v > 0 and (lin_x is None or v < lin_x):
+                    lin_x = v
+        for pat in _LIN_Y_PATS:
             m = pat.search(stripped)
             if m:
                 v = float(m.group(1))
-                if v > 0 and (angular is None or v < angular):
-                    angular = v
-    return linear, angular
+                if v > 0 and (lin_y is None or v < lin_y):
+                    lin_y = v
+        for pat in _ANG_Z_PATS:
+            m = pat.search(stripped)
+            if m:
+                v = float(m.group(1))
+                if v > 0 and (ang_z is None or v < ang_z):
+                    ang_z = v
+    return lin_x, lin_y, ang_z
 
 
 # ---------------------------------------------------------------------------
@@ -835,19 +872,37 @@ def _get_urdf_robot_name(urdf_path):
 # Velocity-limit key sets used by YAML extraction
 # ---------------------------------------------------------------------------
 
-# Keys whose value is a linear (x-axis / translational) velocity limit.
-_LINEAR_KEYS = frozenset({
+# Keys whose value is a linear-x velocity limit (or a combined linear limit
+# when linear-y is not separately specified).
+_LINEAR_X_KEYS = frozenset({
+    # Nav2 planner / controller params
     "max_vel_x", "max_linear_velocity", "max_speed_xy",
     "translational_speed_limit", "linear_vel_limit",
     "max_linear", "linear_max",
+    # teleop_twist_joy scale params (flat form)
+    "scale_linear", "scale_linear_x", "linear_scale", "linear_scale_x",
 })
 
-# Keys whose value is an angular velocity limit.
-_ANGULAR_KEYS = frozenset({
+# Keys whose value is a linear-y velocity limit (holonomic robots).
+_LINEAR_Y_KEYS = frozenset({
+    "max_vel_y",
+    "scale_linear_y", "linear_scale_y",
+})
+
+# Keys whose value is an angular-z velocity limit.
+_ANGULAR_Z_KEYS = frozenset({
+    # Nav2 planner / controller params
     "max_vel_theta", "max_angular_velocity", "max_rotation_speed",
     "rotational_speed_limit", "angular_vel_limit",
     "max_angular", "angular_max",
+    # teleop_twist_joy scale params (flat form)
+    "scale_angular", "scale_angular_z", "scale_angular_yaw",
+    "angular_scale", "angular_scale_z",
 })
+
+# Backward-compat aliases used elsewhere in the module.
+_LINEAR_KEYS = _LINEAR_X_KEYS
+_ANGULAR_KEYS = _ANGULAR_Z_KEYS
 
 
 # ---------------------------------------------------------------------------
@@ -1341,14 +1396,21 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         all_src_files.extend(pkg.get("src_files", []))
 
     # --- 3. Safety limits from YAML ---
+    # Track linear x, linear y, and angular z independently so teleop configs
+    # (which often publish per-axis scale values) populate the right field.
     scan_steps.append("yaml_limits")
-    best_linear, best_angular = None, None
+    best_lin_x, best_lin_y, best_ang_z = None, None, None
+
+    def _upd_best(current, candidate):
+        if candidate is None or candidate <= 0:
+            return current
+        return float(candidate) if current is None else min(current, float(candidate))
+
     for yf in all_yaml_files:
-        lin, ang = _extract_limits_from_yaml(yf)
-        if lin and (best_linear is None or lin < best_linear):
-            best_linear = lin
-        if ang and (best_angular is None or ang < best_angular):
-            best_angular = ang
+        lx, ly, az = _extract_limits_from_yaml(yf)
+        best_lin_x = _upd_best(best_lin_x, lx)
+        best_lin_y = _upd_best(best_lin_y, ly)
+        best_ang_z = _upd_best(best_ang_z, az)
 
     # --- 4. Joint limits and sensor mounts from URDF ---
     # joint_limits_by_model: {model_name: {joint_name: {velocity, effort, type}}}
@@ -1365,10 +1427,9 @@ def _run_static_scan(ws_path, distro, allow_live=False,
             model_name = _get_urdf_robot_name(uf)
             joint_limits_by_model.setdefault(model_name, {}).update(jl)
             _flat_joint_limits.update(jl)
-        # Also try safety_controller velocity.
-        lin, ang = _extract_safety_velocity_from_urdf(uf)
-        if lin and (best_linear is None or lin < best_linear):
-            best_linear = lin
+        # Also try safety_controller velocity (linear x only from wheel joints).
+        lin, _ang = _extract_safety_velocity_from_urdf(uf)
+        best_lin_x = _upd_best(best_lin_x, lin)
         # Sensor / actuator mount poses — deduplicated by child link name.
         for mount in _extract_sensor_mounts_from_urdf(uf):
             link = mount["link"]
@@ -1453,12 +1514,13 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 
     # --- 9. Safety limits final ---
     limits_source = "none"
-    if best_linear is not None or best_angular is not None:
+    if any(v is not None for v in (best_lin_x, best_lin_y, best_ang_z)):
         limits_source = "yaml_or_urdf"
 
     safety_limits = {
-        "linear_max": best_linear,
-        "angular_max": best_angular,
+        "linear_x": best_lin_x,   # max linear-x (forward) velocity in m/s
+        "linear_y": best_lin_y,   # max linear-y (strafe) velocity in m/s; None for diff-drive
+        "angular_z": best_ang_z,  # max angular-z (yaw) velocity in rad/s
         "source": limits_source,
     }
 
