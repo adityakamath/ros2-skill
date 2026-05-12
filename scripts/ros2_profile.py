@@ -2707,20 +2707,6 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     # controller_plugins: already collected in ros2_ctrl; expose at top level.
     controller_plugins = ros2_ctrl["controller_plugins"]
 
-    # mock_hardware_available: True when any hardware interface declares
-    # enable_mock_mode OR any launch arg suggests mock/sim hardware.
-    mock_hardware_available = bool(
-        any(
-            str((iface.get("hardware_params") or {}).get("enable_mock_mode", "")).lower()
-            in ("true", "1", "yes")
-            for iface in hardware_interfaces
-        )
-        or any(
-            "mock" in arg.lower() or "fake" in arg.lower()
-            for arg in launch_configurations
-        )
-    )
-
     # cmd_vel_topic: prefer teleop config, fall back to ros2_control odom block
     cmd_vel_topic = (teleop_config or {}).get("cmd_vel_topic") or \
                     (ros2_ctrl.get("odom_frame_ids") or {}).get("cmd_vel_topic")
@@ -2898,6 +2884,21 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         for arg, entry in lf_detail.get("launch_args", {}).items():
             if arg not in launch_configurations:
                 launch_configurations[arg] = entry
+
+    # mock_hardware_available: True when any hardware interface declares
+    # enable_mock_mode OR any launch arg name suggests mock/sim hardware.
+    # Computed here (after launch_configurations is built) so arg names are available.
+    mock_hardware_available = bool(
+        any(
+            str((iface.get("hardware_params") or {}).get("enable_mock_mode", "")).lower()
+            in ("true", "1", "yes")
+            for iface in hardware_interfaces
+        )
+        or any(
+            "mock" in arg.lower() or "fake" in arg.lower()
+            for arg in launch_configurations
+        )
+    )
 
     return {
         "scan_steps": scan_steps,
