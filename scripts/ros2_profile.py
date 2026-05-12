@@ -639,29 +639,98 @@ def _extract_limits_from_yaml(yaml_path):
 
 
 def _search_limits_in_dict(d, depth=0):
-    """Recursively search a parsed YAML dict for velocity limits."""
+    """Recursively search a parsed YAML dict for velocity limits.
+
+    Handles the common ROS 2 config formats:
+
+    * Flat keys (Nav2 DWB / TEB / MPPI planner)::
+
+        max_vel_x: 0.5
+        max_vel_theta: 1.0
+
+    * Controller-manager nested format (ros2_control DiffDriveController)::
+
+        linear:
+          x:
+            max_velocity: 0.5
+        angular:
+          z:
+            max_velocity: 1.0
+
+    * Short nested format::
+
+        linear:
+          max_velocity: 0.5
+        angular:
+          max_velocity: 1.0
+
+    * List format (velocity_smoother)::
+
+        max_velocity: [0.5, 0.0, 1.0]   # [lin_x, lin_y, ang_z]
+    """
     if depth > 8 or not isinstance(d, dict):
         return None, None
     linear, angular = None, None
+
     for key, val in d.items():
-        key_lower = key.lower()
-        if "vel_x" in key_lower or "linear" in key_lower and "max" in key_lower:
-            if isinstance(val, (int, float)) and val > 0:
-                linear = float(val)
-        elif "theta" in key_lower or "angular" in key_lower and "max" in key_lower:
-            if isinstance(val, (int, float)) and val > 0:
-                angular = float(val)
+        kl = key.lower()
+
+        # --- Direct numeric value ---
+        if isinstance(val, (int, float)) and val > 0:
+            if kl in _LINEAR_KEYS:
+                if linear is None or val < linear:
+                    linear = float(val)
+            elif kl in _ANGULAR_KEYS:
+                if angular is None or val < angular:
+                    angular = float(val)
+
+        # --- List format: max_velocity: [lin_x, lin_y, ang_z] ---
+        elif isinstance(val, list) and ("max_velocity" in kl or "max_vel" in kl):
+            if len(val) >= 1 and isinstance(val[0], (int, float)) and val[0] > 0:
+                if linear is None:
+                    linear = float(val[0])
+            if len(val) >= 3 and isinstance(val[2], (int, float)) and val[2] > 0:
+                if angular is None:
+                    angular = float(val[2])
+
+        # --- Nested: linear / angular blocks ---
         elif isinstance(val, dict):
-            sub_lin, sub_ang = _search_limits_in_dict(val, depth + 1)
-            if sub_lin is not None and linear is None:
-                linear = sub_lin
-            if sub_ang is not None and angular is None:
-                angular = sub_ang
+            if kl == "linear":
+                # linear: {x: {max_velocity: N}} or linear: {max_velocity: N}
+                x_block = val.get("x", {})
+                if isinstance(x_block, dict):
+                    mv = x_block.get("max_velocity") or x_block.get("max_vel")
+                    if isinstance(mv, (int, float)) and mv > 0 and linear is None:
+                        linear = float(mv)
+                mv = val.get("max_velocity") or val.get("max_vel")
+                if isinstance(mv, (int, float)) and mv > 0 and linear is None:
+                    linear = float(mv)
+            elif kl == "angular":
+                # angular: {z: {max_velocity: N}} or angular: {max_velocity: N}
+                z_block = val.get("z", {})
+                if isinstance(z_block, dict):
+                    mv = z_block.get("max_velocity") or z_block.get("max_vel")
+                    if isinstance(mv, (int, float)) and mv > 0 and angular is None:
+                        angular = float(mv)
+                mv = val.get("max_velocity") or val.get("max_vel")
+                if isinstance(mv, (int, float)) and mv > 0 and angular is None:
+                    angular = float(mv)
+            else:
+                sub_lin, sub_ang = _search_limits_in_dict(val, depth + 1)
+                if sub_lin is not None and linear is None:
+                    linear = sub_lin
+                if sub_ang is not None and angular is None:
+                    angular = sub_ang
+
     return linear, angular
 
 
 def _extract_limits_from_yaml_regex(yaml_path):
-    """Fallback: regex scan when PyYAML is unavailable."""
+    """Fallback: line-by-line regex scan when PyYAML is unavailable."""
+    _LIN_PATS = [re.compile(r"(?:^|\s)" + re.escape(k) + r"\s*:\s*([\d.]+)")
+                 for k in _LINEAR_KEYS]
+    _ANG_PATS = [re.compile(r"(?:^|\s)" + re.escape(k) + r"\s*:\s*([\d.]+)")
+                 for k in _ANGULAR_KEYS]
     linear, angular = None, None
     try:
         text = pathlib.Path(yaml_path).read_text(encoding="utf-8", errors="replace")
@@ -669,13 +738,19 @@ def _extract_limits_from_yaml_regex(yaml_path):
         return None, None
 
     for line in text.splitlines():
-        line = line.strip()
-        m = re.search(r"max_vel_x\s*:\s*([\d.]+)", line)
-        if m:
-            linear = float(m.group(1))
-        m = re.search(r"max_vel_theta\s*:\s*([\d.]+)", line)
-        if m:
-            angular = float(m.group(1))
+        stripped = line.strip()
+        for pat in _LIN_PATS:
+            m = pat.search(stripped)
+            if m:
+                v = float(m.group(1))
+                if v > 0 and (linear is None or v < linear):
+                    linear = v
+        for pat in _ANG_PATS:
+            m = pat.search(stripped)
+            if m:
+                v = float(m.group(1))
+                if v > 0 and (angular is None or v < angular):
+                    angular = v
     return linear, angular
 
 
@@ -732,8 +807,48 @@ def _extract_safety_velocity_from_urdf(urdf_path):
 
 
 # ---------------------------------------------------------------------------
-# Camera mount extraction from URDF
+# URDF robot name helper
 # ---------------------------------------------------------------------------
+
+def _get_urdf_robot_name(urdf_path):
+    """Return the ``<robot name="…">`` attribute, or the file stem as fallback.
+
+    Used to group joint limits by the URDF model they came from so that
+    test/example URDFs in the workspace do not pollute the main robot's joints.
+    """
+    try:
+        tree = ET.parse(str(urdf_path))
+        name = tree.getroot().get("name", "").strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    # Strip known URDF suffixes (.urdf, .urdf.xacro, .xacro) from the filename.
+    stem = pathlib.Path(urdf_path).stem
+    for suffix in (".urdf", ".xacro"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+    return stem or "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Velocity-limit key sets used by YAML extraction
+# ---------------------------------------------------------------------------
+
+# Keys whose value is a linear (x-axis / translational) velocity limit.
+_LINEAR_KEYS = frozenset({
+    "max_vel_x", "max_linear_velocity", "max_speed_xy",
+    "translational_speed_limit", "linear_vel_limit",
+    "max_linear", "linear_max",
+})
+
+# Keys whose value is an angular velocity limit.
+_ANGULAR_KEYS = frozenset({
+    "max_vel_theta", "max_angular_velocity", "max_rotation_speed",
+    "rotational_speed_limit", "angular_vel_limit",
+    "max_angular", "angular_max",
+})
+
 
 # ---------------------------------------------------------------------------
 # Sensor / actuator mount classification
@@ -1236,13 +1351,20 @@ def _run_static_scan(ws_path, distro, allow_live=False,
             best_angular = ang
 
     # --- 4. Joint limits and sensor mounts from URDF ---
+    # joint_limits_by_model: {model_name: {joint_name: {velocity, effort, type}}}
+    # Each URDF file is stored under its own <robot name="…"> so that test or
+    # example URDFs in the workspace cannot pollute the main robot's joint list.
     scan_steps.append("urdf_limits")
-    joint_limits = {}
+    joint_limits_by_model: dict = {}   # nested — stored in profile output
+    _flat_joint_limits: dict = {}      # flat — used only for type detection
     sensor_mounts: list = []
     seen_sensor_links: set = set()
     for uf in all_urdf_files:
         jl = _extract_joint_limits_from_urdf(uf)
-        joint_limits.update(jl)
+        if jl:
+            model_name = _get_urdf_robot_name(uf)
+            joint_limits_by_model.setdefault(model_name, {}).update(jl)
+            _flat_joint_limits.update(jl)
         # Also try safety_controller velocity.
         lin, ang = _extract_safety_velocity_from_urdf(uf)
         if lin and (best_linear is None or lin < best_linear):
@@ -1324,7 +1446,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         ws_pkg_names=ws_pkg_names,
         all_src_files=all_src_files,
         velocity_topics=velocity_topics,
-        joint_limits=joint_limits,
+        joint_limits=_flat_joint_limits,
         has_nav2=has_nav2,
         robot_type_override=robot_type_override,
     )
@@ -1361,9 +1483,13 @@ def _run_static_scan(ws_path, distro, allow_live=False,
             uf for uf in all_urdf_files
             if pathlib.Path(uf).parent.parent == pkg_dir
         ]
-        lf_joints = {}
+        # Joint limits per URDF model — same nested structure as the global table.
+        lf_joints: dict = {}
         for uf in lf_urdf:
-            lf_joints.update(_extract_joint_limits_from_urdf(uf))
+            jl = _extract_joint_limits_from_urdf(uf)
+            if jl:
+                model_name = _get_urdf_robot_name(uf)
+                lf_joints.setdefault(model_name, {}).update(jl)
 
         launch_file_details[key] = {
             "path": lf,
@@ -1391,7 +1517,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "robot_features": robot_features,
         "robot_type_evidence": robot_type_evidence,
         "safety_limits": safety_limits,
-        "joint_limits": joint_limits,
+        "joint_limits": joint_limits_by_model,
         "sensor_mounts": sensor_mounts,
         "live_topics": live_topics,
     }
@@ -1489,6 +1615,10 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             "has_imu": sr["has_imu"],
             "has_nav2": sr["has_nav2"],
             "safety_limits": sr["safety_limits"],
+            # joint_limits: {model_name: {joint_name: {velocity, effort, type}}}
+            # Keyed by the <robot name="…"> from each URDF so example or test
+            # URDFs in the workspace are clearly separated from the main robot.
+            "joint_limits": sr["joint_limits"],
             # sensor_mounts: one entry per sensor/actuator link found in URDF.
             # Stores the physical xyz position and rpy orientation of each
             # sensor relative to its parent link.  Visual sensors
