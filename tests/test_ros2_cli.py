@@ -5478,6 +5478,74 @@ def generate_launch_description():
 
 
 # ---------------------------------------------------------------------------
+# _strip_nulls — absent-field pruning
+# ---------------------------------------------------------------------------
+
+class TestStripNulls(unittest.TestCase):
+    """_strip_nulls removes None/[]/{}; keeps False and 0."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.fn = staticmethod(ros2_profile._strip_nulls)
+
+    def test_none_value_removed(self):
+        self.assertEqual(self.fn({"a": None, "b": 1}), {"b": 1})
+
+    def test_empty_list_removed(self):
+        self.assertEqual(self.fn({"a": [], "b": 2}), {"b": 2})
+
+    def test_empty_dict_removed(self):
+        self.assertEqual(self.fn({"a": {}, "b": 3}), {"b": 3})
+
+    def test_false_kept(self):
+        result = self.fn({"flag": False, "other": None})
+        self.assertIn("flag", result)
+        self.assertIs(result["flag"], False)
+
+    def test_zero_kept(self):
+        result = self.fn({"rate": 0, "missing": None})
+        self.assertIn("rate", result)
+        self.assertEqual(result["rate"], 0)
+
+    def test_nested_none_removed(self):
+        result = self.fn({"outer": {"inner": None, "keep": 1}})
+        self.assertEqual(result, {"outer": {"keep": 1}})
+
+    def test_nested_dict_becomes_empty_after_strip_and_is_removed(self):
+        result = self.fn({"outer": {"inner": None}})
+        self.assertNotIn("outer", result)
+
+    def test_list_items_stripped(self):
+        result = self.fn([{"a": None, "b": 1}, {"c": 2}])
+        self.assertEqual(result, [{"b": 1}, {"c": 2}])
+
+    def test_non_dict_passthrough(self):
+        self.assertEqual(self.fn("hello"), "hello")
+        self.assertEqual(self.fn(42), 42)
+        self.assertIs(self.fn(True), True)
+
+    def test_safety_limits_all_null_binding_removed(self):
+        # When all binding values are None the whole safety_limits key disappears.
+        obj = {"safety_limits": {"sources": [], "binding": {"linear_x": None, "angular_z": None}}}
+        self.assertEqual(self.fn(obj), {})
+
+    def test_safety_limits_with_values_kept(self):
+        obj = {"safety_limits": {"sources": [{"file": "x"}], "binding": {"linear_x": 0.4}}}
+        result = self.fn(obj)
+        self.assertIn("safety_limits", result)
+        self.assertEqual(result["safety_limits"]["binding"]["linear_x"], 0.4)
+
+
+# ---------------------------------------------------------------------------
 # New profile field tests (Wave 3): maps, sensor_filter_pipeline, imu_config,
 # controller_plugins, mock_hardware_available, package_dependencies
 # ---------------------------------------------------------------------------

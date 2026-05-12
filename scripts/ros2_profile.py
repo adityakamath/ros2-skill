@@ -2975,6 +2975,31 @@ def _save_profile(profile, name="robot"):
     return str(p)
 
 
+def _strip_nulls(obj):
+    """Recursively remove absent values from a dict or list.
+
+    A value is considered *absent* when it is:
+    - ``None``
+    - An empty list ``[]``
+    - An empty dict ``{}``
+
+    ``False`` and ``0`` are **kept** — they are valid, informative values.
+    Applied to the profile summary so agents never see ``null`` / empty
+    fields; a missing key unambiguously means "not detected / not applicable".
+    """
+    if isinstance(obj, dict):
+        result = {}
+        for k, v in obj.items():
+            sv = _strip_nulls(v)
+            if sv is None or sv == [] or sv == {}:
+                continue
+            result[k] = sv
+        return result
+    if isinstance(obj, list):
+        return [_strip_nulls(item) for item in obj]
+    return obj
+
+
 def _build_profile(robot_name, workspace, distro, scan_result):
     """Assemble the final tiered profile dict from a scan result."""
     sr = scan_result
@@ -2998,7 +3023,10 @@ def _build_profile(robot_name, workspace, distro, scan_result):
         # ------------------------------------------------------------------ #
         # SUMMARY — always loaded; compact; one-glance robot overview.        #
         # ------------------------------------------------------------------ #
-        "summary": {
+        # _strip_nulls removes every key whose value is None, [], or {} so   #
+        # that agents never encounter null fields — a missing key means       #
+        # "not detected / not applicable".  False and 0 are preserved.       #
+        "summary": _strip_nulls({
             "robot_type": sr["robot_type"],
             # robot_features: supplementary capabilities alongside the primary type.
             # e.g. ["pantilt"] for a mobile_base with a pan-tilt head.
@@ -3096,7 +3124,7 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             # primary package.  Derived from package.xml exec_depend tags;
             # useful for understanding runtime requirements at a glance.
             "package_dependencies": sr["package_dependencies"],
-        },
+        }),
         # ------------------------------------------------------------------ #
         # DETAIL — per launch file; load on demand via --section <filename>.  #
         # ------------------------------------------------------------------ #
