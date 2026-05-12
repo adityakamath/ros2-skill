@@ -353,6 +353,7 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
 ```
 {
   "summary": {                          ← always load; compact
+    ← Fields with no detected value are ABSENT (never null/[]/{}). Missing key = not detected.
     "robot_type": "mobile_base",        ← primary type (see types below)
     "robot_features": ["pantilt"],      ← supplementary features alongside primary type
     "robot_type_evidence": {            ← signals that drove the detected type
@@ -366,10 +367,12 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
     "safety_limits": {
       "sources": [                        ← one entry per YAML config that had a velocity limit
         {"file": "teleop_joy.yaml", "path": "...", "linear_x": 0.5, "linear_y": 0.3, "angular_z": 1.0},
-        {"file": "nav2_params.yaml", "path": "...", "linear_x": 0.3, "linear_y": null, "angular_z": 0.8}
+        {"file": "nav2_params.yaml", "path": "...", "linear_x": 0.3, "angular_z": 0.8}
+        ← axes with no limit are absent from each source entry
       ],
       "binding": {                        ← most restrictive per axis across all sources + URDF
-        "linear_x": 0.3, "linear_y": 0.3, "angular_z": 0.8
+        "linear_x": 0.3, "angular_z": 0.8
+        ← linear_y only present for holonomic robots
       }
     },
     "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false,
@@ -380,14 +383,36 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
         "xyz": [0.1, 0.0, 0.5],        ← position relative to parent link
         "rpy": [3.14159, 0.0, 0.0],    ← orientation; roll ≈ π → upside-down
         "image_rotation_deg": 180       ← visual sensors only; capture-image applies this
-      },
-      {
-        "joint": "lidar_joint", "link": "lidar_front",
-        "sensor_type": "lidar",
-        "xyz": [0.15, 0.0, 0.25], "rpy": [0.0, 0.0, 3.14159]
-        ← lidar pointing backward; no image_rotation_deg (not a visual sensor)
       }
-    ]
+    ],
+    ← Drive / kinematics (present when ros2_control YAML was found)
+    "drive_type": "differential",        ← differential|holonomic_omni|mecanum|ackermann|bicycle|tricycle
+    "kinematics": {"wheel_radius": 0.05, "wheel_separation": 0.2},
+    "controller_update_rate_hz": 100,
+    "cmd_vel_topic": "/base_controller/cmd_vel",
+    "odom_frame_ids": {"odom_frame_id": "odom", "base_frame_id": "base_link"},
+    "active_controllers": ["base_controller", "joint_state_broadcaster"],
+    "controller_plugins": ["diff_drive_controller/DiffDriveController", "joint_state_broadcaster/JointStateBroadcaster"],
+    ← Hardware
+    "hardware_interfaces": [{"name": "...", "plugin": "...", "joints": [...], "command_interfaces": [...], "state_interfaces": [...], "hardware_params": {...}}],
+    "mock_hardware_available": false,    ← true when enable_mock_mode=true or a "mock"/"fake" launch arg exists
+    "imu_config": {"plugin": "...", "state_interfaces": [...], "hardware_params": {...}, "broadcaster": {"frame_id": "imu_link", "publish_rate": 100}},
+    ← Sensors
+    "lidar_config": {"topic": "/scan", "frame_id": "lidar_link"},
+    "camera_configs": [...],
+    "sensor_filter_pipeline": [{"name": "range_filter", "type": "laser_filters/LaserScanRangeFilter", "source_file": "...", "params": {...}}],
+    ← Navigation
+    "localization_config": {"method": "ekf", "frequency_hz": 50, "fused_sources": {"odom0": "/base_controller/odom"}},
+    "nav2_config": {"planner_plugins": [...], "controller_plugins": [...], "behavior_plugins": [...]},
+    "maps": [{"name": "map", "type": "occupancy", "resolution": 0.05, "image": "map.pgm", "file": "map.yaml", "path": "..."}],
+    ← Teleop / e-stop
+    "teleop_config": {"cmd_vel_topic": "/cmd_vel", "joy_topic": "/joy", "scales": {"scale_linear_x": 0.5, "scale_angular_z": 1.0}},
+    "estop_config": {"topic": "/e_stop", "service_type": "std_srvs/srv/SetBool", "activate_buttons": [0], "deactivate_buttons": [1]},
+    ← TF / launch
+    "tf_frames": {"urdf_links": ["base_link", "imu_link", ...], "map_frame": "map", "odom_frame": "odom", "base_frame": "base_link"},
+    "launch_configurations": {"config": {"default": "base", "choices": ["base", "pantilt"], "description": "..."}},
+    ← Package metadata
+    "package_dependencies": {"my_robot_bringup": ["rclpy", "nav2_bringup", ...]}
   },
   "annotations": [              ← user-added free-text notes; ALWAYS read at session start
     {
@@ -395,10 +420,15 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
       "note": "Left motor encoder is worn — odometry drifts right."
     }
   ],
-  "detail": {                           ← load on demand per launch file
+  "detail": {                           ← load on demand per launch file; null-stripped like summary
     "bringup.launch.py": {
       "path": "...", "package": "...",
-      "launch_args": {"use_sim_time": "false", "robot_name": null},
+      "launch_args": {
+        ← unified: AST defaults + live-resolved values merged; no null values
+        "config":       {"default": "base", "choices": ["base", "k2"], "description": "hw config"},
+        "use_sim_time": {"default": "false"},
+        "serial_port":  {"default": "/dev/ttySERVO", "description": "Serial port for motors"}
+      },
       "includes": [                      ← sub-launch files included by this file
         {
           "source": "pkg:nav2_bringup/launch/bringup_launch.py",
@@ -428,7 +458,7 @@ python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror �
 
 **If detection is wrong:** run `profile scan --robot-type <type>` to override. The evidence field always shows what matched so you can see why a type was chosen.
 
-Use `summary.safety_limits.binding.linear_x` as the `--max-vel` ceiling and `summary.safety_limits.binding.angular_z` as the `--max-ang` ceiling (Rule 28). `binding.linear_y` is set for holonomic robots. `sources` lists every config file that contributed a limit — useful when multiple teleop configs are present. Use `summary.launch_files` to see what launch files exist in the workspace; load any one's full detail with `--section <filename>`.
+Use `summary.safety_limits.binding.linear_x` as the `--max-vel` ceiling and `summary.safety_limits.binding.angular_z` as the `--max-ang` ceiling (Rule 28). `binding.linear_y` is set for holonomic robots. `sources` lists every config file that contributed a limit — useful when multiple teleop configs are present. Use `summary.launch_files` to see what launch files exist in the workspace; load any one's full detail with `--section <filename>`. Launch arg defaults and choices are always populated — a missing `default` key means the argument is required with no declared default.
 
 ---
 
