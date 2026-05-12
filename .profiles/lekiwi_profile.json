@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-05-12T17:13:29.758461+00:00",
+  "generated_at": "2026-05-12T20:26:08.361243+00:00",
   "robot_name": "lekiwi",
   "workspace": "/home/ubuntu/ros2_ws",
   "ros_distro": "kilted",
@@ -31,6 +31,7 @@
     "teleop_config",
     "tf_frames",
     "active_controllers",
+    "extended_configs",
     "feature_detection"
   ],
   "summary": {
@@ -40,8 +41,7 @@
     ],
     "robot_type_evidence": {
       "mobile_base": [
-        "topic:/base_controller/cmd_vel",
-        "topic:/cmd_vel"
+        "topic:/base_controller/cmd_vel"
       ],
       "pantilt": [
         "src:lekiwi.launch.py",
@@ -88,10 +88,6 @@
       {
         "topic": "/base_controller/cmd_vel",
         "type": "geometry_msgs/msg/TwistStamped"
-      },
-      {
-        "topic": "/cmd_vel",
-        "type": "geometry_msgs/msg/Twist"
       }
     ],
     "has_lidar": true,
@@ -103,22 +99,22 @@
         {
           "file": "control.yaml",
           "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/base/control.yaml",
-          "linear_x": 0.13,
-          "linear_y": 0.11,
-          "angular_z": 0.44
+          "linear_x": 0.2,
+          "linear_y": 0.17,
+          "angular_z": 0.68
         },
         {
           "file": "control.yaml",
           "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/k2/control.yaml",
-          "linear_x": 0.13,
-          "linear_y": 0.11,
-          "angular_z": 0.44
+          "linear_x": 0.2,
+          "linear_y": 0.17,
+          "angular_z": 0.68
         }
       ],
       "binding": {
-        "linear_x": 0.13,
-        "linear_y": 0.11,
-        "angular_z": 0.44
+        "linear_x": 0.2,
+        "linear_y": 0.17,
+        "angular_z": 0.68
       }
     },
     "joint_limits": {
@@ -335,8 +331,6 @@
         "name": "lekiwi_imu",
         "type": "sensor",
         "plugin": "bno055_hardware_interface/BNO055HardwareInterface",
-        "joints": [],
-        "command_interfaces": [],
         "state_interfaces": [
           "orientation.x",
           "orientation.y",
@@ -460,15 +454,14 @@
         "odom0": "/base_controller/odom"
       }
     },
-    "nav2_config": null,
     "teleop_config": {
       "config_file": "teleop.yaml",
       "cmd_vel_topic": "/base_controller/cmd_vel",
       "msg_type": "geometry_msgs/msg/TwistStamped",
       "scales": {
-        "scale_linear_x": 0.13,
-        "scale_linear_y": 0.11,
-        "scale_angular_z": 0.44
+        "scale_linear_x": 0.2,
+        "scale_linear_y": 0.17,
+        "scale_angular_z": 0.68
       },
       "deadman_button": [
         9
@@ -484,6 +477,29 @@
       "deactivate_buttons": [
         1
       ]
+    },
+    "teleop_limits": {
+      "sources": [
+        {
+          "file": "teleop.yaml",
+          "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/base/teleop.yaml",
+          "linear_x": 0.2,
+          "linear_y": 0.17,
+          "angular_z": 0.68
+        },
+        {
+          "file": "teleop.yaml",
+          "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/k2/teleop.yaml",
+          "linear_x": 0.2,
+          "linear_y": 0.17,
+          "angular_z": 0.68
+        }
+      ],
+      "binding": {
+        "linear_x": 0.2,
+        "linear_y": 0.17,
+        "angular_z": 0.68
+      }
     },
     "tf_frames": {
       "urdf_links": [
@@ -530,25 +546,25 @@
         "default": "false",
         "description": "Enable RGBD point cloud output from OAK-D (uses oakd_vio_pcl.yaml)"
       },
+      "pan_center_steps": {
+        "default": "2048",
+        "description": "Encoder step that maps to 0 rad for the pan joint"
+      },
       "serial_port": {
         "default": "/dev/ttySERVO",
         "description": "Serial port for STS motor communication"
       },
-      "use_mock": {
-        "default": "false",
-        "description": "Use mock/simulation mode (no hardware required)"
-      },
-      "pan_center_steps": {
-        "default": "2048",
-        "description": "Encoder step that maps to 0 rad for the pan joint"
+      "teleop_config": {
+        "default": "pkg:lekiwi_control/config/$config/teleop.yaml",
+        "description": "Path to the joy_teleop configuration file"
       },
       "tilt_center_steps": {
         "default": "2646",
         "description": "Encoder step that maps to 0 rad for the tilt joint"
       },
-      "teleop_config": {
-        "default": "pkg:lekiwi_control/config/$config/teleop.yaml",
-        "description": "Path to the joy_teleop configuration file"
+      "use_mock": {
+        "default": "false",
+        "description": "Use mock/simulation mode (no hardware required)"
       }
     },
     "active_controllers": [
@@ -556,17 +572,74 @@
       "imu_sensor_broadcaster",
       "joint_state_broadcaster",
       "pantilt_controller"
-    ]
+    ],
+    "controller_plugins": [
+      "joint_state_broadcaster/JointStateBroadcaster",
+      "imu_sensor_broadcaster/IMUSensorBroadcaster",
+      "omni_wheel_drive_controller/OmniWheelDriveController",
+      "forward_command_controller/ForwardCommandController",
+      "joint_trajectory_controller/JointTrajectoryController",
+      "velocity_controllers/JointGroupVelocityController",
+      "effort_controllers/JointGroupEffortController"
+    ],
+    "mock_hardware_available": true,
+    "imu_config": {
+      "plugin": "bno055_hardware_interface/BNO055HardwareInterface",
+      "state_interfaces": [
+        "orientation.x",
+        "orientation.y",
+        "orientation.z",
+        "orientation.w",
+        "angular_velocity.x",
+        "angular_velocity.y",
+        "angular_velocity.z",
+        "linear_acceleration.x",
+        "linear_acceleration.y",
+        "linear_acceleration.z"
+      ],
+      "hardware_params": {
+        "i2c_bus": "$(arg imu_i2c_bus)",
+        "i2c_addr": "$(arg imu_i2c_addr)",
+        "axis_remap": "$(arg imu_axis_remap)",
+        "sensor_mode": "$(arg imu_sensor_mode)",
+        "enable_mock_mode": "$(arg use_mock)"
+      }
+    },
+    "package_dependencies": {
+      "lekiwi_bringup": [
+        "camera_ros",
+        "depthai_ros_driver",
+        "laser_filters",
+        "ldlidar_ros2",
+        "lekiwi_control",
+        "lekiwi_navigation"
+      ],
+      "lekiwi_control": [
+        "bno055_hardware_interface",
+        "controller_manager",
+        "forward_command_controller",
+        "imu_sensor_broadcaster",
+        "joint_state_broadcaster",
+        "joy_teleop",
+        "lekiwi_description",
+        "omni_wheel_drive_controller",
+        "robot_state_publisher",
+        "sts_hardware_interface",
+        "xacro"
+      ],
+      "lekiwi_description": [
+        "xacro"
+      ],
+      "lekiwi_navigation": [
+        "robot_localization"
+      ]
+    }
   },
   "detail": {
     "laser.launch.py": {
       "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/laser.launch.py",
       "package": "lekiwi_bringup",
       "launch_args": {
-        "config": null,
-        "custom_filter": null
-      },
-      "launch_arg_choices": {
         "config": {
           "default": "base",
           "description": "Robot configuration: base, pantilt, or k2"
@@ -576,7 +649,6 @@
           "description": "(Optional) Name of custom filter config YAML in lekiwi_bringup/config/"
         }
       },
-      "includes": [],
       "yaml_files": [
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
@@ -584,20 +656,12 @@
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
-      ],
-      "urdf_files": [],
-      "joint_limits": {}
+      ]
     },
     "lekiwi.launch.py": {
       "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/lekiwi.launch.py",
       "package": "lekiwi_bringup",
       "launch_args": {
-        "config": null,
-        "diagnostics": null,
-        "fusion_mode": null,
-        "pointcloud": null
-      },
-      "launch_arg_choices": {
         "config": {
           "default": "base",
           "description": "Bringup configuration: base, pantilt, or k2"
@@ -617,10 +681,7 @@
       },
       "includes": [
         {
-          "source": "<f-string>",
-          "package": null,
-          "file": null,
-          "args_forwarded": {}
+          "source": "<f-string>"
         }
       ],
       "yaml_files": [
@@ -630,23 +691,17 @@
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
-      ],
-      "urdf_files": [],
-      "joint_limits": {}
+      ]
     },
     "oakd.launch.py": {
       "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/oakd.launch.py",
       "package": "lekiwi_bringup",
       "launch_args": {
-        "pointcloud": null
-      },
-      "launch_arg_choices": {
         "pointcloud": {
           "default": "false",
           "description": "Use oakd_vio_pcl.yaml (with RGBD point cloud) instead of oakd_vio.yaml."
         }
       },
-      "includes": [],
       "yaml_files": [
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
@@ -654,16 +709,11 @@
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
-      ],
-      "urdf_files": [],
-      "joint_limits": {}
+      ]
     },
     "webcam.launch.py": {
       "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/webcam.launch.py",
       "package": "lekiwi_bringup",
-      "launch_args": {},
-      "launch_arg_choices": {},
-      "includes": [],
       "yaml_files": [
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
@@ -671,34 +721,15 @@
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
-      ],
-      "urdf_files": [],
-      "joint_limits": {}
+      ]
     },
     "lekiwi_control/lekiwi.launch.py": {
       "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/launch/lekiwi.launch.py",
       "package": "lekiwi_control",
       "launch_args": {
-        "config": null,
-        "serial_port": null,
-        "use_mock": null,
-        "diagnostics": null,
-        "pan_center_steps": null,
-        "tilt_center_steps": null,
-        "teleop_config": null
-      },
-      "launch_arg_choices": {
         "config": {
           "default": "base",
           "description": "Robot configuration to launch: base, pantilt, or k2"
-        },
-        "serial_port": {
-          "default": "/dev/ttySERVO",
-          "description": "Serial port for STS motor communication"
-        },
-        "use_mock": {
-          "default": "false",
-          "description": "Use mock/simulation mode (no hardware required)"
         },
         "diagnostics": {
           "default": "true",
@@ -708,43 +739,40 @@
           "default": "2048",
           "description": "Encoder step that maps to 0 rad for the pan joint"
         },
-        "tilt_center_steps": {
-          "default": "2646",
-          "description": "Encoder step that maps to 0 rad for the tilt joint"
+        "serial_port": {
+          "default": "/dev/ttySERVO",
+          "description": "Serial port for STS motor communication"
         },
         "teleop_config": {
           "default": "pkg:lekiwi_control/config/$config/teleop.yaml",
           "description": "Path to the joy_teleop configuration file"
+        },
+        "tilt_center_steps": {
+          "default": "2646",
+          "description": "Encoder step that maps to 0 rad for the tilt joint"
+        },
+        "use_mock": {
+          "default": "false",
+          "description": "Use mock/simulation mode (no hardware required)"
         }
       },
       "includes": [
         {
           "source": "pkg:sts_hardware_interface/launch/motor_diagnostics.launch.py",
           "package": "sts_hardware_interface",
-          "file": "motor_diagnostics.launch.py",
-          "args_forwarded": {}
+          "file": "motor_diagnostics.launch.py"
         }
-      ],
-      "yaml_files": [],
-      "urdf_files": [],
-      "joint_limits": {}
+      ]
     },
     "nav.launch.py": {
       "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/launch/nav.launch.py",
       "package": "lekiwi_navigation",
       "launch_args": {
-        "fusion_mode": null
-      },
-      "launch_arg_choices": {
         "fusion_mode": {
           "default": "base",
           "description": "EKF sensor fusion mode: base = wheel odom + BNO055 (ekf.yaml); imu = BNO055 only, no wheel odom (ekf_imu.yaml); odom = wheel odom only, no IMU (ekf_odom.yaml)."
         }
-      },
-      "includes": [],
-      "yaml_files": [],
-      "urdf_files": [],
-      "joint_limits": {}
+      }
     }
   }
 }

@@ -9,27 +9,88 @@
 
 ---
 
-### Rule 0 — Full introspection before every action (non-negotiable)
+### Rule 0 — Resolve everything before acting (profile first, live for the rest)
 
-**Before publishing to any topic, calling any service, or sending any action goal, you MUST complete the introspection steps below. There are no exceptions, not even for "obvious" or "conventional" names.**
+**Profile is the primary source of truth. Live introspection is the fallback when the profile is absent or does not cover a field.** Discovery is not optional — but in Path A it collapses to zero live calls for the data the profile already holds.
 
-This rule exists because:
-- The velocity topic is not always `/cmd_vel`. It may be `/base/cmd_vel`, `/robot/cmd_vel`, `/mobile_base/cmd_vel`, or anything else.
-- The message type is not always `Twist`. Many robots use `TwistStamped`, and the payload structure differs.
-- The odometry topic is not always `/odom`. It may be `/wheel_odom`, `/robot/odom`, `/base/odometry`, etc.
-- Camera topics are not always `/camera/image_raw`. There may be multiple cameras with namespaced topics.
-- TF frame names are not always `map`, `base_link`, `odom`. They vary by robot configuration.
-- Controller names are not always `joint_trajectory_controller` or similar. They are defined in the robot's config.
-- Convention-based guessing causes silent failures, wrong topics, and physical accidents.
+#### Rule 0.0 — Path selection (decided once, at session start)
 
-**Pre-flight introspection protocol — run ALL applicable steps before acting:**
+At session start, run `profile show` exactly once and classify the session:
+
+- **Path A — profile loaded:** `profile show` returned success **and** the `summary` object is non-empty. Use profile fields for static data; live only for runtime state.
+- **Path B — no profile:** `profile show` failed, returned no profile, or `summary` is empty/missing. Run full live introspection before every action.
+
+The path is decided **once per session**. Do not re-evaluate per task. The only events that re-trigger path selection:
+1. The user explicitly requests `profile scan` and it completes successfully (re-evaluate immediately after).
+2. The staleness check (Rule 0.6) flags the profile and the user authorises a rescan.
+
+#### Rule 0.0a — Profile field presence is exact and per-field
+
+A profile field is considered **present** only if:
+- For strings: non-null and non-empty (length > 0 after trim)
+- For objects: non-null and contains at least one key
+- For arrays: non-null and contains at least one element
+- For numbers/booleans: non-null
+
+If a specific field fails this test, fall back to live discovery **for that field only** — not for the whole profile. The path classification (Rule 0.0) does not flip; only that one field uses the Path B discovery command from the table below.
+
+**Profile field names are exact and case-sensitive.** Only the field names listed in the table below (and the schema documented in this rule set) exist. If a name does not appear in the documented schema, treat it as absent — do not invent variants like `summary.velocity_limit` when the actual field is `summary.safety_limits.binding`. Use `profile show` output to confirm the exact field path before reading.
+
+#### Rule 0.0b — Profile-supplied name fails live → escalate, never silently fall back
+
+If a profile field is present but the live operation using its value returns empty or an error (e.g., `summary.cmd_vel_topic = /base_controller/cmd_vel` but `topics list` does not contain it, or `summary.active_controllers[i]` is not in `control list-controllers` output), the profile and the running stack disagree.
+
+**Do not silently retry with live discovery to find a different name.** Doing so would mask the disagreement and the agent would operate on values that contradict the profile.
+
+**Do not auto-rescan during runtime.** Runtime auto-rescan is forbidden — a mid-task `profile scan` is slow, mutates state under the user's feet, and the live mismatch is almost never fixed by a re-read of source files. Auto-rescan happens only after `launch new` (Rule 0.6).
+
+Instead:
+1. Run `nodes list` and `topics list` once to capture current state.
+2. Stop the current task.
+3. Report to the user: *"Profile field `<field>` = `<value>` but live system reports `<symptom>`. Likely cause: the bringup that publishes this topic is not running, or the profile is out of date. Recommend launching the appropriate bringup, or running `profile scan` if source files have changed."*
+4. Wait for user instruction.
+
+#### Profile fast-path (use this first, every time)
+
+When Path A is active, the following fields are authoritative and **must be used directly without any live discovery call** (subject to Rule 0.0a presence check):
+
+| What you need | Profile field to use | Live call — only if profile field absent |
+|---|---|---|
+| Velocity command topic name | `summary.cmd_vel_topic` | `topics find geometry_msgs/msg/Twist` + `topics find geometry_msgs/msg/TwistStamped` |
+| Velocity message type | `summary.velocity_topics[].type` (entry whose topic matches `cmd_vel_topic`) | `topics type <topic>` |
+| Velocity safety ceiling | `summary.safety_limits.binding` | Four-source live parameter sweep (see below) |
+| Commanded speed (max joystick speed) | `summary.teleop_limits.binding` | `params list` sweep for `scale_*` params |
+| TF frame names | `summary.tf_frames` (`odom_frame`, `base_frame`, `map_frame`) | `tf list` |
+| Odometry topic | `summary.localization_config.fused_sources` values; or `summary.odom_frame_ids.odom_frame_id` as the frame name, then `topics find nav_msgs/msg/Odometry` to confirm the topic | `topics find nav_msgs/msg/Odometry` |
+| Active controllers | `summary.active_controllers` | `control list-controllers` |
+| E-stop service | `summary.estop_config.service_name` | `services find std_srvs/srv/SetBool` |
+
+**`interface proto <type>`** is still required once per session — the profile provides the type string but not the field layout. Run it once after reading the type from the profile.
+
+**The only mandatory live checks before a motion command (even when a profile is loaded):**
+1. `control list-controllers` — confirm the velocity controller listed in `summary.active_controllers` is currently **active** (runtime state; cannot be known from the profile)
+2. Subscribe to the odom topic for 1 message — confirm the robot is stationary before moving
+
+**Introspection is required when:**
+- No profile has been loaded this session, OR
+- The specific field needed is absent from the profile
+
+When introspection is required, convention-based guessing is not permitted:
+- The velocity topic may be `/base_controller/cmd_vel`, not `/cmd_vel`
+- The message type may be `TwistStamped`, not `Twist`
+- Odometry may be on `/base_controller/odom`, not `/odom`
+- TF frames vary by robot configuration
+- Convention-based guessing causes silent failures, wrong topics, and physical accidents
+
+**Pre-flight introspection protocol (when profile field is absent) — run ALL applicable steps before acting:**
 
 | Action type | Required introspection |
 |---|---|
-| Publish to a topic | 1. `topics find <msg_type>` to discover the real topic name<br>2. `topics type <discovered_topic>` to confirm the exact type<br>3. `interface proto <exact_type>` to get the default payload template — **copy this output and modify only the fields required by the task; never construct payloads from memory**<br>4. **For any field whose type is not a primitive (`bool`, `int*`, `float*`, `string`, `byte`) or a well-known standard type (`geometry_msgs`, `std_msgs`, `builtin_interfaces`):** run `interface show <nested_type>` on each such field type recursively until all leaf fields are primitives. Silently malformed nested fields produce no error — the message is accepted and the payload is wrong. |
+| Publish to a velocity topic | **Profile first:** use `summary.cmd_vel_topic` as topic, `summary.velocity_topics[].type` as type. If absent: 1. `topics find geometry_msgs/msg/Twist` AND `topics find geometry_msgs/msg/TwistStamped` 2. `topics type <topic>` to confirm. Then: `interface proto <confirmed_type>` to get the payload template — copy and modify only the fields required; never construct from memory. |
+| Publish to any other topic | 1. `topics find <msg_type>` to discover the real topic name<br>2. `topics type <discovered_topic>` to confirm the exact type<br>3. `interface proto <exact_type>` to get the default payload template<br>4. **For non-primitive nested fields:** run `interface show <nested_type>` recursively until all leaf fields are primitives. |
 | Call a service | 1. `services list` or `services find <srv_type>` to discover the real name<br>2. `services details <discovered_service>` to get request/response fields |
 | Send an action goal | 1. `actions list` or `actions find <action_type>` to discover the real name<br>2. `actions details <discovered_action>` to get goal/result/feedback fields |
-| Move a robot | Full Movement Workflow — see Rule 3 (RULES-MOTION.md) and the canonical section below |
+| Move a robot | Profile fast-path first (see above). Then Rule 3 (RULES-MOTION.md). |
 | Read a sensor / subscribe | `topics find <msg_type>` to discover the topic; `topics type <topic>` to confirm type; never subscribe to a hardcoded name |
 | Capture a camera image | `topics find sensor_msgs/msg/CompressedImage` and `topics find sensor_msgs/msg/Image` to discover available camera topics; use the result in `topics capture-image --topic <CAMERA_TOPIC>` |
 | Use a camera image or depth image (any visual pipeline) | Before using the camera data: 1. Find the paired `camera_info` topic: `topics find sensor_msgs/msg/CameraInfo` — the result will share a namespace with the image topic (e.g., `/camera/camera_info` pairs with `/camera/image_raw`). 2. Subscribe to confirm calibration is present: `topics subscribe <CAMERA_INFO_TOPIC> --max-messages 1 --timeout 2` — verify `K` (intrinsic matrix) is non-zero. 3. Read the `header.frame_id` from the `camera_info` message; confirm it is present in `tf list`. **A camera with no `camera_info` publisher is uncalibrated. A camera whose `frame_id` is absent from TF will produce wrong spatial results.** Both conditions must be satisfied before using the camera for **any camera-dependent task** — including captures, streaming, object detection, depth estimation, object localisation, and point cloud processing. Do not skip this check even for "simple" image captures — an uncalibrated camera produces no calibration data for downstream use, and a misaligned frame produces wrong spatial results silently. |
@@ -45,7 +106,7 @@ This rule exists because:
 | Load parameters from a YAML file (`params load` or `--params-file` in launch) | 1. `nodes list` to confirm the target node is running.<br>2. `params list <node>` to get the current parameter names on that node.<br>3. Compare YAML file keys against the discovered names — **any YAML key that does not match a declared parameter is silently ignored; no error is raised.** Verify every key you intend to set is present in `params list` output before loading.<br>4. For each YAML key you will set, `params describe <node:param>` to confirm type — a YAML string loaded into an integer parameter silently fails or truncates.<br>5. After loading: `params get <node:param>` on each key to verify values were applied (Rule 8). |
 | Run a servo / control-loop task (any node publishing velocity commands at ≥ 10 Hz) | Check CPU scheduling policy for the control node: `chrt -p $(pgrep -f <NODE_BINARY_NAME>)` — if output shows `scheduling policy: SCHED_OTHER`, the node lacks real-time priority and may exhibit jitter or periodic latency spikes under load. Optionally check isolated CPUs: `cat /sys/devices/system/cpu/isolated` — if empty, no cores are isolated for real-time use. Both checks are **advisory only**: report findings in the pre-task summary; do not block the task. Use the binary name from `pkg executables <package>` — not the ROS node name (e.g. use `controller_manager` not `/controller_manager`). |
 
-**Parameter introspection is mandatory before any movement command.** Velocity limits can live on any node — not just nodes with "controller" in the name. Before publishing velocity, sweep **all four limit sources** in parallel:
+**Velocity limit sweep (only when `summary.safety_limits.binding` is absent from the profile).** Velocity limits can live on any node — not just nodes with "controller" in the name. Before publishing velocity, sweep **all four limit sources** in parallel:
 
 **Source 1 — Node parameters (all nodes):**
 1. Run `nodes list` to get every node currently running.
@@ -67,15 +128,18 @@ This rule exists because:
 9. Identify the binding ceiling: the **minimum across all discovered linear limit values** and the **minimum across all discovered angular/theta limit values**.
 10. Cap your commanded velocity at that ceiling. If no limits are found across all four sources, use conservative defaults (0.2 m/s linear, 0.75 rad/s angular) and note this in the report.
 
-**Never hardcode or assume:**
-- ❌ Never use `/cmd_vel` without first discovering the velocity topic with `topics find`
-- ❌ Never use `Twist` payload without first confirming the type is not `TwistStamped` via `topics type`
-- ❌ Never use `/odom` without first discovering the odometry topic with `topics find`
-- ❌ Never use `/camera/image_raw` or any camera topic without first discovering it with `topics find`
-- ❌ Never use `map`, `base_link`, `odom`, or any TF frame name without first listing frames with `tf list`
-- ❌ Never use a controller name without first listing controllers with `control list-controllers`
+**Never hardcode or assume (profile fields override live discovery; gaps require introspection):**
+- ✅ Use `summary.cmd_vel_topic` as the velocity topic — no `topics find` needed
+- ✅ Use `summary.velocity_topics[].type` as the message type — no `topics type` needed
+- ✅ Use `summary.tf_frames` for TF frame names — no `tf list` needed
+- ✅ Use `summary.active_controllers` for controller names — still run `control list-controllers` to confirm runtime state
+- ✅ Use `summary.estop_config.service_name` for the e-stop service — no `services find` needed
+- ❌ Never use `/cmd_vel` if the profile says otherwise (lekiwi uses `/base_controller/cmd_vel`)
+- ❌ Never use `Twist` if the profile says `TwistStamped` (check `summary.velocity_topics[].type`)
+- ❌ Never use `/odom` without checking `summary.localization_config.fused_sources` first; fall back to `topics find nav_msgs/msg/Odometry` only when absent
+- ❌ Never use `/camera/image_raw` or any camera topic without first discovering it with `topics find` (camera topics are not in the profile)
 - ❌ Never use a node name without first listing nodes with `nodes list`
-- ❌ Never use a service name without first discovering it with `services list` or `services find`
+- ❌ Never use a service name without first checking the profile, then `services find` if absent
 - ❌ Never use `--yaw`, `--yaw-delta`, or `--field` for rotation — the only correct flag is `--rotate N --degrees` (or `--rotate N` for radians). Use negative N for CW; `--rotate` sign and `angular.z` sign must always match.
 - ❌ Never assume a message type from a topic name
 - ❌ Never construct a message payload from memory — always use `interface proto <type>` output as the starting template and modify only the fields required by the task
@@ -84,6 +148,67 @@ This rule exists because:
 - ❌ Never read or report odometry for position, orientation, or yaw while the robot is moving or decelerating — wait until confirmed stationary (velocity ≈ 0 on all axes) then subscribe fresh (see Rule 8 two-phase protocol)
 
 **Introspection commands return discovered names. Use those names — not the ones you expect.**
+
+### Rule 0.6 — Conditional auto-rescan after `launch new`
+
+The profile is derived from a static workspace scan of source files (launch files, package manifests, controller YAMLs, URDFs). The natural moment for the profile to drift is **between launches** — the user (or the agent in a previous turn) may have edited a launch arg default, controller YAML, joint limit, or topic remapping. Once a launch file actually starts, the profile must reflect what was just brought up — **but only if a source file has actually changed**.
+
+**Trigger:** every successful `launch new <package> <launch_file> [args...]` (and equivalent `run new`) invoked by the agent.
+
+**Gate — check whether a rescan is needed first.** Run a single cheap source-mtime check against the loaded profile JSON:
+
+```bash
+find "<profile.workspace>/src" \
+  \( -name 'package.xml' -o -name '*.launch.py' -o -name '*.launch.xml' \
+     -o -name '*.launch.yaml' -o -name '*.yaml' -o -name '*.urdf' \
+     -o -name '*.xacro' -o -name '*.srdf' \) \
+  -newer "<profile_json_path>" -print -quit
+```
+
+- `<profile.workspace>` = the `workspace` field of the loaded profile.
+- `<profile_json_path>` = the loaded profile file (typically `.profiles/<name>_profile.json` under the skill root).
+- `-print -quit` returns on the first match — the check is O(matched files), not O(workspace).
+
+**Decision:**
+- **Command prints any path → rescan needed.** At least one profile-relevant source file is newer than the profile.
+- **Command prints nothing → skip the rescan.** Sources are consistent with the loaded profile. Continue.
+
+**Rescan protocol (when needed, executes silently):**
+1. Run `profile scan` with the same args as the loaded profile (`name` / `packages` from `profile.metadata`; bare `profile scan` if absent).
+2. Reload via `profile show`. Re-classify the path (Rule 0.0).
+3. Continue. No retry of any prior operation — the rescan is forward-looking.
+
+**Why this gate matters:**
+- `launch new` is a frequent operation. An unconditional rescan would add seconds to every launch.
+- The `find -newer ... -quit` check is fast (typically < 100 ms) and conclusive — there is no other way for a profile-relevant source file to change.
+- Skipping a rescan when sources are unchanged is **safe by definition**: the profile was derived from those exact sources, so it cannot have drifted from them.
+
+**Why `install/` mtime is not used:** Source files can be edited without rebuilding (launch arg defaults, controller YAML, URDF joint limits). `install/setup.bash` mtime would miss those edits, which are exactly what the rescan must catch.
+
+**Auto-rescan never runs during runtime operations** (publish, subscribe, service call, parameter set, controller switch, etc.). Mid-task `profile scan` is forbidden. Runtime mismatches escalate to the user (Rule 0.0b).
+
+**Skip the gate check entirely if:**
+- The `launch new` call failed — nothing was actually brought up.
+- The profile was just rescanned in the same turn (do not gate-check twice for one event).
+- The launch was invoked by the user directly in their terminal (the agent has no event hook for this).
+
+**Session start (Rule 0.1 Step 7) — advisory only:** If `generated_at` is missing/unparseable after loading the profile, report once and continue. Do not auto-rescan at session start — the user has not yet triggered a launch.
+
+### Rule 0.7 — `profile scan` is permitted only on explicit triggers
+
+`profile scan` is **slow** (full workspace analysis) and **session-mutating** (overwrites the loaded profile). It must be triggered only by one of the following:
+
+1. **User request** — the user explicitly asks (e.g., *"rescan the profile"*, *"rebuild the profile"*, *"profile scan"*).
+2. **First-time bootstrap** — no profile exists yet (Rule 0.1 Step 7).
+3. **Post-launch auto-rescan** — immediately after the agent runs a successful `launch new` (or equivalent `run new`), **and** the source-mtime gate in Rule 0.6 indicates a rescan is needed. Exactly one rescan per launch event.
+
+**Never run `profile scan` because:**
+- It seems prudent or "safer" to refresh — the agent does not get to make that call.
+- A field appears to be missing or empty (use per-field live fallback per Rule 0.0a; that is not staleness).
+- A live operation returned an unexpected result during a runtime operation (escalate per Rule 0.0b; do **not** auto-rescan mid-task).
+- Time has passed since the last rescan — elapsed time is not a staleness signal.
+- A launch just succeeded but the Rule 0.6 source-mtime gate returned no match — the profile is consistent with sources.
+- The same launch has just been auto-rescanned — do not rescan twice for one event.
 
 ### Rule 0.1 — Session-start checks (run once per session, before any task)
 
@@ -141,9 +266,9 @@ python3 {baseDir}/scripts/ros2_cli.py profile show
 ```
 If a profile exists for this robot, its `summary` section is printed.
 - **Absent fields mean not detected.** The profile never contains null values — any field that had no detected value is simply omitted. A missing key means "not found / not applicable." Do not assume a field is present; check before reading.
-- **Velocity ceiling:** use `summary.safety_limits.binding.linear_x` as the `--max-vel` ceiling and `summary.safety_limits.binding.angular_z` as the `--max-ang` ceiling for all motion commands this session. For holonomic robots, also apply `summary.safety_limits.binding.linear_y` as the strafe ceiling. The `binding` object is the most-restrictive value across all discovered config files (`sources` list); treat it as a hard upper bound that must not be exceeded regardless of what the live sweep finds. Still run the full four-source live sweep (Rule 0 velocity limit section) before any motion command.
+- **Velocity ceiling:** use `summary.safety_limits.binding.linear_x` as the `--max-vel` ceiling and `summary.safety_limits.binding.angular_z` as the `--max-ang` ceiling for all motion commands this session. For holonomic robots, also apply `summary.safety_limits.binding.linear_y` as the strafe ceiling. The `binding` object is the most-restrictive value across all discovered config files (`sources` list); treat it as a hard upper bound. **Skip the four-source live sweep** (Rule 0 velocity limit section) — `binding` already captures all YAML and URDF sources. Proceed directly to `control list-controllers` and the pre-motion stationary check.
 - **Drive type:** if `summary.drive_type` is present (`"differential"`, `"holonomic_omni"`, `"mecanum"`, `"ackermann"`, etc.), use it to determine which motion axes are valid before issuing velocity commands. If absent, determine from live graph.
-- **Command topic:** prefer `summary.cmd_vel_topic` over heuristic discovery — it is derived directly from the teleop YAML. Verify at runtime with `topics find`.
+- **Command topic:** use `summary.cmd_vel_topic` directly — it is derived from the teleop YAML and confirmed at scan time. No live `topics find` call needed.
 - **Mock mode:** if `summary.mock_hardware_available` is `true`, the workspace supports hardware-free simulation. Inform the user if they are running commands that require physical hardware.
 - **Launch files:** use `summary.launch_files` to see which launch files exist in the workspace (filenames as they appear on disk) without needing a live graph. Use these to inform `launch new` calls.
 - **Detail on demand:** `profile show --section <launch-filename>` (e.g. `profile show --section bringup.launch.py`) returns that file's unified `launch_args` (`{arg: {default, choices?, description?}}`), co-located YAML files, and joint limits. Launch arg defaults are always populated — a missing `default` key means the argument is required with no declared default.

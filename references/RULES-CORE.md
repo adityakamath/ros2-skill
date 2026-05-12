@@ -17,7 +17,7 @@
 
 | Phase | What it means | Rule |
 |---|---|---|
-| **Pre-action** | Introspect the live system — discover names, types, states, limits | Rule 0 (RULES-PREFLIGHT.md) |
+| **Pre-action** | Check the robot profile for known fields; introspect the live system only for fields absent from the profile | Rule 0 (RULES-PREFLIGHT.md) |
 | **Execution** | Act using only discovered names and verified structures | Rules 1–5 (this file) |
 | **Post-action** | Verify the effect occurred — never claim a result without direct confirmation | Rule 8 (RULES-DIAGNOSTICS.md) |
 
@@ -63,38 +63,40 @@ The failure mode to avoid: inventing a subcommand like `launch start` or a flag 
 - Ask the user to resolve an error you caused by guessing
 - Report "the subcommand does not exist — would you like me to retry?" — just retry with the correct subcommand
 
-### Rule 1 — Discover before you act, never ask
+### Rule 1 — Resolve names before you act, never ask
 
-**Never ask the user for names, types, or IDs that can be discovered from the live system.** This includes topic names, service names, action names, node names, parameter names, message types, and controller names. Always query the robot first.
+**Never ask the user for names, types, or IDs that can be discovered from the robot profile or live system.** Check the profile first; query the live system only when the field is absent from the profile.
 
-| What you need | How to discover it |
-|---|---|
-| Topic name | `topics list` or `topics find <msg_type>` |
-| Topic message type | `topics type <topic>` |
-| Camera topic | `topics find sensor_msgs/msg/CompressedImage` and `topics find sensor_msgs/msg/Image` |
-| Odometry topic | `topics find nav_msgs/msg/Odometry` |
-| Velocity command topic | `topics find geometry_msgs/msg/Twist` and `topics find geometry_msgs/msg/TwistStamped` |
-| Service name | `services list` or `services find <srv_type>` |
-| Service request/response fields | `services details <service>` |
-| Action server name | `actions list` or `actions find <action_type>` |
-| Action goal/result/feedback fields | `actions details <action>` |
-| Node name | `nodes list` |
-| Node's topics, services, actions | `nodes details <node>` |
-| Parameter names on a node | `params list <node>` |
-| Parameter value | `params get <node:param>` |
-| Parameter type and constraints | `params describe <node:param>` |
-| TF frame names | `tf list` |
-| Controller names and states | `control list-controllers` |
-| Hardware components | `control list-hardware-components` |
-| Installed packages | `pkg list` |
-| Package install location | `pkg prefix <package>` |
-| Package executables | `pkg executables <package>` |
-| Message / service / action type fields | `interface show <type>` or `interface proto <type>` |
-| Nested custom type fields within a message | `interface show <nested_type>` — run recursively on each non-primitive, non-standard field type; repeat until all leaf fields are primitives |
+| What you need | Profile field (check first) | Live discovery (if profile field absent) |
+|---|---|---|
+| Velocity command topic | `summary.cmd_vel_topic` | `topics find geometry_msgs/msg/Twist` and `topics find geometry_msgs/msg/TwistStamped` |
+| Velocity message type | `summary.velocity_topics[].type` | `topics type <topic>` |
+| Odometry topic | `summary.localization_config.fused_sources` values | `topics find nav_msgs/msg/Odometry` |
+| Velocity limits | `summary.safety_limits.binding` | four-source live sweep (Rule 28) |
+| TF frame names | `summary.tf_frames` | `tf list` |
+| Controller names | `summary.active_controllers` | `control list-controllers` |
+| Topic name | — | `topics list` or `topics find <msg_type>` |
+| Topic message type | — | `topics type <topic>` |
+| Camera topic | — | `topics find sensor_msgs/msg/CompressedImage` and `topics find sensor_msgs/msg/Image` |
+| Service name | — | `services list` or `services find <srv_type>` |
+| Service request/response fields | — | `services details <service>` |
+| Action server name | — | `actions list` or `actions find <action_type>` |
+| Action goal/result/feedback fields | — | `actions details <action>` |
+| Node name | — | `nodes list` |
+| Node's topics, services, actions | — | `nodes details <node>` |
+| Parameter names on a node | — | `params list <node>` |
+| Parameter value | — | `params get <node:param>` |
+| Parameter type and constraints | — | `params describe <node:param>` |
+| Hardware components | — | `control list-hardware-components` |
+| Installed packages | — | `pkg list` |
+| Package install location | — | `pkg prefix <package>` |
+| Package executables | — | `pkg executables <package>` |
+| Message / service / action type fields | — | `interface show <type>` or `interface proto <type>` |
+| Nested custom type fields within a message | — | `interface show <nested_type>` — run recursively on each non-primitive, non-standard field type; repeat until all leaf fields are primitives |
 
 **Only ask the user if**:
-1. The discovery command returns an empty result or an error, **and**
-2. There is genuinely no other way to determine the information from the live system.
+1. The profile field is absent **and** the live discovery command returns an empty result or an error, **and**
+2. There is genuinely no other way to determine the information.
 
 ### Rule 2 — ros2-skill is the only interface; never use the `ros2` CLI directly
 
@@ -141,14 +143,18 @@ If you genuinely cannot find a matching command after checking both the quick re
 
 ### Rule 4 — Infer the goal, resolve the details
 
-When a user asks to do something, **infer what they want at the goal level, then resolve all concrete details (topic names, types, field paths) from the live system**.
+When a user asks to do something, **infer what they want at the goal level, then resolve details using the Two-Path Model:**
+
+- **Profile loaded:** Use profile for static details (topic names, message types, joint names/indices, limits, controller names). Query the live system only for runtime state (current joint positions, controller active state, current odom pose, topic Hz).
+- **No profile:** Resolve all details from the live system.
 
 Examples:
-- "Take a picture" → find compressed image topics (`topics find sensor_msgs/msg/CompressedImage`), capture from the first active result
-- "Move the robot forward" / "drive ahead" / "go forward 1 m" → motion vocabulary detected → full Rule 3 workflow: find vel topic + find odom → if odom ≥ 5 Hz and distance given, use `publish-until`; if no odom, use `publish-sequence` with duration; if no distance, open-ended `publish-sequence`
+- "Take a picture" → camera topic from profile (`summary.camera_topics`) or `topics find sensor_msgs/msg/CompressedImage` if absent; capture from the resolved topic
+- "Move the robot forward" / "drive ahead" / "go forward 1 m" → motion vocabulary detected → full Rule 3 workflow: vel topic and odom topic from profile (or live if absent); current odom pose always from live; if odom ≥ 5 Hz and distance given, use `publish-until`; if no odom, use `publish-sequence` with duration; if no distance, open-ended `publish-sequence`
+- "Move the pan joint 15 degrees" → controller topic and joint index from profile; current joint position from live `topics subscribe <joint_states_topic>`; compute target = current + 15°; publish command
 - "What is the battery level?" → `topics battery` (auto-discovers `BatteryState` topics)
 - "List available controllers" → `control list-controllers`
-- "What parameters does the camera node have?" → `nodes list` to find the camera node name, then `params list <node>`
+- "What parameters does the camera node have?" → node name from profile or `nodes list`; then `params list <node>`
 
 ### Rule 5 — Execute, don't ask
 
@@ -229,6 +235,7 @@ Rule 0 mandates exhaustive introspection before acting. Rule 5 mandates acting w
 - A list of upcoming discovery steps ("Proceeding to: * Discover X * Discover Y …") — run them silently and report only the outcome
 - Any preamble label like "Strict compliance:", "Executing:", "Running:", or similar — never open a response with a status label
 - References to the tool being used — never say "using ros2-skill", "via ros2-skill's X utility", "using the ros2-skill tool", or any equivalent; the user knows what tool is in use
+- **Any mention of profile-lookup activity in Path A.** The user must perceive Path A as instant. Do not write "I checked the profile and found…", "Reading `summary.cmd_vel_topic`…", "Profile says…", or any equivalent narration of static-data resolution. Profile reads are silent. Only the action and its outcome are reported.
 
 **Always report (even in minimal mode):**
 - Self-corrections: if a rule violation was caught mid-execution, report it in one line — what was about to be violated, what was caught, and what was done instead. Example: *"Caught: was about to use `launch start` (hallucinated subcommand). Corrected to `launch new`. Retrying."*
@@ -295,11 +302,13 @@ If discovery returns results from multiple distinct robot namespaces (e.g., `/ro
 
 ### Rule 12 — Run independent discovery commands in parallel
 
-When a task requires discovering multiple independent facts (velocity topic, odom topic, velocity limits, controller state, etc.), issue all discovery commands simultaneously — never sequentially.
+**Path A (profile loaded) — zero static discovery.** If the profile covers every static field the task requires, run **no discovery commands** before execution. Proceed straight to runtime-state queries (controller active state, current odom, current joint positions) — those are still required for safety — and then to the action itself. Parallel discovery applies to the runtime-state queries: run them simultaneously.
+
+**Path B (no profile) — parallel static discovery.** When a task requires discovering multiple independent static facts (velocity topic, odom topic, velocity limits, controller names), issue all discovery commands simultaneously — never sequentially.
 
 Sequential discovery is slower and masks partial failures. If velocity discovery succeeds but odom discovery fails, sequential execution hides that failure until the motion command times out.
 
-**Correct (parallel):**
+**Correct (parallel, Path B):**
 ```bash
 # All three issued simultaneously
 topics find geometry_msgs/msg/Twist
@@ -316,33 +325,64 @@ topics find geometry_msgs/msg/Twist → wait → topics find TwistStamped → wa
 
 **Dependency exception:** if command B requires a result from command A (e.g., you need the topic name before you can check its type), sequential execution is correct for those two steps only. Run everything else in parallel around them.
 
-### Rule 13 — Never reuse stale session state for a new task
+**Dependency exception:** if command B requires a result from command A (e.g., you need the topic name before you can check its type), sequential execution is correct for those two steps only. Run everything else in parallel around them.
 
-Topic names, controller states, node lists, lifecycle states, and parameter values discovered earlier in the session **must not be reused as-is** for a new task. Robot state can change between tasks: nodes crash, controllers switch, topics appear or disappear.
+### Rule 13 — Profile data persists; runtime state does not
 
-**Per-task re-discovery is mandatory.** The only exception is within the consecutive steps of the same single task (e.g., `VEL_TOPIC` discovered in step 1 of a motion command is used in step 4 of that same command — that is valid).
+**Profile data (topic names, message types, joint mappings, limits, controller names, TF frame names) is valid for the entire session.** It was derived from static workspace analysis and does not change unless the workspace is rebuilt. Reusing profile fields across tasks is correct and required — it is what eliminates discovery latency.
 
-**Re-discover unconditionally when:**
-- The user issues a new request (any request that is not an explicit continuation of the current command)
-- An error suggests the graph changed (a topic previously seen is now absent)
-- A node that was present is no longer in `nodes list`
+**Runtime state must be re-checked per task.** Controller active/inactive state, node presence, lifecycle state, current joint positions, current odom pose — these can change between tasks: nodes crash, controllers switch, topics appear or disappear.
+
+**What must be re-checked at the start of each new task:**
+- Controller state: `control list-controllers` — confirm the controller is still `active`
+- Node presence (for critical nodes): `nodes list`
+- Lifecycle state (if a lifecycle node is involved): `lifecycle nodes`
+- Current sensor/joint state (for relative commands): subscribe for 1 message
+
+**What does NOT need to be re-discovered per task (when profile is loaded):**
+- Topic names, message types, joint names/indices, velocity limits, TF frame names — all come from the profile and are valid until a rescan
+
+**Per-task re-discovery of profile-covered fields is wasted time.** Do not re-run `topics find`, `params list` limit sweeps, or controller name discovery between tasks when the profile already has these values.
 
 **Mid-motion node crash monitoring — mandatory for commands with expected duration > 10 s:**
 For any `publish-until` or `publish-sequence` whose calculated timeout exceeds 10 s, monitor the node graph during execution:
 - Every 10 s (at each segment boundary if using long-motion segmentation from Rule 9), run `nodes list` in the background.
-- Identify the critical nodes: the velocity controller node and the odom publisher node (both discovered during Rule 0 pre-flight).
+- Identify the critical nodes: the velocity controller node and the odom publisher node (both from the profile or discovered during pre-flight).
 - **If either critical node disappears from `nodes list`:** immediately send `estop`, verify it took effect, then escalate: *"Critical node `<node_name>` crashed during motion at position X. Robot stopped. Cannot resume motion until node is restarted."* Do not attempt to continue motion.
-- Short commands (≤ 10 s): node-crash monitoring is optional. The command will timeout before the periodic check adds meaningful safety.
+- Short commands (≤ 10 s): node-crash monitoring is optional.
 
 **If the graph changes unexpectedly mid-task** (a node disappears, a controller deactivates without being told to, a topic that was publishing goes silent):
 1. Stop the current task.
 2. Re-run the full Rule 0.1 session-start checks (`doctor`, clock check, lifecycle state).
-3. Re-discover all names before continuing — the system state is unknown.
+3. Re-check runtime state — the system state is unknown. Profile data remains valid.
 4. Report to the user: what changed, what the checks found, what the impact is.
 
-A mid-task graph change means something crashed or was preempted. Continuing with cached state means continuing blind.
+**Never say "I already checked the live system" as a reason to skip re-checking runtime state.** Runtime state can change at any moment. Profile data, however, does not change between tasks — reusing it is correct.
 
-**Never say "I already discovered this earlier" as a reason to skip introspection.** Discovery takes under a second. Stale assumptions cause hard-to-debug failures.
+### Rule 14 — Path A antipatterns (forbidden static-discovery commands)
+
+When Path A is active (profile loaded), the following commands **must not run** for the purpose of resolving static data the profile already provides. Each row lists the forbidden command and the profile field that replaces it. Running any of these in Path A for static resolution is a rule violation under Rule 0 and Rule 13.
+
+| Forbidden in Path A (for static resolution) | Use instead (profile field) |
+|---|---|
+| `topics find geometry_msgs/msg/Twist` | `summary.cmd_vel_topic` |
+| `topics find geometry_msgs/msg/TwistStamped` | `summary.cmd_vel_topic` |
+| `topics type <cmd_vel_topic>` | `summary.velocity_topics[].type` |
+| `topics find nav_msgs/msg/Odometry` | `summary.localization_config.fused_sources` |
+| `tf list` (to read frame names) | `summary.tf_frames` |
+| `services find std_srvs/srv/SetBool` (for e-stop) | `summary.estop_config.service_name` |
+| `params list` velocity-limit sweep across all nodes | `summary.safety_limits.binding` |
+| `control list-controllers` **to read controller names** | `summary.active_controllers` |
+| `pkg list` / `pkg executables` (for known robot packages) | `summary.packages`, `summary.launch_files` |
+
+**Permitted live calls in Path A (runtime state only, not static data):**
+- `control list-controllers` — but **only** to read the `state` field (active / inactive). Names come from the profile.
+- `topics subscribe <topic>` — current sensor or odom values
+- `topics hz <topic>` — current publish rate
+- `lifecycle nodes` / `lifecycle get <node>` — current lifecycle state
+- `nodes list` — current node presence
+
+**If you find yourself about to type a command from the forbidden column in Path A:** stop. Read the profile field instead. The presence of the profile is exactly what makes that discovery unnecessary.
 
 ---
 
@@ -359,9 +399,10 @@ Agent thinks:
   4. Is X about system info? → Use LIST commands
 
 Agent does (for movement):
-  1. Find velocity topic: topics find geometry_msgs/Twist + TwistStamped
-  2. Find odometry topic: topics find nav_msgs/Odometry
-  3. Distance/angle specified + odom found → publish-until (closed loop)
+  1. Velocity topic: use summary.cmd_vel_topic from profile; if absent: topics find geometry_msgs/Twist + TwistStamped
+  2. Odom topic: use summary.localization_config.fused_sources from profile; if absent: topics find nav_msgs/Odometry
+  3. Velocity limits: use summary.safety_limits.binding from profile; if absent: four-source live sweep (Rule 28)
+  4. Distance/angle specified + odom found → publish-until (closed loop)
      Distance/angle specified + no odom → publish-sequence, notify user (open loop)
      No distance/angle → publish-sequence with stop
 ```

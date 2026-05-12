@@ -154,16 +154,20 @@ python3 scripts/ros2_cli.py topics publish <CMD_VEL_TOPIC> \
 
 ## 5. Robot Motion (Closed-Loop)
 
-**Always discover topic names before moving. Never hardcode `/cmd_vel` or `/odom`.**
+**Always resolve topic names before moving. Never hardcode `/cmd_vel` or `/odom`.**
 
 ```bash
-# Step 1: Discover velocity topic
+# Step 1: Resolve velocity topic
+# Profile fast-path — VEL_TOPIC = summary.cmd_vel_topic, VEL_TYPE = summary.velocity_topics[].type
+# Fallback (profile absent or field missing):
 python3 scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
 python3 scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
 # → confirm exact type:
 python3 scripts/ros2_cli.py topics type <VEL_TOPIC>
 
-# Step 2: Discover odometry topic and verify it is live
+# Step 2: Resolve odometry topic and verify it is live
+# Profile fast-path — ODOM_TOPIC = first value in summary.localization_config.fused_sources
+# Fallback (profile absent or field missing):
 python3 scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
 python3 scripts/ros2_cli.py topics hz <ODOM_TOPIC>
 ```

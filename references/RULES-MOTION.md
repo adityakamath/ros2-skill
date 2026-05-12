@@ -13,25 +13,40 @@
 
 For **any** user request involving movement — regardless of whether a distance or angle is specified — follow this algorithm exactly. Do not skip steps. Do not ask the user anything that can be resolved by running a command.
 
-**Step 1 — Discover the velocity command topic and confirm its exact type**
+**Step 1 — Determine the velocity command topic and message type**
 
+**Profile fast-path (mandatory when profile is loaded):**
+- `VEL_TOPIC` = `summary.cmd_vel_topic` from the profile (e.g. `/base_controller/cmd_vel`)
+- `VEL_TYPE` = `summary.velocity_topics[].type` for the entry whose topic matches `VEL_TOPIC` (e.g. `geometry_msgs/msg/TwistStamped`)
+
+Do **not** run `topics find` or `topics type` when these profile fields are present. Using the wrong topic or type is the most common cause of silent failures and type assertion errors.
+
+**Fallback (only when profile is absent or fields are missing):**
 Run both searches in parallel:
 ```bash
 topics find geometry_msgs/msg/Twist
 topics find geometry_msgs/msg/TwistStamped
 ```
-Record the discovered topic name — call it `VEL_TOPIC`. Then confirm the exact type:
+Record the discovered topic as `VEL_TOPIC`. Confirm the type:
 ```bash
 topics type <VEL_TOPIC>
 ```
-Use the confirmed type to choose the payload structure:
+If both find commands return results, run `topics type` on each and use the returned type.
+
+**Payload structure based on confirmed type:**
 - `geometry_msgs/msg/Twist`: `{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}`
 - `geometry_msgs/msg/TwistStamped`: `{"header":{"stamp":{"sec":0},"frame_id":""},"twist":{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}}`
 
-If both find commands return results, run `topics type` on each and use the type returned — do not guess.
+Always run `interface proto <VEL_TYPE>` once per session to get the exact field template — never construct from memory.
 
-**Step 2 — Discover the odometry topic**
+**Step 2 — Determine the odometry topic**
 
+**Profile fast-path (mandatory when profile is loaded):**
+- `ODOM_TOPIC` = first value in `summary.localization_config.fused_sources` (e.g. `/base_controller/odom`)
+
+Do **not** run `topics find nav_msgs/msg/Odometry` when this profile field is present.
+
+**Fallback (only when profile is absent or field is missing):**
 ```bash
 topics find nav_msgs/msg/Odometry
 ```

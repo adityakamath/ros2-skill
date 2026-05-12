@@ -174,7 +174,7 @@ Motion command received
 | "watch service calls / monitor service X / echo service X / spy on service X" | Monitor service calls | `services echo <service>` |
 | "watch action / monitor action X / echo action feedback / stream action feedback" | Monitor action feedback | `actions echo <action>` |
 | **— LAUNCH & NODE EXECUTION —** | | |
-| "start launch file / run launch file / launch X / bring up X / start bringup / start the robot / boot X / start X stack / spin up X / fire up X / initialize the robot / init bringup / start everything" | Start a launch file in tmux | `launch new <package> <launch_file>` |
+| "start launch file / run launch file / launch X / bring up X / start bringup / start the robot / boot X / start X stack / spin up X / fire up X / initialize the robot / init bringup / start everything" | Start a launch file in tmux | `launch new <package> <launch_file>` — pass any launch args as positional `name:=value` pairs: `launch new <package> <launch_file> use_sim_time:=true robot_name:=my_bot`. **Never use `--config-path` for launch args** (it is for YAML params files only). **After a successful launch, run the Rule 0.6 source-mtime gate** (`find <profile.workspace>/src -newer <profile.json> -quit` over `package.xml`, `*.launch.{py,xml,yaml}`, `*.yaml`, `*.urdf`, `*.xacro`, `*.srdf`). If any path is printed, auto-rescan via `profile scan` with the original args and reload via `profile show`. If nothing is printed, skip the rescan. |
 | "list launches / what's launched / running sessions / what launch files are running / show active launches / what's been started / what tmux sessions exist" | List active tmux launch sessions | `launch list` |
 | "stop launch / kill launch / kill session X / stop bringup / shut down X / tear down X / kill everything / stop the robot / take down bringup" | Kill a tmux launch session | `launch kill <session>` |
 | "restart launch / restart bringup / restart session X / relaunch X / bounce X / reload X / cycle X" | Restart a tmux launch session | `launch restart <session>` |
@@ -259,20 +259,22 @@ python3 {baseDir}/scripts/ros2_cli.py control list-controllers # All controllers
 
 **To find a topic/service/action, search by what you need:**
 
-| Need to find... | Search command... |
-|-----------------|------------------|
-| Velocity command topic (mobile) | `topics find geometry_msgs/msg/Twist` AND `topics find geometry_msgs/msg/TwistStamped` |
-| Position/odom topic | `topics find nav_msgs/msg/Odometry` |
-| Joint positions | `topics find sensor_msgs/msg/JointState` |
-| Joint trajectory (arm control) | `topics find trajectory_msgs/msg/JointTrajectory` |
-| LiDAR data | `topics find sensor_msgs/msg/LaserScan` |
-| Camera feed | `topics find sensor_msgs/msg/Image` AND `topics find sensor_msgs/msg/CompressedImage` |
-| IMU data | `topics find sensor_msgs/msg/Imu` |
-| Joystick | `topics find sensor_msgs/msg/Joy` |
-| Battery/power | `topics find sensor_msgs/msg/BatteryState` |
-| TF frame names | `tf list` |
-| TF transforms (subscribe) | Subscribe to `/tf` or `/tf_static` |
-| Diagnostics | `topics diag-list` (discovers by type) |
+| Need to find... | Profile field (use first) | Live fallback (only when profile field absent) |
+|-----------------|------------------|---|
+| Velocity command topic (mobile) | `summary.cmd_vel_topic` | `topics find geometry_msgs/msg/Twist` AND `topics find geometry_msgs/msg/TwistStamped` |
+| Velocity message type | `summary.velocity_topics[].type` | `topics type <topic>` |
+| Position/odom topic | `summary.localization_config.fused_sources` values | `topics find nav_msgs/msg/Odometry` |
+| TF frame names | `summary.tf_frames` | `tf list` |
+| E-stop service | `summary.estop_config.service_name` | `services find std_srvs/srv/SetBool` |
+| Joint positions | — | `topics find sensor_msgs/msg/JointState` |
+| Joint trajectory (arm control) | — | `topics find trajectory_msgs/msg/JointTrajectory` |
+| LiDAR data | — | `topics find sensor_msgs/msg/LaserScan` |
+| Camera feed | — | `topics find sensor_msgs/msg/Image` AND `topics find sensor_msgs/msg/CompressedImage` |
+| IMU data | — | `topics find sensor_msgs/msg/Imu` |
+| Joystick | — | `topics find sensor_msgs/msg/Joy` |
+| Battery/power | — | `topics find sensor_msgs/msg/BatteryState` |
+| TF transforms (subscribe) | — | Subscribe to `/tf` or `/tf_static` |
+| Diagnostics | — | `topics diag-list` (discovers by type) |
 | Clock (simulated time) | `topics find rosgraph_msgs/msg/Clock` |
 | Controller names | `control list-controllers` |
 | Service by type | `services find <service_type>` |
@@ -299,7 +301,9 @@ python3 {baseDir}/scripts/ros2_cli.py actions details <action_name>
 
 ### Step 5: Get Safety Limits (for movement)
 
-**Fast-path: if a robot profile was loaded at session start (Rule 0.1 Step 6)**, use `summary.safety_limits.binding.linear_x` and `summary.safety_limits.binding.angular_z` as an initial hard ceiling before running the live sweep below. (`binding.linear_y` is set for holonomic robots; use it as the strafe ceiling if present.) Check `summary.safety_limits.sources` to understand which configs (teleop, nav2, controller) drove each limit. These are static values derived from workspace analysis — they capture limits baked into YAML configs and URDF at scan time. Pass them immediately via `--max-vel` / `--max-ang`. The live sweep below is still mandatory to catch dynamic parameters not visible at scan time, but the profile limit is a hard upper bound — if the live sweep finds a lower value, use that; if it finds a higher value, keep the profile ceiling.
+**Fast-path: if a robot profile was loaded at session start (Rule 0.1 Step 6)**, use `summary.safety_limits.binding.linear_x` and `summary.safety_limits.binding.angular_z` as an initial hard ceiling before running the live sweep below. (`binding.linear_y` is set for holonomic robots; use it as the strafe ceiling if present.) Check `summary.safety_limits.sources` to understand which configs (teleop, nav2, controller) drove each limit. These are static values derived from workspace analysis — they capture limits baked into YAML configs and URDF at scan time. Pass them immediately via `--max-vel` / `--max-ang`. **When a valid profile is loaded, skip the live sweep below entirely.** The `binding` values already incorporate all YAML and URDF sources captured at scan time. Proceed directly to `control list-controllers` and the pre-motion stationary check.
+
+**Also note:** `summary.teleop_limits.binding` gives the maximum speed the operator can command via joystick (axis scale at full deflection). Use this as the target speed when the user asks the robot to "move at full speed" or does not specify a speed.
 
 **ALWAYS check for velocity limits before publishing movement commands. Scan every node.**
 
@@ -373,22 +377,20 @@ python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence <VEL_TOPIC> '<msgs
    - Search more broadly: check all packages for matching launch files
    - If still nothing: ask user for exact package/file name
 
-### ⚠️ STRICT: Launch Argument Validation
+### Launch Argument Validation
 
-**This is critical for safety. Passing incorrect arguments has caused accidents.**
+**How the CLI handles launch arguments:**
 
-Rules, in order:
+1. Arguments are **always passed through** to the launch command — the CLI never drops or silently modifies them.
+2. The CLI calls `--show-args` on the launch file to get the declared arg list, then adds informational `NOTICE:` entries for any arg name not in that list (visible in the JSON output).
+3. If `--show-args` fails, all provided args are passed through with a notice.
+4. **The ROS 2 launch system is the authoritative validator.** It will report an error if an arg name is genuinely invalid.
 
-1. **Always fetch available arguments first** via `--show-args` before passing any args.
-2. **Exact match** → pass as-is.
-3. **No exact match** → fuzzy-match against the real available args only.
-   - If a close match is found (e.g. "mock" → "use_mock") → use it, but **notify the user**.
-   - The substitution is shown in `arg_notices` in the output.
-4. **No match at all** → **drop the argument, do NOT pass it, notify the user.**
-   - The launch still proceeds without that argument.
-   - The user is told which argument was dropped and what the available args are.
-5. **Never invent or assume argument names.** Only use names that exist in `--show-args` output.
-6. **If `--show-args` fails** → drop all user-provided args, notify the user, still launch.
+**For the agent:**
+- Always pass launch arguments as **positional args**: `launch new <pkg> <file> use_sim_time:=true robot_name:=my_bot`
+- A `NOTICE:` in the output about an unrecognised arg name is informational — the arg was still passed.
+- Do NOT use `--config-path` for launch arguments. `--config-path` is for YAML node-parameter files only.
+- If the launch fails with an "unknown argument" error from ROS 2, check `profile show --section <launch_file>` to see declared args.
 
 ### Local Workspace Sourcing
 

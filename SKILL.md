@@ -77,6 +77,30 @@ python3 {baseDir}/scripts/ros2_cli.py context          # topics (cap 50), servic
 # Step 7 — robot profile (load if available; skip if absent)
 python3 {baseDir}/scripts/ros2_cli.py profile show
 # → robot_type, packages, launch_files, velocity_topics, safety_limits, sensor_flags
+#
+# Path classification (decided once, here):
+#   profile show succeeded AND summary is non-empty  → Path A (profile-first)
+#   profile show failed OR summary is empty          → Path B (live introspection for everything)
+# Do NOT re-classify per task.
+#
+# Freshness (Rule 0.6):
+#   - After every successful `launch new` (or `run new`) the agent invokes, run a cheap
+#     source-mtime gate to decide whether a rescan is needed:
+#       find "<profile.workspace>/src" \
+#         \( -name 'package.xml' -o -name '*.launch.py' -o -name '*.launch.xml' \
+#            -o -name '*.launch.yaml' -o -name '*.yaml' -o -name '*.urdf' \
+#            -o -name '*.xacro' -o -name '*.srdf' \) \
+#         -newer "<profile_json_path>" -print -quit
+#     Prints a path → rescan: `profile scan` with profile.metadata args, then `profile show`.
+#     Prints nothing → skip the rescan; profile is consistent with sources.
+#   - Auto-rescan NEVER runs during runtime operations. Mid-task `profile scan` is forbidden.
+#   - Runtime mismatches (profile name not in live graph) escalate to the user (Rule 0.0b),
+#     they do NOT trigger auto-rescan.
+#   - At session start, if `generated_at` is missing/unparseable: report once, advisory only.
+#
+# `profile scan` is permitted ONLY on: explicit user request, first-time bootstrap, or
+# post-launch auto-rescan when the source-mtime gate in Rule 0.6 fires.
+#
 # If absent: build once, using these rules derived from the user's request:
 #
 #   ONE robot named  → pass --name <robot_name>  (pkg filter is auto-derived from the name)
@@ -100,7 +124,16 @@ Stop and tell the user if Step 1 reports critical failures. Re-run Step 3 before
 
 Read the domain-specific rule files from `references/` before the first action. These are hard constraints — not guidelines. Use [`references/RULES.md`](references/RULES.md) as the index to find the right file. At minimum load `RULES-CORE.md` and `RULES-PREFLIGHT.md` before any operation; add `RULES-MOTION.md` for motion tasks and `RULES-DIAGNOSTICS.md` when something fails. Key principles:
 
-1. **Discover before acting.** Never hardcode topic, node, service, action, or TF frame names. Always query the live system first. Use `topics find <type>`, `nodes list`, `services list`, `actions list`, `tf list`.
+1. **Profile first, live fallback.** Use the **Two-Path Model**:
+   - **Profile loaded:** use profile fields for static data (topic names, message types, joint names/indices, limits, controller names, TF frames). Query the live system only for runtime state (current joint positions, current odom pose, controller active/inactive state, lifecycle state, topic Hz). This minimises time-to-execution.
+   - **No profile:** run full live introspection to discover all of the above before acting.
+   - **Path is fixed for the session.** Decide once at session start (Step 7). Do not re-classify per task.
+   - **Field presence is exact and per-field.** Empty string / empty object / null = absent. Fall back to live for that one field only; the path does not flip.
+   - **Field names are exact and case-sensitive.** Only documented paths exist (`summary.cmd_vel_topic`, `summary.velocity_topics[].type`, `summary.localization_config.fused_sources`, `summary.safety_limits.binding`, `summary.tf_frames`, `summary.active_controllers`, `summary.estop_config.service_name`). Do not invent variants.
+   - **Auto-rescan after `launch new`, only if sources changed.** After a successful `launch new` (or `run new`) the agent invokes, run a single `find <profile.workspace>/src -newer <profile.json> -quit` over profile-relevant file patterns (`package.xml`, `*.launch.{py,xml,yaml}`, `*.yaml`, `*.urdf`, `*.xacro`, `*.srdf`). If any path is printed, run `profile scan` with the original args and reload. If nothing is printed, skip — the profile is consistent with sources.
+   - **Runtime mismatches escalate.** If a profile-supplied name is absent from the live graph during a runtime operation, stop and report. Do not auto-rescan, do not silently fall back to live discovery.
+   - **`profile scan` triggers:** user request, first-time bootstrap, or post-launch auto-rescan when the source-mtime gate fires. Never on a hunch, never mid-task, never when sources are unchanged.
+   - Never hardcode names. Never assume a type. Never guess a limit. If the profile has the field — use it. If not — discover it.
 
 2. **Get the payload template.** Before publishing or calling: `interface proto <msg_type>`. Copy the output. Modify only the fields the task requires. For non-primitive nested fields, run `interface show <nested_type>` recursively until all leaf fields are primitives.
 
@@ -121,6 +154,9 @@ Read the domain-specific rule files from `references/` before the first action. 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py context                             # session-start graph snapshot
 python3 {baseDir}/scripts/ros2_cli.py topics list [--limit N]             # list topics (cap at N)
+# Velocity topic — profile fast-path: use summary.cmd_vel_topic + summary.velocity_topics[].type
+# Odom topic — profile fast-path: use summary.localization_config.fused_sources values
+# Fallback (profile absent or field missing):
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist # find velocity topic
 python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry   # find odom topic
 python3 {baseDir}/scripts/ros2_cli.py topics type <topic>                 # confirm exact type
@@ -233,10 +269,17 @@ python3 {baseDir}/scripts/ros2_cli.py launch list <keyword>
 # Start a launch file (duplicate detection runs automatically)
 python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file>
 
-# With inline params (higher priority than --preset, lower than positional args)
+# With launch arguments (name:=value — passed directly to the launch file, highest priority)
+# This is the correct form for any launch argument: use_sim_time:=true, robot_name:=my_bot, etc.
+python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> use_sim_time:=true
+python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> use_sim_time:=true robot_name:=my_bot
+
+# With comma-separated launch arguments via --param (same as positional args but lower priority)
+# Use this when the arg list is long or dynamic — positional args always win over --param on conflict
 python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> --param use_sim_time:=true,robot_name:=my_bot
 
-# With a YAML config file or directory (forwarded via --ros-args --params-file)
+# ⚠️  --config-path is for YAML node-parameter files only (forwarded via --ros-args --params-file)
+# Do NOT use --config-path for launch arguments like config:=k2 — use positional args instead
 python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> --config-path /path/to/config.yaml
 
 # With a saved parameter preset (lowest priority — positional and --param override)
@@ -248,7 +291,8 @@ python3 {baseDir}/scripts/ros2_cli.py launch kill <session>               # stop
 python3 {baseDir}/scripts/ros2_cli.py launch restart <session>            # restart with same args
 ```
 
-**Priority order** (ROS 2 last-wins): positional args > `--param` > `--preset`. Positional args always win.
+**Priority order** (ROS 2 last-wins): positional args > `--param` > `--preset`. Positional args always win on conflict.
+**`--config-path`** is independent of the priority stack — it adds `--ros-args --params-file <file>` to launched nodes; it does not set launch arguments.
 **Duplicate detection**: if the same package + launch file is already running, a warning with `existing_session` is returned instead of launching again.
 
 ### Log Introspection

@@ -1698,6 +1698,95 @@ def _extract_teleop_and_estop(all_yaml_files):
     return teleop, estop
 
 
+def _extract_teleop_limits(yaml_files):
+    """Extract per-axis velocity limits (scales) from all teleop YAML configs.
+
+    Returns {sources: [...], binding: {linear_x, linear_y, angular_z}} where
+    each source has one entry per teleop YAML that declares at least one scale,
+    and binding is the minimum across all sources per axis.
+    Returns None when no teleop scales are found.
+    """
+    sources = []
+    best_lx: float | None = None
+    best_ly: float | None = None
+    best_az: float | None = None
+
+    def _upd(cur, val):
+        if val is None:
+            return cur
+        fv = abs(float(val))
+        if fv <= 0:
+            return cur
+        return fv if cur is None else min(cur, fv)
+
+    for yf in yaml_files:
+        fname = pathlib.Path(yf).name.lower()
+        if not any(h in fname for h in _TELEOP_FNAME_HINTS):
+            continue
+        data = _load_yaml(yf)
+        if not isinstance(data, dict):
+            continue
+
+        lx = ly = az = None
+
+        # joy_teleop nested format: joy_teleop.ros__parameters.teleop.axis_mappings
+        for tname in _TELEOP_NODE_NAMES:
+            block = data.get(tname)
+            if not isinstance(block, dict):
+                continue
+            rp = block.get("ros__parameters") or block
+            if not isinstance(rp, dict):
+                continue
+            joy_topic = rp.get("teleop")
+            if isinstance(joy_topic, dict) and joy_topic.get("type") == "topic":
+                axis_m = joy_topic.get("axis_mappings", {})
+                if isinstance(axis_m, dict):
+                    for ak, av in axis_m.items():
+                        if isinstance(av, dict) and "scale" in av:
+                            ak_n = ak.replace("twist-", "").replace("-", "_")
+                            if "linear_x" in ak_n:
+                                lx = av["scale"]
+                            elif "linear_y" in ak_n:
+                                ly = av["scale"]
+                            elif "angular" in ak_n:
+                                az = av["scale"]
+            # Traditional teleop_twist_joy flat keys
+            if lx is None:
+                lx = rp.get("scale_linear_x") or rp.get("scale_linear")
+            if ly is None:
+                ly = rp.get("scale_linear_y")
+            if az is None:
+                az = rp.get("scale_angular_yaw") or rp.get("scale_angular")
+            if any(v is not None for v in (lx, ly, az)):
+                break
+
+        if not any(v is not None for v in (lx, ly, az)):
+            continue
+
+        sources.append({
+            "file": pathlib.Path(yf).name,
+            "path": yf,
+            "linear_x": abs(float(lx)) if lx is not None else None,
+            "linear_y": abs(float(ly)) if ly is not None else None,
+            "angular_z": abs(float(az)) if az is not None else None,
+        })
+        best_lx = _upd(best_lx, lx)
+        best_ly = _upd(best_ly, ly)
+        best_az = _upd(best_az, az)
+
+    if not sources:
+        return None
+
+    return {
+        "sources": sources,
+        "binding": {
+            "linear_x": best_lx,
+            "linear_y": best_ly,
+            "angular_z": best_az,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # TF frame inventory
 # ---------------------------------------------------------------------------
@@ -2688,6 +2777,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     # --- 4f. Teleop + e-stop ---
     scan_steps.append("teleop_config")
     teleop_config, estop_config = _extract_teleop_and_estop(all_yaml_files)
+    teleop_limits = _extract_teleop_limits(primary_yaml_files)
 
     # --- 4g. TF frame inventory ---
     scan_steps.append("tf_frames")
@@ -2729,11 +2819,9 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 
     has_nav2 = any("nav2" in p or "navigation2" in p for p in all_pkg_names_lower)
 
-    # Velocity topic heuristic from package + source names.
+    # Velocity topic discovery from quoted strings in source files only.
+    # Never fall back to assumed defaults — if not found in source, leave empty.
     velocity_topics = []
-    vel_candidates = ["/cmd_vel", "/cmd_vel_unstamped", "/robot/cmd_vel",
-                      "/base/cmd_vel", "/diff_drive_controller/cmd_vel"]
-    # If we find "cmd_vel" in source files, record it.
     for sf in all_src_files[:100]:
         try:
             text = pathlib.Path(sf).read_text(encoding="utf-8", errors="replace")
@@ -2747,8 +2835,6 @@ def _run_static_scan(ws_path, distro, allow_live=False,
                         velocity_topics.append(t)
         except Exception:
             continue
-    if not velocity_topics:
-        velocity_topics = ["/cmd_vel"]  # safe default
 
     # --- 7. Live graph fallback (optional) ---
     live_topics = []
@@ -2776,10 +2862,16 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 
     # Add teleop-derived cmd_vel_topic to velocity_topics (YAML-sourced, more accurate
     # than source-file regex).  Insert at position 0 so it is the primary topic.
+    # Also drop the generic "/cmd_vel" fallback when we have a real YAML-sourced topic.
     if teleop_config:
         tc_topic = teleop_config.get("cmd_vel_topic")
-        if isinstance(tc_topic, str) and tc_topic and tc_topic not in velocity_topics:
-            velocity_topics.insert(0, tc_topic)
+        if isinstance(tc_topic, str) and tc_topic:
+            if tc_topic not in velocity_topics:
+                velocity_topics.insert(0, tc_topic)
+            # The generic fallback "/cmd_vel" was a placeholder; remove it if the real
+            # topic is something more specific.
+            if tc_topic != "/cmd_vel" and "/cmd_vel" in velocity_topics:
+                velocity_topics.remove("/cmd_vel")
 
     # --- 8. Robot type ---
     # Detection uses PRIMARY workspace packages only — ament-installed
@@ -2797,7 +2889,8 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     )
 
     # Build velocity topic → message type mapping.
-    # Priority: teleop YAML interface_type > live graph type map > heuristic.
+    # Priority: teleop YAML interface_type > live graph type map.
+    # Never guess — only include topics for which a type was actually found.
     velocity_topic_types: dict = {}
     if teleop_config:
         tc_topic = teleop_config.get("cmd_vel_topic")
@@ -2807,13 +2900,8 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     for t, tp in live_type_map.items():
         if "cmd_vel" in t.lower() or "vel" in t.lower():
             velocity_topic_types.setdefault(t, tp)
-    _STAMPED_TOPIC_RE = re.compile(r"stamped|base_controller", re.I)
-    for t in velocity_topics:
-        if t not in velocity_topic_types:
-            velocity_topic_types[t] = (
-                "geometry_msgs/msg/TwistStamped" if _STAMPED_TOPIC_RE.search(t)
-                else "geometry_msgs/msg/Twist"
-            )
+    # Drop any velocity topics for which no type was confirmed.
+    velocity_topics = [t for t in velocity_topics if t in velocity_topic_types]
 
     # --- 9. Safety limits final ---
     # safety_limits has two sections:
@@ -2933,6 +3021,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "nav2_config": nav2_config,
         "teleop_config": teleop_config,
         "estop_config": estop_config,
+        "teleop_limits": teleop_limits,
         "tf_frames": tf_frames,
         "launch_configurations": launch_configurations,
         "active_controllers": active_controllers,
@@ -3076,8 +3165,9 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             "launch_files": sorted(sr["launch_file_details"].keys()),
             "urdf_files": sr["all_urdf_files"],
             "velocity_topics": [
-                {"topic": t, "type": sr.get("velocity_topic_types", {}).get(t, "geometry_msgs/msg/Twist")}
+                {"topic": t, "type": sr["velocity_topic_types"][t]}
                 for t in sr["velocity_topics"]
+                if t in sr.get("velocity_topic_types", {})
             ],
             "has_lidar": sr["has_lidar"],
             "has_camera": sr["has_camera"],
@@ -3123,6 +3213,11 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             # ---- Teleop / e-stop -------------------------------------------
             "teleop_config": sr["teleop_config"],
             "estop_config": sr["estop_config"],
+            # teleop_limits: per-axis velocity scales from teleop YAML files.
+            # Mirrors safety_limits structure: sources (one per file) + binding
+            # (minimum across all teleop configs).  The binding values are the
+            # maximum velocities the joystick can command at full deflection.
+            "teleop_limits": sr.get("teleop_limits"),
             # ---- TF frames -------------------------------------------------
             # tf_frames: {urdf_links: [...], map_frame, odom_frame, base_frame}
             "tf_frames": sr["tf_frames"],

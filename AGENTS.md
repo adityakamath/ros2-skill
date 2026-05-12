@@ -12,15 +12,63 @@ This document tells you how to use ros2-skill correctly on this system. Read it 
 
 ## Operating Principle
 
-**Try first. Ask never.** You have full access to the ROS 2 graph and every command in this skill. If something is unclear, introspect the live system — do not ask the user. Discovery is fast and free. Asking is slow and breaks flow.
+**Try first. Ask never.** You have full access to the robot profile and ROS 2 graph. Check the profile first — it is instant. Use live introspection only for what the profile cannot provide. Asking is always the last resort.
 
 Decision tree for any task:
-1. **Introspect** — query the live graph to discover names, types, and states
-2. **Act** — execute with the discovered parameters
-3. **Verify** — confirm the effect happened
-4. **Report** — one concise line of outcome
+1. **Check profile** — resolve static data (names, types, mappings, limits) from the profile
+2. **Check live** — query the live system only for runtime state (current positions, active states, lifecycle, Hz)
+3. **Act** — execute with the resolved parameters
+4. **Verify** — confirm the effect happened
+5. **Report** — one concise line of outcome
 
-Ask the user only when the live system cannot provide the answer and you have exhausted all discovery options.
+Ask the user only when neither the profile nor the live system can provide the answer.
+
+---
+
+## Two-Path Model
+
+Every command follows one of two paths based on whether a robot profile is loaded:
+
+**Path A — Profile loaded (preferred):**
+
+| Data type | Source |
+|---|---|
+| Topic names (velocity, odom, camera, joints, etc.) | Profile |
+| Message types | Profile |
+| Joint names, order, index in controller | Profile |
+| Velocity / effort / position limits | Profile |
+| Controller names | Profile |
+| TF frame names | Profile |
+| Current joint positions / velocities | Live (`topics subscribe <joint_states_topic>`) |
+| Current odom pose | Live (`topics subscribe <odom_topic>`) |
+| Controller active / inactive / error state | Live (`control list-controllers`) |
+| Node lifecycle state | Live (`lifecycle nodes`) |
+| Topic publish rate | Live (`topics hz <topic>`) |
+
+With a profile, zero live discovery calls are needed before acting — only runtime-state reads.
+
+**Path A guardrails (full detail in RULES-PREFLIGHT.md Rule 0.0–0.0b and RULES-CORE.md Rule 14):**
+
+- **Path is decided once per session.** Run `profile show` at session start; if it returns success and `summary` is non-empty, Path A is active for the whole session. Do not re-classify per task.
+- **Field presence is exact and per-field.** A profile field counts as present only if it is non-null and non-empty (strings: length > 0; objects/arrays: at least one entry). If a single field is empty, fall back to live discovery **for that field only** — the path classification does not flip.
+- **Profile field names are exact and case-sensitive.** Only the documented field paths (`summary.cmd_vel_topic`, `summary.velocity_topics[].type`, `summary.localization_config.fused_sources`, `summary.safety_limits.binding`, `summary.tf_frames`, `summary.active_controllers`, `summary.estop_config.service_name`, `summary.teleop_limits.binding`, `summary.packages`, `summary.launch_files`) exist. Do not invent variants like `summary.velocity_limit`.
+- **Auto-rescan after `launch new`, gated by source mtime (Rule 0.6).** After the agent runs a successful `launch new <package> <launch_file>` (or `run new`), run a single cheap source-mtime check:
+  ```bash
+  find "<profile.workspace>/src" \
+    \( -name 'package.xml' -o -name '*.launch.py' -o -name '*.launch.xml' \
+       -o -name '*.launch.yaml' -o -name '*.yaml' -o -name '*.urdf' \
+       -o -name '*.xacro' -o -name '*.srdf' \) \
+    -newer "<profile_json_path>" -print -quit
+  ```
+  Prints any path → run `profile scan` with the original args, reload via `profile show`, re-classify the path. Prints nothing → skip the rescan; the profile is consistent with sources. Never auto-rescan during a runtime operation (publish, subscribe, service call, params set, controller switch) — mid-task rescans are forbidden.
+- **Runtime mismatches escalate, do not auto-rescan (Rule 0.0b).** If a profile-supplied name is absent from the live graph during a runtime operation, stop and report. Do not silently fall back to live discovery. Likely cause: the bringup that publishes this topic is not running, or source files have changed since the last rescan.
+- **Forbidden static-discovery commands in Path A:** `topics find` for Twist/TwistStamped/Odometry, `tf list` for frame names, `services find` for the e-stop service, the velocity-limit `params list` sweep, and using `control list-controllers` to read controller names. The full list is in RULES-CORE.md Rule 14.
+
+**Path B — No profile (fallback):**
+
+Run full live introspection: discover topic names, message types, joint mappings, limits, and controller names from the live graph before acting. This is slower by design — it is the fallback, not the default.
+
+**The goal is to minimise the time between command and execution.** Profile data eliminates discovery latency. Runtime state reads are still required for safety — but there are far fewer of them than a full discovery sweep.
 
 ---
 
@@ -52,11 +100,17 @@ python3 {baseDir}/scripts/ros2_cli.py pkg create <name> \
     [--node-name my_node] [--library-name my_lib] \
     [--destination-directory /path]                               # scaffold new package
 
-# --- Introspection — always do this before acting ---
-python3 {baseDir}/scripts/ros2_cli.py nodes list
-python3 {baseDir}/scripts/ros2_cli.py topics list
+# --- Velocity topic / odom topic: profile fast-path ---
+# Profile loaded: VEL_TOPIC = summary.cmd_vel_topic, VEL_TYPE = summary.velocity_topics[].type
+#                 ODOM_TOPIC = summary.localization_config.fused_sources (e.g. odom0 value)
+#                 --max-vel/--max-ang = summary.safety_limits.binding.linear_x/angular_z
+# Fallback (profile absent or field missing):
 python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist      # discover velocity topic
 python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry        # discover odom topic
+
+# --- General introspection (for tasks not covered by the profile) ---
+python3 {baseDir}/scripts/ros2_cli.py nodes list
+python3 {baseDir}/scripts/ros2_cli.py topics list
 python3 {baseDir}/scripts/ros2_cli.py services list
 python3 {baseDir}/scripts/ros2_cli.py actions list
 python3 {baseDir}/scripts/ros2_cli.py tf list                                  # discover TF frames
@@ -225,7 +279,7 @@ When a profile is loaded:
 - **Annotations (MANDATORY):** If `annotations` is non-empty, read every note and treat it as mandatory operational context before executing any command this session. Annotations capture information that static analysis cannot detect — hardware quirks, sensor calibrations, operational constraints. They override default behaviour where relevant. Example: if an annotation says "left encoder drifts — apply 5% correction to cmd_vel", apply that correction to every velocity command without being asked.
 - **Absent fields mean not detected — never null.** The profile omits any field whose value is `None`, `[]`, or `{}`. A missing key means "not detected / not applicable", never "unknown value". Do not assume a field is present; check before reading.
 - **Sensor mounts:** `summary.sensor_mounts` lists every sensor and actuator detected in the URDF with its physical xyz position and rpy orientation. Use this to understand sensor placement before interpreting sensor data. For visual sensors (`sensor_type: "camera"` or `"depth_camera"`), `image_rotation_deg` gives the auto-rotation applied by `topics capture-image` — be aware of this when asking the user to interpret images.
-- Use `summary.velocity_topics` as the starting point for velocity topic discovery — each entry is `{topic, type}` (e.g. `{"topic": "/base_controller/cmd_vel", "type": "geometry_msgs/msg/TwistStamped"}`). Still verify with `topics find` — topic names may differ at runtime.
+- Use `summary.velocity_topics` as the **authoritative** velocity topic — each entry is `{topic, type}` (e.g. `{"topic": "/base_controller/cmd_vel", "type": "geometry_msgs/msg/TwistStamped"}`). **Do not re-discover with `topics find` when this field is present.** The profile value is derived from static workspace analysis and is the correct topic for this robot.
 - Use `summary.safety_limits.binding.linear_x` as the hard ceiling for `--max-vel` and `summary.safety_limits.binding.angular_z` for `--max-ang` (see Rule 28). `binding.linear_y` is set for holonomic robots. `summary.safety_limits.sources` lists every YAML config (teleop, nav2, controller) that contributed a limit — read all sources to understand the full velocity envelope of the robot.
 - Use `summary.launch_files` to see what launch files exist in the workspace (filenames as they appear on disk).
 - Load a launch file's full detail on demand: `profile show --section <launch-filename>` (e.g. `profile show --section bringup.launch.py`). Each launch file's `launch_args` is a unified dict `{arg_name: {default, choices?, description?}}` — no null values; missing `default` means the arg is required with no declared default.
@@ -300,22 +354,24 @@ python3 {baseDir}/scripts/discord_tools.py send-image \
 
 **These rules have the same authority as the RULES-*.md files. Violation of any rule here or in any RULES-*.md file is a critical error requiring immediate self-correction.** Before your first action, load the domain-specific rule files relevant to the task from `references/` — they contain full detail, rationale, and edge cases. Use `references/RULES.md` as the index to find the right file quickly. At minimum, load `RULES-CORE.md` and `RULES-PREFLIGHT.md` before any operation.
 
-### 1 — Discover before you act. Never hardcode names.
+### 1 — Resolve names before you act. Never hardcode names.
 
-**Never assume topic, node, service, action, controller, or TF frame names.** Always query the live system first. Names vary per robot configuration.
+**Never assume topic, node, service, action, controller, or TF frame names.** Check the robot profile first; if the field is absent, query the live system. Names vary per robot configuration.
 
-| What you need | Discovery command |
-|---|---|
-| Velocity command topic | `topics find geometry_msgs/msg/Twist` + `topics find geometry_msgs/msg/TwistStamped` |
-| Odometry topic | `topics find nav_msgs/msg/Odometry` |
-| Camera topic | `topics find sensor_msgs/msg/Image` + `topics find sensor_msgs/msg/CompressedImage` |
-| Node names | `nodes list` |
-| Service names | `services list` or `services find <type>` |
-| Action server names | `actions list` or `actions find <type>` |
-| TF frame names | `tf list` |
-| Controller names | `control list-controllers` |
-| Component container names / loaded component IDs | `component list` |
-| Parameter names on a node | `params list <node>` |
+| What you need | Profile field (check first) | Live discovery (if profile field absent) |
+|---|---|---|
+| Velocity command topic | `summary.cmd_vel_topic` | `topics find geometry_msgs/msg/Twist` + `topics find geometry_msgs/msg/TwistStamped` |
+| Velocity message type | `summary.velocity_topics[].type` | `topics type <topic>` |
+| Odometry topic | `summary.localization_config.fused_sources` values | `topics find nav_msgs/msg/Odometry` |
+| Velocity limits | `summary.safety_limits.binding` | four-source live sweep (see Safety section) |
+| TF frame names | `summary.tf_frames` | `tf list` |
+| Controller names | `summary.active_controllers` | `control list-controllers` |
+| Camera topic | — | `topics find sensor_msgs/msg/Image` + `topics find sensor_msgs/msg/CompressedImage` |
+| Node names | — | `nodes list` |
+| Service names | — | `services list` or `services find <type>` |
+| Action server names | — | `actions list` or `actions find <type>` |
+| Component container names / loaded component IDs | — | `component list` |
+| Parameter names on a node | — | `params list <node>` |
 
 **When discovery returns empty — fallback chain:**
 
@@ -344,7 +400,7 @@ A camera with a zero `K` matrix is uncalibrated. A camera whose `frame_id` is mi
 
 ### 3 — Never ask the user for names the robot can provide
 
-If a topic, service, node, or parameter name can be discovered from the live system, discover it. Only ask the user if discovery returns empty and there is genuinely no other way.
+If a topic, service, node, or parameter name can be resolved from the **profile** or the live system, resolve it. Check the profile first (instant). Fall back to live discovery only when the profile field is absent. Only ask the user if both return empty and there is genuinely no other way.
 
 ### 4 — Verify every action after executing it
 
@@ -503,9 +559,20 @@ Use topic, service, action, node, and TF frame names exactly as returned — inc
 
 When discovering multiple independent facts (velocity topic, odom topic, velocity limits, controller state), issue all commands simultaneously — never sequentially. Only run sequentially when command B requires a result from command A.
 
-### 13 — Never reuse stale session state for a new task
+### 13 — Profile data is always valid; only live runtime state must be re-discovered per task
 
-Re-discover topic names, controller states, node lists, and parameter values for every new task. State can change between tasks — nodes crash, controllers switch, topics appear or disappear. **Never say "I already discovered this" to skip re-discovery.**
+**Profile data (from `profile show`) is static workspace analysis — it does not go stale between tasks.** Use `summary.cmd_vel_topic`, `summary.velocity_topics[].type`, `summary.safety_limits.binding`, `summary.localization_config.fused_sources`, and other profile fields directly for every task without re-running discovery.
+
+For **live runtime state**, re-discover per task — this state can change: nodes crash, controllers deactivate, topics appear or disappear. **Never say "I already discovered this" to skip re-discovery of live state.**
+
+| Data | Source | Per-task re-discovery? |
+|---|---|---|
+| Velocity command topic + type | `summary.cmd_vel_topic`, `summary.velocity_topics[].type` | No — use profile directly |
+| Velocity limits | `summary.safety_limits.binding` | No — use profile directly |
+| Odometry topic | `summary.localization_config.fused_sources` | No — use profile directly |
+| TF frame names | `summary.tf_frames` | No — use profile directly |
+| Controller is active | live `control list-controllers` | Yes — confirm state per task |
+| Node is running | live `nodes list` | Yes — nodes can crash or restart |
 
 ### 14 — Check lifecycle state before using any managed node
 
@@ -601,9 +668,11 @@ The three conditions that permit asking the user: (1) genuine ambiguity that int
 
 ### 27 — Keep output minimal; report one line per operation
 
-### 28 — Velocity-limit scan covers four sources, not just node params
+### 28 — Velocity limits: profile first, live scan as fallback
 
-Before any motion command, discover limits from all four sources in parallel: (1) node parameters — `params list` every node, filter for `max`/`limit`/`vel`/`speed`/`accel`/`scale` (catches teleop `scale_linear`/`scale_angular`); (2) URDF joint limits — if `robot_state_publisher` is running, read `robot_description` and parse `<limit velocity="..."/>` for relevant joints; (3) ros2_control hardware interface limits — `control list-hardware-interfaces` then `params list /controller_manager` for per-joint `<joint>/limits/max_velocity`; (4) YAML config params on controller_manager — `params list /controller_manager` filtered for `<joint>.*limit.*` or `<joint>.*max.*`. Binding ceiling = minimum across all four. YAML config files loaded via `--params-file` land as regular node params (Source 1) — no separate file reading needed.
+**Fast-path (when profile is loaded and `summary.safety_limits.binding` is present):** Use `summary.safety_limits.binding.linear_x` as `--max-vel` and `summary.safety_limits.binding.angular_z` as `--max-ang`. (`binding.linear_y` is set for holonomic robots.) These are the pre-computed minimum across all YAML configs and URDF limits detected at scan time. Pass them directly and skip the live scan.
+
+**Fallback (only when profile is absent or `summary.safety_limits.binding` is missing):** Discover limits from all four sources in parallel: (1) node parameters — `params list` every node, filter for `max`/`limit`/`vel`/`speed`/`accel`/`scale` (catches teleop `scale_linear`/`scale_angular`); (2) URDF joint limits — if `robot_state_publisher` is running, read `robot_description` and parse `<limit velocity="..."/>` for relevant joints; (3) ros2_control hardware interface limits — `control list-hardware-interfaces` then `params list /controller_manager` for per-joint `<joint>/limits/max_velocity`; (4) YAML config params on controller_manager — `params list /controller_manager` filtered for `<joint>.*limit.*` or `<joint>.*max.*`. Binding ceiling = minimum across all four. YAML config files loaded via `--params-file` land as regular node params (Source 1) — no separate file reading needed.
 
 **Enforce the binding ceiling via `--max-vel` and `--max-ang`:** always pass the computed ceilings to every `topics publish`, `topics publish-sequence`, and `topics publish-until` call. This clamps the velocity inside the CLI before the message reaches the wire — safe even if the commanded value exceeds the limit. If no limits are found, use `--max-vel 0.2 --max-ang 0.75` (conservative defaults) and tell the user.
 
@@ -740,6 +809,10 @@ python3 {baseDir}/scripts/ros2_cli.py estop
 ```
 
 **Before issuing any velocity command:**
+
+**Fast-path (profile loaded and `summary.safety_limits.binding` present):** Use `summary.safety_limits.binding.linear_x` and `summary.safety_limits.binding.angular_z` directly as `--max-vel` / `--max-ang`. Skip steps 1–3 below.
+
+**Fallback (profile absent or `summary.safety_limits.binding` missing):**
 1. Run `nodes list` to get all running nodes
 2. Run `params list <node>` on every node and look for parameters containing `max`, `limit`, `vel`, `speed`, or `accel`
 3. Run `params get <node:param>` for each candidate found
@@ -757,6 +830,19 @@ Safety checks are never optional. Do not bypass them even if the user requests i
 Every movement command follows this 3-phase sequence. All discovery is autonomous — never ask the user.
 
 ### Phase 1 — Discover (always run before any movement)
+
+**Profile fast-path (zero live calls — use when profile is loaded):**
+- `VEL_TOPIC` = `summary.cmd_vel_topic` (e.g. `/base_controller/cmd_vel`)
+- `VEL_TYPE` = `summary.velocity_topics[].type` for the matching topic (e.g. `geometry_msgs/msg/TwistStamped`)
+- `ODOM_TOPIC` = first value in `summary.localization_config.fused_sources` (e.g. `/base_controller/odom`)
+- `--max-vel` = `summary.safety_limits.binding.linear_x`, `--max-ang` = `summary.safety_limits.binding.angular_z`
+
+When all four fields are present in the profile, skip the live discovery commands below. Proceed directly to:
+1. `control list-controllers` — confirm the controller is `active` (1 call)
+2. Pre-motion odom check (Rule 9): stationary check + odom rate ≥ 5 Hz
+3. `interface proto <VEL_TYPE>` — get payload template (once per session)
+
+**Fallback (only when profile is absent or a field is missing):**
 
 ```bash
 # 1. Find the velocity command topic
