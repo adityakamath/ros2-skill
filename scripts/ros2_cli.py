@@ -347,6 +347,9 @@ def build_parser():
     p.add_argument("--timeout", type=float, default=5.0, help="Seconds to wait for image")
     p.add_argument("--type", choices=["auto", "compressed", "raw"], default="auto",
                    help="Image type: compressed, raw, or auto")
+    p.add_argument("--no-profile", dest="no_profile", action="store_true",
+                   help="Skip profile-driven camera orientation correction "
+                        "(use when the detected rotation is wrong for this specific capture)")
     p = tsub.add_parser("info", help="Alias for details (ros2 topic info)")
     p.add_argument("topic", help="Topic name (e.g. /cmd_vel)")
     p = tsub.add_parser("hz", help="Measure topic publish rate")

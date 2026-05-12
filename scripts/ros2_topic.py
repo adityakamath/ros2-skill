@@ -1529,7 +1529,14 @@ def cmd_topics_delay(args):
 # ---------------------------------------------------------------------------
 
 def cmd_topics_capture_image(args):
-    """Capture an image from a ROS 2 image topic and save to .artifacts/ folder."""
+    """Capture an image from a ROS 2 image topic and save to .artifacts/ folder.
+
+    Profile-aware: if a robot profile is available and the URDF indicates that
+    the camera is mounted at a non-upright angle (e.g. upside-down = 180°
+    roll), the captured image is automatically rotated before being saved so
+    that every downstream consumer (Discord send, display, analysis) receives a
+    correctly-oriented frame.  Pass ``--no-profile`` to skip this correction.
+    """
     try:
         from sensor_msgs.msg import CompressedImage, Image
         import cv2
@@ -1541,8 +1548,34 @@ def cmd_topics_capture_image(args):
     output_filename = args.output
     timeout = args.timeout
     img_type = args.type
+    skip_profile = getattr(args, "no_profile", False)
 
     out_path = resolve_output_path(output_filename)
+
+    # ── Profile-aware camera orientation ─────────────────────────────────────
+    # Load the robot profile summary silently.  If unavailable (profile not yet
+    # scanned, or --no-profile passed), proceed without any rotation.
+    profile_rotation_deg = 0
+    profile_applied = False
+    profile_note = None
+    if not skip_profile:
+        try:
+            from ros2_profile import load_profile_summary
+            summary = load_profile_summary()
+            if summary:
+                mounts = summary.get("camera_mounts", [])
+                non_zero = [m for m in mounts if m.get("image_rotation_deg", 0) != 0]
+                if non_zero:
+                    profile_rotation_deg = non_zero[0]["image_rotation_deg"]
+                    profile_applied = True
+                    if len(non_zero) > 1:
+                        profile_note = (
+                            f"Multiple non-upright camera mounts detected "
+                            f"({[m['link'] for m in non_zero]}); applied "
+                            f"rotation from first match: {non_zero[0]['link']}"
+                        )
+        except Exception:
+            pass  # profile load is best-effort; never block image capture
 
     try:
         received = {}
@@ -1574,15 +1607,29 @@ def cmd_topics_capture_image(args):
         if isinstance(msg, CompressedImage):
             np_arr = np.frombuffer(msg.data, np.uint8)
             img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            cv2.imwrite(out_path, img)
         elif isinstance(msg, Image):
             arr = np.frombuffer(msg.data, dtype=np.uint8)
-            arr = arr.reshape((msg.height, msg.width, -1))
-            cv2.imwrite(out_path, arr)
+            img = arr.reshape((msg.height, msg.width, -1))
         else:
             return output({"error": "Unknown image message type"})
 
-        output({"success": True, "path": out_path})
+        # ── Apply profile-driven rotation ─────────────────────────────────
+        if profile_rotation_deg == 180:
+            img = cv2.rotate(img, cv2.ROTATE_180)
+        elif profile_rotation_deg == 90:
+            img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        elif profile_rotation_deg == -90:
+            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+        cv2.imwrite(out_path, img)
+
+        result = {"success": True, "path": out_path,
+                  "profile_applied": profile_applied}
+        if profile_applied:
+            result["image_rotated_deg"] = profile_rotation_deg
+        if profile_note:
+            result["profile_note"] = profile_note
+        output(result)
     except Exception as e:
         output({"error": str(e)})
 

@@ -4,6 +4,12 @@ All notable changes to ros2-skill will be documented in this file.
 
 ## [Unreleased]
 
+### New
+
+- **Profile-aware `topics capture-image`**: before saving a captured image the command silently loads the robot profile (if available) and checks `summary.camera_mounts` for non-upright camera orientations detected from URDF joint origins. If the camera's roll angle is ≈ ±π the image is automatically rotated 180° (upside-down correction); ±90° corrections are also supported. The output JSON reports `profile_applied: true` and `image_rotated_deg: N` so the agent can confirm the correction was applied. Pass `--no-profile` to bypass. No changes to behavior when no profile exists.
+- `summary.camera_mounts` field added to robot profile: list of `{joint, link, rpy, image_rotation_deg}` extracted from URDF joints whose child link name contains `camera` or `cam`. Populated during `profile scan`.
+- `load_profile_summary()` public function in `ros2_profile.py`: silent, zero-output loader that any skill module can call to obtain the profile summary dict. Returns `None` when no profile is available. Used by `capture-image`; future commands can use the same pattern for other profile-driven adaptations.
+
 ### Changes
 
 - `profile` robot type detection overhauled for accuracy and transparency:

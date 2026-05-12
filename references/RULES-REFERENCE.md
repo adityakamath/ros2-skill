@@ -22,6 +22,9 @@ This applies to every case where an image, photo, or file must be delivered to t
 **Mandatory workflow for image delivery:**
 
 1. Capture the image: `topics capture-image --topic <DISCOVERED_TOPIC> --output .artifacts/image.jpg`
+   - If a robot profile is loaded and the URDF shows the camera is mounted at a non-upright angle, the image is **automatically rotated** before being saved — no extra step required.
+   - The output JSON confirms this: `{"success": true, "path": "...", "profile_applied": true, "image_rotated_deg": 180}`.
+   - If the auto-rotation is wrong for a specific capture, re-run with `--no-profile` to bypass it.
 2. Send it: `python3 scripts/discord_tools.py send-image --path .artifacts/image.jpg --channel-id <CHANNEL_ID> --config ~/.nanobot/config.json --delete`
 
 The `--delete` flag removes the local file after a successful send. Always include it unless the user explicitly asks to keep the file.
@@ -119,7 +122,7 @@ Motion command received
 | "read the LiDAR / scan data / laser scan / range scan / obstacle data / proximity scan / 2D scan" | Subscribe to LaserScan | Find `sensor_msgs/msg/LaserScan` → subscribe |
 | "read point cloud / 3D scan / LiDAR points / 3D LiDAR / velodyne / depth points / PCL data" | Subscribe to PointCloud2 | Find `sensor_msgs/msg/PointCloud2` → subscribe |
 | "read odometry / where is the robot / current position / current pose / where am I / robot location / robot coordinates / pose estimate" | Subscribe to Odometry | Find `nav_msgs/msg/Odometry` → subscribe (post-motion: use Rule 8 two-phase protocol) |
-| "read camera / take a picture / capture image / take a photo / snap / grab a frame / screenshot / what does the camera see / show me the view / photograph" | Capture image from camera | Find `sensor_msgs/msg/CompressedImage` (preferred) or `sensor_msgs/msg/Image` → `topics capture-image --topic <topic>` → send via `discord_tools.py send-image` (Rule 26) |
+| "read camera / take a picture / capture image / take a photo / snap / grab a frame / screenshot / what does the camera see / show me the view / photograph" | Capture image from camera | Find `sensor_msgs/msg/CompressedImage` (preferred) or `sensor_msgs/msg/Image` → `topics capture-image --topic <topic>` (profile auto-rotates if camera is non-upright; check `image_rotated_deg` in output) → send via `discord_tools.py send-image` (Rule 26) |
 | "read depth image / depth camera / RGBD / depth frame / depth data" | Subscribe to depth Image | Find `sensor_msgs/msg/Image` with `depth` in topic name → subscribe or capture-image |
 | "is camera calibrated / check camera calibration / verify camera_info / camera TF registration / is the camera aligned / camera frame in TF / is camera ready / check camera info" | Verify camera calibration and TF alignment before any camera-dependent task | `topics find sensor_msgs/msg/CameraInfo` → `topics subscribe <CAMERA_INFO_TOPIC> --max-messages 1 --timeout 2` (verify `K` intrinsic matrix non-zero) → read `header.frame_id` from message, confirm it is present in `tf list` — a camera with zero `K` is uncalibrated; a camera whose `frame_id` is absent from TF produces wrong spatial results — see Rule 0 pre-flight |
 | "read joint states / joint positions / joint angles / encoder values / current joint config / what are the joint positions" | Subscribe to JointState | Find `sensor_msgs/msg/JointState` → subscribe |

@@ -189,7 +189,15 @@ python3 {baseDir}/scripts/ros2_cli.py lifecycle set <node> activate
 python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CameraInfo
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe <camera_info_topic> --max-messages 1 --timeout 2
 # Confirm K matrix is non-zero and frame_id is in tf list before proceeding
+
+# Capture image — profile-aware: if a robot profile is loaded and the URDF shows
+# the camera is mounted at a non-upright angle (e.g. upside-down = roll ≈ ±π),
+# the image is automatically rotated before being saved.
+# Output JSON includes: {success, path, profile_applied, image_rotated_deg}
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg
+
+# Skip profile-driven rotation (e.g. the detected rotation is wrong for this capture):
+python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg --no-profile
 
 # Read depth at a specific pixel from a depth image topic (16UC1 or 32FC1; no numpy/cv2 needed)
 python3 {baseDir}/scripts/ros2_cli.py topics depth-point --topic <depth_topic> --u <col> --v <row>
@@ -319,7 +327,14 @@ python3 {baseDir}/scripts/ros2_cli.py profile list
     "urdf_files": ["/path/to/robot.urdf.xacro"],
     "velocity_topics": ["/cmd_vel"],
     "safety_limits": {"linear_max": 0.5, "angular_max": 1.0, "source": "yaml_or_urdf"},
-    "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false
+    "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false,
+    "camera_mounts": [          ← per-camera link, URDF joint origin rpy + image correction
+      {
+        "joint": "camera_joint", "link": "camera_link",
+        "rpy": [3.14159, 0.0, 0.0],   ← roll ≈ π → upside-down
+        "image_rotation_deg": 180      ← capture-image applies this automatically
+      }
+    ]
   },
   "detail": {                           ← load on demand per launch file
     "bringup.launch.py": {

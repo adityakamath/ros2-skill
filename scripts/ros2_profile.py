@@ -18,6 +18,7 @@ Output: .profiles/robot_profile.json next to this file's parent directory.
 """
 
 import json
+import math
 import os
 import pathlib
 import re
@@ -731,6 +732,89 @@ def _extract_safety_velocity_from_urdf(urdf_path):
 
 
 # ---------------------------------------------------------------------------
+# Camera mount extraction from URDF
+# ---------------------------------------------------------------------------
+
+def _extract_camera_mounts_from_urdf(urdf_path):
+    """Parse a URDF file and return camera mount orientation info.
+
+    Looks for joints whose **child link** name contains ``camera`` or ``cam``.
+    For each such joint it reads the ``<origin rpy="r p y"/>`` attribute and
+    derives an *image correction rotation* in degrees:
+
+    ============  ==================================================
+    rpy[0] (roll) Meaning
+    ============  ==================================================
+    ≈ ±π          Camera rolled 180° (upside-down) → rotate image 180°
+    ≈ +π/2        Camera on its left side → rotate image 90° CW
+    ≈ -π/2        Camera on its right side → rotate image 90° CCW
+    ============  ==================================================
+
+    Yaw (rpy[2]) and pitch (rpy[1]) do not affect image up/down orientation
+    and are stored for reference only.
+
+    Returns a list of dicts (empty list when the URDF cannot be read or no
+    camera joints are found):
+    ::
+
+        {
+          "joint": "camera_joint",
+          "link":  "camera_link",
+          "rpy":   [3.14159, 0.0, 0.0],
+          "image_rotation_deg": 180,   # 0 = already upright; ±90 or 180
+        }
+    """
+    try:
+        tree = ET.parse(str(urdf_path))
+        root = tree.getroot()
+    except Exception:
+        return []
+
+    mounts = []
+    for joint in root.findall(".//joint"):
+        child_el = joint.find("child")
+        if child_el is None:
+            continue
+        child_link = child_el.get("link", "")
+        cl_lower = child_link.lower()
+        if "camera" not in cl_lower and "cam" not in cl_lower:
+            continue
+
+        origin_el = joint.find("origin")
+        if origin_el is None:
+            rpy = [0.0, 0.0, 0.0]
+        else:
+            rpy_str = origin_el.get("rpy", "0 0 0")
+            try:
+                parts = rpy_str.split()
+                rpy = [float(v) for v in parts]
+                if len(rpy) != 3:
+                    rpy = [0.0, 0.0, 0.0]
+            except ValueError:
+                rpy = [0.0, 0.0, 0.0]
+
+        roll = rpy[0]
+        # Derive the image correction rotation from the roll angle.
+        if abs(abs(roll) - math.pi) < 0.2:        # ≈ ±180° → upside-down
+            image_rotation_deg = 180
+        elif abs(roll - math.pi / 2.0) < 0.2:     # ≈ +90° → on left side
+            image_rotation_deg = 90
+        elif abs(roll + math.pi / 2.0) < 0.2:     # ≈ -90° → on right side
+            image_rotation_deg = -90
+        else:
+            image_rotation_deg = 0
+
+        mounts.append({
+            "joint": joint.get("name", ""),
+            "link": child_link,
+            "rpy": [round(v, 6) for v in rpy],
+            "image_rotation_deg": image_rotation_deg,
+        })
+
+    return mounts
+
+
+# ---------------------------------------------------------------------------
 # Source code hinting (grep-based, lightweight)
 # ---------------------------------------------------------------------------
 
@@ -1100,9 +1184,11 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         if ang and (best_angular is None or ang < best_angular):
             best_angular = ang
 
-    # --- 4. Joint limits from URDF ---
+    # --- 4. Joint limits and camera mounts from URDF ---
     scan_steps.append("urdf_limits")
     joint_limits = {}
+    camera_mounts: list = []
+    seen_camera_links: set = set()
     for uf in all_urdf_files:
         jl = _extract_joint_limits_from_urdf(uf)
         joint_limits.update(jl)
@@ -1110,6 +1196,12 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         lin, ang = _extract_safety_velocity_from_urdf(uf)
         if lin and (best_linear is None or lin < best_linear):
             best_linear = lin
+        # Camera mount orientation.
+        for mount in _extract_camera_mounts_from_urdf(uf):
+            link = mount["link"]
+            if link not in seen_camera_links:
+                seen_camera_links.add(link)
+                camera_mounts.append(mount)
 
     # --- 5. Sensor / feature detection ---
     scan_steps.append("feature_detection")
@@ -1249,6 +1341,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "robot_type_evidence": robot_type_evidence,
         "safety_limits": safety_limits,
         "joint_limits": joint_limits,
+        "camera_mounts": camera_mounts,
         "live_topics": live_topics,
     }
 
@@ -1256,6 +1349,37 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 # ---------------------------------------------------------------------------
 # Profile file I/O
 # ---------------------------------------------------------------------------
+
+def load_profile_summary():
+    """Return the ``summary`` dict of the best available robot profile, or ``None``.
+
+    This is the **public entry point** for other skill modules that want to
+    read profile context before executing a command.  It is intentionally
+    silent — it never writes to stdout, never raises, and never blocks.
+
+    Selection strategy (first match wins):
+    1. The single profile in ``.profiles/`` when there is exactly one.
+    2. The most recently *modified* profile when there are several.
+
+    Returns ``None`` when:
+    - No profile has been scanned yet (no ``.profiles/`` directory or no JSON
+      files inside it).
+    - The profile file cannot be read or parsed.
+    """
+    try:
+        if not _PROFILES_DIR.exists():
+            return None
+        profiles = sorted(_PROFILES_DIR.glob("*_profile.json"))
+        if not profiles:
+            return None
+        # Prefer single profile; otherwise pick the most recently written one.
+        chosen = profiles[0] if len(profiles) == 1 \
+            else max(profiles, key=lambda p: p.stat().st_mtime)
+        data = json.loads(chosen.read_text(encoding="utf-8"))
+        return data.get("summary")
+    except Exception:
+        return None
+
 
 def _profile_path(name="robot"):
     """Return the absolute path for a named robot's profile JSON."""
@@ -1314,6 +1438,10 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             "has_imu": sr["has_imu"],
             "has_nav2": sr["has_nav2"],
             "safety_limits": sr["safety_limits"],
+            # camera_mounts: per-camera link, the physical mount orientation
+            # extracted from URDF joint origins.  image_rotation_deg is the
+            # correction to apply to captured images before use.
+            "camera_mounts": sr["camera_mounts"],
         },
         # ------------------------------------------------------------------ #
         # DETAIL — per launch file; load on demand via --section <filename>.  #
@@ -1392,6 +1520,7 @@ def cmd_profile_scan(args):
         "robot_type": scan_result["robot_type"],
         "robot_features": scan_result["robot_features"],
         "robot_type_evidence": scan_result["robot_type_evidence"],
+        "camera_mounts": scan_result["camera_mounts"],
         "safety_limits": scan_result["safety_limits"],
         "scan_steps": scan_result["scan_steps"],
         "summary": profile["summary"],

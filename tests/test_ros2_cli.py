@@ -4639,6 +4639,194 @@ class TestApplyParams(unittest.TestCase):
 # Robot type detection unit tests (ros2_profile helpers)
 # ---------------------------------------------------------------------------
 
+class TestCameraMountExtraction(unittest.TestCase):
+    """_extract_camera_mounts_from_urdf parses URDF for camera joint origins."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.fn = staticmethod(ros2_profile._extract_camera_mounts_from_urdf)
+
+    def _write_urdf(self, tmpdir, content):
+        import pathlib
+        p = pathlib.Path(tmpdir) / "test.urdf"
+        p.write_text(content)
+        return str(p)
+
+    def test_upside_down_camera_roll_pi(self):
+        import tempfile
+        urdf = """<?xml version="1.0"?>
+<robot name="test">
+  <link name="base_link"/>
+  <link name="camera_link"/>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.1 0 0.5" rpy="3.14159 0 0"/>
+  </joint>
+</robot>"""
+        with tempfile.TemporaryDirectory() as d:
+            mounts = self.fn(self._write_urdf(d, urdf))
+        self.assertEqual(len(mounts), 1)
+        m = mounts[0]
+        self.assertEqual(m["joint"], "camera_joint")
+        self.assertEqual(m["link"], "camera_link")
+        self.assertEqual(m["image_rotation_deg"], 180)
+
+    def test_upright_camera_no_rotation(self):
+        import tempfile
+        urdf = """<?xml version="1.0"?>
+<robot name="test">
+  <link name="base_link"/>
+  <link name="camera_link"/>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.1 0 0.5" rpy="0 0 0"/>
+  </joint>
+</robot>"""
+        with tempfile.TemporaryDirectory() as d:
+            mounts = self.fn(self._write_urdf(d, urdf))
+        self.assertEqual(len(mounts), 1)
+        self.assertEqual(mounts[0]["image_rotation_deg"], 0)
+
+    def test_90deg_roll_camera(self):
+        import tempfile
+        urdf = """<?xml version="1.0"?>
+<robot name="test">
+  <link name="base_link"/>
+  <link name="cam_link"/>
+  <joint name="cam_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="cam_link"/>
+    <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+  </joint>
+</robot>"""
+        with tempfile.TemporaryDirectory() as d:
+            mounts = self.fn(self._write_urdf(d, urdf))
+        self.assertEqual(len(mounts), 1)
+        self.assertEqual(mounts[0]["image_rotation_deg"], 90)
+
+    def test_non_camera_joint_ignored(self):
+        import tempfile
+        urdf = """<?xml version="1.0"?>
+<robot name="test">
+  <link name="base_link"/>
+  <link name="lidar_link"/>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_link"/>
+    <origin xyz="0 0 0.3" rpy="3.14159 0 0"/>
+  </joint>
+</robot>"""
+        with tempfile.TemporaryDirectory() as d:
+            mounts = self.fn(self._write_urdf(d, urdf))
+        self.assertEqual(mounts, [], "Non-camera joint should not be detected")
+
+    def test_empty_urdf_returns_empty(self):
+        import tempfile
+        urdf = """<?xml version="1.0"?><robot name="test"></robot>"""
+        with tempfile.TemporaryDirectory() as d:
+            mounts = self.fn(self._write_urdf(d, urdf))
+        self.assertEqual(mounts, [])
+
+    def test_missing_file_returns_empty(self):
+        mounts = self.fn("/nonexistent/path/robot.urdf")
+        self.assertEqual(mounts, [])
+
+    def test_multiple_cameras_deduplication_via_link_name(self):
+        """Two joints pointing to the same camera_link → only one mount recorded."""
+        import tempfile
+        urdf = """<?xml version="1.0"?>
+<robot name="test">
+  <link name="base_link"/>
+  <link name="camera_link"/>
+  <joint name="cam_j1" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0 0 0" rpy="3.14159 0 0"/>
+  </joint>
+  <joint name="cam_j2" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+</robot>"""
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write_urdf(d, urdf)
+            mounts = self.fn(path)
+        # Raw parse: both joints match; deduplication happens in the scan loop.
+        # The extractor itself returns both — scan loop deduplicates by link name.
+        self.assertEqual(len(mounts), 2)
+
+
+class TestLoadProfileSummary(unittest.TestCase):
+    """load_profile_summary() silently returns summary dict or None."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, pathlib, types
+        scripts = str(pathlib.Path(__file__).parent.parent / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        if "ros2_utils" not in sys.modules:
+            stub = types.ModuleType("ros2_utils")
+            stub.output = lambda d: None
+            sys.modules["ros2_utils"] = stub
+        import ros2_profile
+        cls.mod = ros2_profile
+
+    def test_returns_none_when_no_profiles_dir(self):
+        import pathlib
+        orig = self.mod._PROFILES_DIR
+        try:
+            self.mod._PROFILES_DIR = pathlib.Path("/nonexistent/__profiles_test__")
+            result = self.mod.load_profile_summary()
+            self.assertIsNone(result)
+        finally:
+            self.mod._PROFILES_DIR = orig
+
+    def test_returns_summary_when_profile_exists(self):
+        import tempfile, json, pathlib
+        orig = self.mod._PROFILES_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.mod._PROFILES_DIR = pathlib.Path(d)
+                profile = {
+                    "schema_version": 1,
+                    "robot_name": "test_robot",
+                    "summary": {"robot_type": "mobile_base", "camera_mounts": []},
+                    "detail": {},
+                }
+                (pathlib.Path(d) / "test_robot_profile.json").write_text(
+                    json.dumps(profile))
+                result = self.mod.load_profile_summary()
+            self.assertIsNotNone(result)
+            self.assertEqual(result["robot_type"], "mobile_base")
+        finally:
+            self.mod._PROFILES_DIR = orig
+
+    def test_never_raises_on_corrupt_json(self):
+        import tempfile, pathlib
+        orig = self.mod._PROFILES_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                self.mod._PROFILES_DIR = pathlib.Path(d)
+                (pathlib.Path(d) / "bad_profile.json").write_text("{not valid json")
+                result = self.mod.load_profile_summary()
+            self.assertIsNone(result)
+        finally:
+            self.mod._PROFILES_DIR = orig
+
+
 class TestPkgMatchHints(unittest.TestCase):
     """_pkg_match_hints uses token-level matching to avoid short-token false positives."""
 
