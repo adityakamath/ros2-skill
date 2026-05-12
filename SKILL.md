@@ -34,6 +34,23 @@ metadata:
 
 # ROS 2 Skill
 
+> **⚠️ ATTENTION — READ FIRST. This block overrides any conflicting instinct or rationalisation below.**
+>
+> If `profile show` returns a non-empty `summary`, the session is **Path A**. In Path A:
+>
+> - **Do not run `topics find`, `topics type`, `tf list` (for frame names), `services find`, or a `params list` velocity-limit sweep for any data the profile already holds.** This is a Rule 14 violation, not "extra safety".
+> - The profile fields are the source of truth for: `cmd_vel_topic`, velocity message type, odometry topic, velocity safety limits, TF frame names, controller names, e-stop service, joint names.
+> - The **only** live calls allowed before motion in Path A: (1) `control list-controllers` for runtime active/inactive state, (2) one odom subscribe for the stationary check, (3) `interface proto <VEL_TYPE>` once per session for the payload template, (4) optional `topics hz` if you have not yet seen the odom rate.
+> - **Forbidden rationalisations** (if you find yourself thinking any of these, you are violating Rule 13 — stop and use the profile):
+>   - *"Maximum safety requires live introspection."*
+>   - *"This catches runtime changes the profile might miss."*
+>   - *"The profile is just a reference for static info; control and safety checks must be done live."*
+>   - *"Profile data alone is never enough for actuation."*
+>   - *"Using the profile is justified **because it was just rescanned** / **because it is fresh**."* — The profile is the source of truth for static data **always** in Path A, not just when fresh. If you think the profile might be stale, run Rule 0.0b escalation (compare to live graph and stop on disagreement); do not bypass with live discovery.
+> - The single test before any introspection: *"Is this field present in the profile?"* — yes → use it; no → fall back to live for **that one field only** (Rule 0.0a); disagrees with live graph → stop and escalate (Rule 0.0b). The path does not flip.
+>
+> Detailed Path A operational rules: see "Path A operational summary" section below. Authoritative rules: `references/RULES-CORE.md` Rule 13 + Rule 14, `references/RULES-MOTION.md` Rule 3 Step 1.
+
 Provides a structured JSON interface to a live ROS 2 robot. All commands output JSON. Every skill invocation follows three mandatory phases: **introspect → act → verify**. Never skip any phase.
 
 ## Entry Point

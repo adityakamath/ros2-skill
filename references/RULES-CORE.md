@@ -336,9 +336,14 @@ topics find geometry_msgs/msg/Twist → wait → topics find TwistStamped → wa
 | False claim | Why it is false |
 |---|---|
 | *"Safety requires fresh introspection of names/types every task."* | Names and types do not become unsafe over time. They are static. Safety comes from re-checking runtime state (controller active, robot stationary), not from re-discovering names. |
+| *"My workflow is designed for maximum safety / to catch runtime changes."* | Runtime changes are caught by the runtime-state checks listed below (controller state, node presence, lifecycle, stationary check). Re-discovering static names does not catch runtime changes — those names are not the thing that changes. |
 | *"Live state is always more accurate than the profile."* | For static data (topic names, types, limits, frame names), live and profile must agree by construction. If they disagree, Rule 0.0b says escalate, not silently switch. |
 | *"Profile data alone is never enough for actuation."* | The profile is enough for the static half. Runtime state (steps in this rule below) provides the dynamic half. Together they are sufficient. Adding redundant live discovery does not improve safety — it hides Rule 0.0b mismatches. |
+| *"The profile is just a reference for static info; control and safety checks must be done live."* | Wrong dichotomy. Path A is **not** "profile for reference, live for control". Path A is: profile for static data (names, types, limits), live calls only for runtime state (controller active, stationary, payload template). Using `topics find` to "verify the cmd_vel topic before publishing" is re-discovering a name, not a safety check. |
+| *"Using the profile is justified because it was just rescanned / is fresh."* | This implies the profile is normally untrustworthy and only acceptable when freshly rescanned. False. Path A trusts the profile **always** — Rule 0.0b is the mechanism that catches a stale profile (compare profile values to the live graph during the actions that already happen, stop on disagreement). The agent does not get to "decide the profile is fresh enough" each task — that gate is structural, not judgemental. |
 | *"Best to be cautious and re-check everything."* | Re-checking profile-covered fields actively reduces safety because it masks profile↔live disagreements (Rule 0.0b). It also wastes time, increasing the window during which the robot's state can change before the command is issued. |
+
+**If the user asks why you used live discovery in Path A, the correct response is not to defend it as caution.** The correct response is to recognise the violation, acknowledge it (without restating the false claims that motivated it), and use the profile next time.
 
 **The correct behaviour:** read static data from the profile, run only the runtime-state checks listed below, then act.
 
