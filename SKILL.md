@@ -50,6 +50,8 @@ metadata:
 > - The single test before any introspection: *"Is this field present in the profile?"* — yes → use it; no → fall back to live for **that one field only** (Rule 0.0a); disagrees with live graph → stop and escalate (Rule 0.0b). The path does not flip.
 >
 > Detailed Path A operational rules: see "Path A operational summary" section below. Authoritative rules: `references/RULES-CORE.md` Rule 13 + Rule 14, `references/RULES-MOTION.md` Rule 3 Step 1.
+>
+> **Structural enforcement (since v1.0.8):** the CLI itself refuses `topics find` / `services find` calls that violate Path A. The refusal JSON names the matching profile field. `profile show` always includes a `path_a_reminder` block listing forbidden commands and the profile fields that replace them. Read that block at session start — it is the contract. If the guard refuses a call you genuinely need (Path B / debug), pass `--ignore-profile`; that override is logged.
 
 Provides a structured JSON interface to a live ROS 2 robot. All commands output JSON. Every skill invocation follows three mandatory phases: **resolve → act → verify**. **Resolve** means: read every static field (topic names, message types, limits, frame names, controller names) from the profile first (Path A) and run a live call **only** when (a) the profile is absent / does not have that field (Path B / Rule 0.0a), or (b) the value is dynamic runtime state — controller active/inactive, robot stationary, payload template, odom rate. **"Resolve" is not a synonym for "introspect everything live"** — in Path A it collapses to zero live calls for profile-covered fields. **Act** issues the command. **Verify** reads post-action state. Never skip any phase, and never expand "resolve" into full live discovery when Path A is active.
 

@@ -3398,18 +3398,26 @@ def cmd_profile_show(args):
             })
     else:
         # Default: show summary + annotations + list of available detail sections.
-        output({
+        summary = profile.get("summary", {}) or {}
+        out = {
             "robot_name": robot_name,
             "generated_at": profile.get("generated_at"),
             "workspace": profile.get("workspace"),
             "ros_distro": profile.get("ros_distro"),
-            "summary": profile.get("summary", {}),
+            "summary": summary,
             # annotations: free-text notes added by the user via 'profile annotate'.
             # Always included so agents see them at session-start without an extra call.
             "annotations": profile.get("annotations", []),
             "detail_sections": list(profile.get("detail", {}).keys()),
             "hint": "Use --section <launch-filename> to load a launch file's full detail.",
-        })
+        }
+        # When a usable summary is loaded, attach a Path A reminder so the
+        # agent sees the operational rules at the exact moment it learns the
+        # profile exists. This is the structural counterpart to the textual
+        # Path A guards in SKILL.md / RULES-CORE.md / RULES-MOTION.md.
+        if isinstance(summary, dict) and summary:
+            out["path_a_reminder"] = build_path_a_reminder(summary)
+        output(out)
 
 
 def cmd_profile_annotate(args):
@@ -3580,6 +3588,198 @@ def cmd_profile_list(args):
 
     output({"profiles": profiles, "total": len(profiles),
             "profiles_dir": str(_PROFILES_DIR)})
+
+
+# ---------------------------------------------------------------------------
+# Path A guards
+# ---------------------------------------------------------------------------
+#
+# These helpers implement the structural counterpart to the textual Path A
+# rules in SKILL.md / RULES-CORE.md Rule 14 / RULES-MOTION.md Rule 3. When a
+# profile is loaded, the agent is forbidden from running live-discovery
+# commands for data the profile already holds. The text rules describe the
+# violation; these helpers make it observable in the JSON output of the
+# offending command itself, at the moment of invocation, so the agent learns
+# the correct profile field name even when the text rules fail to land.
+#
+# The guards are *advisory by default* (the helper returns a non-None dict
+# which the caller turns into a refusal). Callers also accept --ignore-profile
+# to fall back to the live behaviour for legitimate Path B / debug needs.
+
+def build_path_a_reminder(summary):
+    """Build the path_a_reminder block included in 'profile show' output.
+
+    Lists, for each profile-covered field, the live-discovery command that is
+    forbidden when this profile is loaded, and the profile field the agent
+    should read instead.
+    """
+    fused = (summary.get("localization_config") or {}).get("fused_sources") or {}
+    odom_topic = next(iter(fused.values()), None) if isinstance(fused, dict) else None
+    vel_topics = summary.get("velocity_topics") or []
+    vel_type = vel_topics[0].get("type") if vel_topics else None
+    estop = summary.get("estop_config") or {}
+    tf = summary.get("tf_frames") or {}
+    limits = (summary.get("safety_limits") or {}).get("binding") or {}
+
+    forbidden = []
+    if summary.get("cmd_vel_topic"):
+        forbidden.append({
+            "forbidden_command": "topics find geometry_msgs/msg/Twist",
+            "also_forbidden": "topics find geometry_msgs/msg/TwistStamped",
+            "use_instead": "summary.cmd_vel_topic",
+            "current_value": summary.get("cmd_vel_topic"),
+        })
+    if vel_type:
+        forbidden.append({
+            "forbidden_command": f"topics type {summary.get('cmd_vel_topic')}",
+            "use_instead": "summary.velocity_topics[0].type",
+            "current_value": vel_type,
+        })
+    if odom_topic:
+        forbidden.append({
+            "forbidden_command": "topics find nav_msgs/msg/Odometry",
+            "use_instead": "summary.localization_config.fused_sources",
+            "current_value": odom_topic,
+        })
+    if limits:
+        forbidden.append({
+            "forbidden_command": "params list <each-node> + grep max|limit|vel|speed|accel",
+            "use_instead": "summary.safety_limits.binding",
+            "current_value": limits,
+        })
+    if tf.get("odom_frame") or tf.get("base_frame") or tf.get("map_frame"):
+        forbidden.append({
+            "forbidden_command": "tf list (to discover frame names)",
+            "use_instead": "summary.tf_frames",
+            "current_value": {
+                "odom_frame": tf.get("odom_frame"),
+                "base_frame": tf.get("base_frame"),
+                "map_frame": tf.get("map_frame"),
+            },
+        })
+    if estop.get("service_name"):
+        forbidden.append({
+            "forbidden_command": "services find std_srvs/srv/SetBool",
+            "use_instead": "summary.estop_config.service_name",
+            "current_value": estop.get("service_name"),
+        })
+    if summary.get("active_controllers"):
+        forbidden.append({
+            "forbidden_command": "control list-controllers (to *discover* controller names)",
+            "use_instead": "summary.active_controllers",
+            "current_value": summary.get("active_controllers"),
+            "note": "Running control list-controllers to *verify* runtime "
+                    "active/inactive state of a controller named in the profile "
+                    "is allowed — and required before motion.",
+        })
+
+    allowed_live_calls_before_motion = [
+        "control list-controllers (verify the profile-named controller is active)",
+        "topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2 (stationary check + odom liveness)",
+        "interface proto <VEL_TYPE> (payload template, once per session)",
+        "topics hz <ODOM_TOPIC> --duration 2 (only if odom rate is not yet known)",
+    ]
+
+    return {
+        "path": "A",
+        "decision_rule": (
+            "Is this field present in the profile? "
+            "yes -> use it (no live call); "
+            "no -> fall back to live for that one field only (Rule 0.0a); "
+            "disagrees with live graph -> stop and escalate (Rule 0.0b). "
+            "The path does not flip."
+        ),
+        "forbidden_in_path_a": forbidden,
+        "allowed_live_calls_before_motion": allowed_live_calls_before_motion,
+        "violated_rule_if_ignored": "RULES-CORE.md Rule 14 (Path A antipatterns); "
+                                    "RULES-MOTION.md Rule 3 Step 1.",
+        "override_flag": "Pass --ignore-profile to a guarded command (topics find, "
+                         "services find) if you need to run it for legitimate "
+                         "Path B / debug reasons. This is logged in the output.",
+    }
+
+
+# Message type prefixes that have profile-covered fields. Both '/msg/' and
+# unqualified forms are accepted because ros2 CLI accepts both.
+_NORM_MSG = lambda t: re.sub(r"/msg/", "/", t or "")
+_NORM_SRV = lambda t: re.sub(r"/srv/", "/", t or "")
+
+
+def check_topics_find_path_a(msg_type, summary):
+    """Return a violation dict if 'topics find <msg_type>' is a Path A violation.
+
+    Returns None when the call is allowed (no matching profile coverage).
+    """
+    if not isinstance(summary, dict) or not summary:
+        return None
+    target = _NORM_MSG(msg_type)
+    vel_types = {"geometry_msgs/Twist", "geometry_msgs/TwistStamped"}
+    if target in vel_types and summary.get("cmd_vel_topic"):
+        return _violation(
+            command=f"topics find {msg_type}",
+            field="summary.cmd_vel_topic",
+            value=summary.get("cmd_vel_topic"),
+            extra={
+                "velocity_topics": summary.get("velocity_topics"),
+                "note": "Read summary.cmd_vel_topic for the topic name and "
+                        "summary.velocity_topics[0].type for the message type. "
+                        "Both are profile-covered.",
+            },
+        )
+    if target == "nav_msgs/Odometry":
+        fused = (summary.get("localization_config") or {}).get("fused_sources") or {}
+        if fused:
+            return _violation(
+                command=f"topics find {msg_type}",
+                field="summary.localization_config.fused_sources",
+                value=fused,
+            )
+    return None
+
+
+def check_services_find_path_a(srv_type, summary):
+    """Return a violation dict if 'services find <srv_type>' is a Path A violation."""
+    if not isinstance(summary, dict) or not summary:
+        return None
+    target = _NORM_SRV(srv_type)
+    estop = summary.get("estop_config") or {}
+    if target == "std_srvs/SetBool" and estop.get("service_name"):
+        return _violation(
+            command=f"services find {srv_type}",
+            field="summary.estop_config.service_name",
+            value=estop.get("service_name"),
+            extra={
+                "service_type": estop.get("service_type"),
+                "note": "Read summary.estop_config.service_name for the e-stop "
+                        "service. Other std_srvs/SetBool services in the system "
+                        "are not the e-stop — if you genuinely need to enumerate "
+                        "them, pass --ignore-profile.",
+            },
+        )
+    return None
+
+
+def _violation(command, field, value, extra=None):
+    """Construct the violation JSON payload."""
+    out = {
+        "error": "path_a_violation",
+        "message": (
+            f"Refused: '{command}' is a Path A violation. The profile already "
+            f"has this value at '{field}'. Read it from 'profile show' "
+            "instead of running live discovery."
+        ),
+        "profile_field": field,
+        "profile_value": value,
+        "violated_rule": "RULES-CORE.md Rule 14 (Path A antipatterns); "
+                         "RULES-MOTION.md Rule 3 Step 1.",
+        "remedy": "Use the profile field shown above. The path does not flip "
+                  "to live discovery just because you ran this command.",
+        "override": "Pass --ignore-profile to run the live discovery anyway "
+                    "(legitimate Path B / debug uses only).",
+    }
+    if extra:
+        out.update(extra)
+    return out
 
 
 if __name__ == "__main__":

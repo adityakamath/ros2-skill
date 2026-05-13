@@ -363,6 +363,10 @@ def build_parser():
     p.add_argument("msg_type", nargs="?", help="Message type to search for (e.g. geometry_msgs/msg/Twist)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p.add_argument("--ignore-profile", dest="ignore_profile", action="store_true",
+                   help="Override the Path A guard: run live discovery even "
+                        "when the loaded profile already has this field. "
+                        "Use only for legitimate Path B / debug needs.")
     p = tsub.add_parser("bw", help="Measure topic bandwidth")
     p.add_argument("topic", nargs="?", help="Topic name (e.g. /camera/image_raw)")
     p.add_argument("--window", type=int, default=10,
@@ -512,6 +516,10 @@ def build_parser():
     p.add_argument("service_type", nargs="?", help="Service type to search for (e.g. std_srvs/srv/SetBool)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p.add_argument("--ignore-profile", dest="ignore_profile", action="store_true",
+                   help="Override the Path A guard: run live discovery even "
+                        "when the loaded profile already has this field. "
+                        "Use only for legitimate Path B / debug needs.")
     p = ssub.add_parser("call", help="Call a service")
     p.add_argument("service", help="Service name (e.g. /add_two_ints)")
     p.add_argument("request",

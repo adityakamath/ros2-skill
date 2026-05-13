@@ -1367,6 +1367,22 @@ def cmd_topics_find(args):
     if not args.msg_type:
         return output({"error": "msg_type argument is required"})
 
+    # Path A guard: refuse live discovery when the profile has this field.
+    if not getattr(args, "ignore_profile", False):
+        try:
+            from ros2_profile import (
+                load_profile_summary, check_topics_find_path_a,
+            )
+            summary = load_profile_summary()
+            if summary:
+                violation = check_topics_find_path_a(args.msg_type, summary)
+                if violation:
+                    return output(violation)
+        except Exception:
+            # Never fail-closed on the guard itself: if anything goes wrong
+            # importing or reading the profile, fall through to the live call.
+            pass
+
     target_raw = args.msg_type
 
     def _norm_msg(t):

@@ -203,6 +203,20 @@ def cmd_services_find(args):
     if not args.service_type:
         return output({"error": "service_type argument is required"})
 
+    # Path A guard: refuse live discovery when the profile has this field.
+    if not getattr(args, "ignore_profile", False):
+        try:
+            from ros2_profile import (
+                load_profile_summary, check_services_find_path_a,
+            )
+            summary = load_profile_summary()
+            if summary:
+                violation = check_services_find_path_a(args.service_type, summary)
+                if violation:
+                    return output(violation)
+        except Exception:
+            pass
+
     target_raw = args.service_type
 
     def _norm_srv(t):
