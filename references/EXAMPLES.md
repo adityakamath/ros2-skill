@@ -1,12 +1,12 @@
 # ROS 2 Skill — Examples
 
-Practical, copy-ready examples for every command group. All commands output JSON. Replace placeholder names (shown in `<ANGLE_BRACKETS>`) with values discovered from the live graph — never hardcode topic, node, service, action, or frame names.
+Practical, copy-ready examples for every command group. All commands output JSON. Replace placeholder names (shown in `<ANGLE_BRACKETS>`) with values **resolved from the profile (Path A) or, only if the profile is absent or missing the field, discovered from the live graph (Path B)** — never hardcode topic, node, service, action, or frame names.
 
 ---
 
 ## 1. Graph Exploration — Topics, Nodes, Services, Actions
 
-**Always start here to understand the live graph before acting.**
+**Path B (no profile) workflow — run these to map an unknown live system. In Path A (profile loaded), these commands are diagnostic-only; do NOT run them to resolve names the profile already provides (Rule 14).**
 
 ```bash
 # Detect ROS 2 version, distro, and domain ID

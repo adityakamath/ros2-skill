@@ -512,7 +512,7 @@ python3 {baseDir}/scripts/ros2_cli.py estop
 
 Safety checks are never optional. Do not bypass them even if the user requests it.
 
-**Safety checks run automatically — do not narrate them.** The velocity limit scan, pre-motion odom check, and post-motion verify are mandatory parts of the Movement workflow (Phases 1–3). They are not optional confirmations to ask the user about — they are silent preconditions to every motion command. The user's request is the approval to move (Rule 26); the safety checks execute automatically before motion begins.
+**Safety checks run automatically — do not narrate them.** The velocity-limit *resolution* (Path A: read `summary.safety_limits.binding` from the profile; Path B: live limit scan), pre-motion odom stationary check, and post-motion verify are mandatory parts of the Movement workflow (Phases 1–3). They are not optional confirmations to ask the user about — they are silent preconditions to every motion command. The user's request is the approval to move (Rule 26); the safety checks execute automatically before motion begins. **Note: in Path A the "velocity limit scan" is a profile read, not a live `params list` sweep — running the live sweep when the profile has `summary.safety_limits.binding` is a Rule 14 violation.**
 
 ---
 

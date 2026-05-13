@@ -196,8 +196,8 @@ This applies without exception to:
 
 If none of these conditions apply: **just do it.**
 
-**Rule 0 and Rule 5 interaction — discovery is silent, execution is silent:**
-Rule 0 mandates exhaustive introspection before acting. Rule 5 mandates acting without asking or narrating. These do not conflict: Rule 0 discovery runs in parallel and silently (the user never sees it). Rule 5 governs the execution phase — do not narrate steps, do not ask for permission to execute, do not report intermediate discovery results. Only the final outcome is reported. "Discovery + silent execution" is the expected pattern for every command.
+**Rule 0 and Rule 5 interaction — resolution is silent, execution is silent:**
+Rule 0 mandates *resolution* of every required field before acting (Path A: read from profile; Path B: live introspect; runtime-state fields: live in both paths). Rule 5 mandates acting without asking or narrating. These do not conflict: resolution runs in parallel and silently (the user never sees it). Rule 5 governs the execution phase — do not narrate steps, do not ask for permission to execute, do not report intermediate resolution results. Only the final outcome is reported. "Resolve + silent execution" is the expected pattern for every command. **"Resolution" is not "exhaustive live introspection":** in Path A it collapses to profile reads + the small set of runtime-state live calls (Rule 14 / RULES-MOTION.md Rule 3 Step 1). Reading the word "introspection" in any rule as "always run live discovery" is a Rule 14 violation when Path A is active.
 
 **Explicit list of things that must never trigger a question:**
 - "Should I run this command?" — No. Run it.
