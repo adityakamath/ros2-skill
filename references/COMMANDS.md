@@ -316,7 +316,11 @@ Publish a message at a fixed rate while simultaneously monitoring a second topic
 
 **ROS 2 CLI equivalent:** No equivalent (requires custom scripting)
 
-**Discovery workflow:** Before running, always introspect the robot:
+**Discovery workflow:**
+
+**Path A (profile loaded):** read `summary.localization_config.fused_sources` for the odometry topic — do NOT run `topics find nav_msgs/msg/Odometry`. Run `topics message nav_msgs/msg/Odometry` once per session for the field-path reference. Run `topics subscribe <ODOM_TOPIC> --duration 2` for the current baseline value.
+
+**Path B (no profile):** run the live-discovery sequence below.
 1. `topics find nav_msgs/msg/Odometry` — find the feedback topic (for --rotate or --field)
 2. `topics message nav_msgs/msg/Odometry` — inspect field paths (for --field)
 3. `topics subscribe <ODOM_TOPIC> --duration 2` — read current value (baseline for `--delta`)
@@ -3109,10 +3113,10 @@ Run a ROS 2 launch file in a tmux session. System ROS is assumed to be already s
 
 **Workspace sourcing:** If the launch file is in a local workspace, the skill automatically sources it. Set `ROS2_LOCAL_WS` environment variable if the workspace is not in the default search paths (`~/ros2_ws`, `~/colcon_ws`, `~/dev_ws`, `~/workspace`, `~/ros2`).
 
-**Discovery workflow:** Before running, always introspect the robot:
-1. `ros2 pkg list` — find available packages
-2. `ros2 pkg files <package>` — find launch files in a package
-3. `launch list` — check for running sessions
+**Discovery workflow:** Resolve the launch file location before running:
+1. **Path A (profile loaded):** check `summary.launch_files` and `summary.packages` for the package + launch file. No live calls needed for naming.
+2. **Path B (no profile):** `ros2 pkg list` — find available packages; `ros2 pkg files <package>` — find launch files in a package.
+3. Either path: `launch run` will fail-fast if the file does not exist, so a `launch list` pre-check is optional, not required.
 
 | Argument | Required | Description |
 |----------|----------|-------------|
