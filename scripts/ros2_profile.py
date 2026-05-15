@@ -3704,58 +3704,139 @@ def build_path_a_reminder(summary):
 _NORM_MSG = lambda t: re.sub(r"/msg/", "/", t or "")
 _NORM_SRV = lambda t: re.sub(r"/srv/", "/", t or "")
 
+# ---------------------------------------------------------------------------
+# Dynamic type extractors – read types from the profile itself so that new
+# drive/service types are covered automatically without any code changes.
+# ---------------------------------------------------------------------------
 
-def check_topics_find_path_a(msg_type, summary):
+
+def _get_velocity_types(summary: dict) -> set:
+    """Return normalised message types that map to velocity (cmd_vel) topics.
+
+    Baseline always includes geometry_msgs/Twist and TwistStamped.
+    Types listed in summary.velocity_topics[].type are added dynamically, so
+    robots using TwistWithCovarianceStamped or custom types are covered the
+    moment those types appear in the profile.
+    """
+    types = {"geometry_msgs/Twist", "geometry_msgs/TwistStamped"}
+    for entry in summary.get("velocity_topics") or []:
+        if entry.get("type"):
+            types.add(_NORM_MSG(entry["type"]))
+    return types
+
+
+def _get_estop_types(summary: dict) -> set:
+    """Return normalised service types that map to the e-stop service.
+
+    Baseline always includes std_srvs/SetBool.
+    If the profile carries a specific service_type it is added dynamically.
+    """
+    types = {"std_srvs/SetBool"}
+    stype = (summary.get("estop_config") or {}).get("service_type", "")
+    if stype:
+        types.add(_NORM_SRV(stype))
+    return types
+
+
+# ---------------------------------------------------------------------------
+# Declarative guard tables
+#
+# Each entry describes one profile coverage rule:
+#   profile_field  – dotted path shown in violation messages
+#   present_fn     – callable(summary) → truthy when the profile has this value
+#   match_fn       – callable(target_type, summary) → True when the requested
+#                    type is covered by this guard
+#   value_fn       – callable(summary) → the profile value to show
+#   extra_fn       – optional callable(summary) → dict merged into violation
+# ---------------------------------------------------------------------------
+
+_TOPICS_FIND_GUARDS = [
+    {
+        "profile_field": "summary.cmd_vel_topic",
+        "present_fn": lambda s: s.get("cmd_vel_topic"),
+        # Exact-set match using dynamically-built type set from the profile.
+        "match_fn": lambda t, s: t in _get_velocity_types(s),
+        "value_fn": lambda s: s.get("cmd_vel_topic"),
+        "extra_fn": lambda s: {
+            "velocity_topics": s.get("velocity_topics"),
+            "note": (
+                "Read summary.cmd_vel_topic for the topic name and "
+                "summary.velocity_topics[0].type for the message type. "
+                "Both are profile-covered."
+            ),
+        },
+    },
+    {
+        "profile_field": "summary.localization_config.fused_sources",
+        "present_fn": lambda s: (s.get("localization_config") or {}).get("fused_sources"),
+        # Substring match: covers nav_msgs/Odometry, OdometryWithCovarianceStamped,
+        # nav2_msgs/ParticleCloud (which wraps odometry), and any future odometry
+        # variants without needing new entries.
+        "match_fn": lambda t, _s: "odometry" in t.lower(),
+        "value_fn": lambda s: (s.get("localization_config") or {}).get("fused_sources"),
+    },
+]
+
+_SERVICES_FIND_GUARDS = [
+    {
+        "profile_field": "summary.estop_config.service_name",
+        "present_fn": lambda s: (s.get("estop_config") or {}).get("service_name"),
+        # Exact-set match using dynamically-built type set from the profile.
+        "match_fn": lambda t, s: t in _get_estop_types(s),
+        "value_fn": lambda s: (s.get("estop_config") or {}).get("service_name"),
+        "extra_fn": lambda s: {
+            "service_type": (s.get("estop_config") or {}).get("service_type"),
+            "note": (
+                "Read summary.estop_config.service_name for the e-stop "
+                "service. Other services of this type in the system are not "
+                "the e-stop — if you genuinely need to enumerate them, "
+                "pass --ignore-profile."
+            ),
+        },
+    },
+]
+
+
+def check_topics_find_path_a(msg_type: str, summary: dict):
     """Return a violation dict if 'topics find <msg_type>' is a Path A violation.
 
+    Iterates the declarative _TOPICS_FIND_GUARDS table so that adding a new
+    covered field requires only a new table entry, not a code change here.
     Returns None when the call is allowed (no matching profile coverage).
     """
     if not isinstance(summary, dict) or not summary:
         return None
     target = _NORM_MSG(msg_type)
-    vel_types = {"geometry_msgs/Twist", "geometry_msgs/TwistStamped"}
-    if target in vel_types and summary.get("cmd_vel_topic"):
-        return _violation(
-            command=f"topics find {msg_type}",
-            field="summary.cmd_vel_topic",
-            value=summary.get("cmd_vel_topic"),
-            extra={
-                "velocity_topics": summary.get("velocity_topics"),
-                "note": "Read summary.cmd_vel_topic for the topic name and "
-                        "summary.velocity_topics[0].type for the message type. "
-                        "Both are profile-covered.",
-            },
-        )
-    if target == "nav_msgs/Odometry":
-        fused = (summary.get("localization_config") or {}).get("fused_sources") or {}
-        if fused:
+    for guard in _TOPICS_FIND_GUARDS:
+        if guard["present_fn"](summary) and guard["match_fn"](target, summary):
+            extra = guard.get("extra_fn", lambda _: {})(summary) or None
             return _violation(
                 command=f"topics find {msg_type}",
-                field="summary.localization_config.fused_sources",
-                value=fused,
+                field=guard["profile_field"],
+                value=guard["value_fn"](summary),
+                extra=extra,
             )
     return None
 
 
-def check_services_find_path_a(srv_type, summary):
-    """Return a violation dict if 'services find <srv_type>' is a Path A violation."""
+def check_services_find_path_a(srv_type: str, summary: dict):
+    """Return a violation dict if 'services find <srv_type>' is a Path A violation.
+
+    Iterates the declarative _SERVICES_FIND_GUARDS table.
+    Returns None when the call is allowed (no matching profile coverage).
+    """
     if not isinstance(summary, dict) or not summary:
         return None
     target = _NORM_SRV(srv_type)
-    estop = summary.get("estop_config") or {}
-    if target == "std_srvs/SetBool" and estop.get("service_name"):
-        return _violation(
-            command=f"services find {srv_type}",
-            field="summary.estop_config.service_name",
-            value=estop.get("service_name"),
-            extra={
-                "service_type": estop.get("service_type"),
-                "note": "Read summary.estop_config.service_name for the e-stop "
-                        "service. Other std_srvs/SetBool services in the system "
-                        "are not the e-stop — if you genuinely need to enumerate "
-                        "them, pass --ignore-profile.",
-            },
-        )
+    for guard in _SERVICES_FIND_GUARDS:
+        if guard["present_fn"](summary) and guard["match_fn"](target, summary):
+            extra = guard.get("extra_fn", lambda _: {})(summary) or None
+            return _violation(
+                command=f"services find {srv_type}",
+                field=guard["profile_field"],
+                value=guard["value_fn"](summary),
+                extra=extra,
+            )
     return None
 
 

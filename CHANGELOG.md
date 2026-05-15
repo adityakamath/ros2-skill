@@ -32,6 +32,7 @@ All notable changes to ros2-skill will be documented in this file.
 - **`params get`:** multi-key support — `params get /node key1 key2` returns `{parameters: {key: {value, exists}}, count}`
 - **`topics publish` / `publish-sequence` / `publish-until`:** `--max-vel N` / `--max-ang N` clamp linear and angular velocity before send (Twist/TwistStamped only); clamped axes reported in `velocity_clamped`
 - **`topics publish-sequence`:** auto-hold on exit — publishes 3 zero-velocity messages on completion, exception, or interrupt
+- **Path A guards — declarative table:** `check_topics_find_path_a` and `check_services_find_path_a` rewritten as data-driven guard tables (`_TOPICS_FIND_GUARDS` / `_SERVICES_FIND_GUARDS`); adding new covered profile fields now requires only a new table entry; velocity types are extracted dynamically from `summary.velocity_topics[].type` (baseline: Twist + TwistStamped); odometry guard uses substring match (`"odometry"` in type) to cover `OdometryWithCovarianceStamped` and future variants; e-stop types extracted dynamically from `summary.estop_config.service_type` (baseline: `std_srvs/SetBool`); 36 new guard tests added
 - Shell injection hardening: `shlex.quote()` applied to all user-controlled inputs; session grep replaced with Python list check
 - `RULES.md` split into five domain files (`RULES-CORE`, `RULES-PREFLIGHT`, `RULES-MOTION`, `RULES-DIAGNOSTICS`, `RULES-REFERENCE`); `RULES.md` is now a navigation index
 - Session Start Checklist extended to 7 steps: Step 6 = `context` snapshot, Step 7 = `profile show`

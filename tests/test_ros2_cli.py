@@ -6356,5 +6356,298 @@ class TestExhaustiveParser(unittest.TestCase):
                               f"DISPATCH key {key!r} has no MINIMAL_ARGS entry — add a parse test row")
 
 
+# ---------------------------------------------------------------------------
+# Path A guard tests – declarative table behaviour
+# ---------------------------------------------------------------------------
+
+class TestGetVelocityTypes(unittest.TestCase):
+    """Tests for _get_velocity_types dynamic type extractor."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_profile
+        self.mod = ros2_profile
+
+    def test_baseline_always_present(self):
+        """geometry_msgs/Twist and TwistStamped are always in the set."""
+        types = self.mod._get_velocity_types({})
+        self.assertIn("geometry_msgs/Twist", types)
+        self.assertIn("geometry_msgs/TwistStamped", types)
+
+    def test_custom_type_added_from_velocity_topics(self):
+        """A type listed in velocity_topics[].type is added to the set."""
+        summary = {
+            "velocity_topics": [
+                {"topic": "/cmd_vel", "type": "geometry_msgs/msg/TwistWithCovarianceStamped"},
+            ]
+        }
+        types = self.mod._get_velocity_types(summary)
+        self.assertIn("geometry_msgs/TwistWithCovarianceStamped", types)
+        # Baseline still present
+        self.assertIn("geometry_msgs/Twist", types)
+
+    def test_multiple_custom_types(self):
+        """Multiple entries in velocity_topics are all collected."""
+        summary = {
+            "velocity_topics": [
+                {"topic": "/cmd_vel", "type": "custom_msgs/msg/DriveCmd"},
+                {"topic": "/cmd_vel_aux", "type": "geometry_msgs/msg/Twist"},
+            ]
+        }
+        types = self.mod._get_velocity_types(summary)
+        self.assertIn("custom_msgs/DriveCmd", types)
+        self.assertIn("geometry_msgs/Twist", types)
+
+    def test_entries_missing_type_ignored(self):
+        """velocity_topics entries without a 'type' key don't crash."""
+        summary = {"velocity_topics": [{"topic": "/cmd_vel"}]}
+        types = self.mod._get_velocity_types(summary)
+        # Should still return the baseline without raising
+        self.assertIn("geometry_msgs/Twist", types)
+
+    def test_empty_velocity_topics(self):
+        """Empty list returns baseline only."""
+        types = self.mod._get_velocity_types({"velocity_topics": []})
+        self.assertEqual(types, {"geometry_msgs/Twist", "geometry_msgs/TwistStamped"})
+
+    def test_none_velocity_topics(self):
+        """None / absent velocity_topics returns baseline only."""
+        types = self.mod._get_velocity_types({"velocity_topics": None})
+        self.assertEqual(types, {"geometry_msgs/Twist", "geometry_msgs/TwistStamped"})
+
+    def test_msg_segment_stripped(self):
+        """'/msg/' segment is stripped so 'geometry_msgs/msg/Twist' → 'geometry_msgs/Twist'."""
+        summary = {
+            "velocity_topics": [
+                {"topic": "/cmd_vel", "type": "geometry_msgs/msg/Twist"},
+            ]
+        }
+        types = self.mod._get_velocity_types(summary)
+        self.assertIn("geometry_msgs/Twist", types)
+        self.assertNotIn("geometry_msgs/msg/Twist", types)
+
+
+class TestGetEstopTypes(unittest.TestCase):
+    """Tests for _get_estop_types dynamic type extractor."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_profile
+        self.mod = ros2_profile
+
+    def test_baseline_always_present(self):
+        """std_srvs/SetBool is always in the set."""
+        types = self.mod._get_estop_types({})
+        self.assertIn("std_srvs/SetBool", types)
+
+    def test_custom_service_type_added(self):
+        """service_type from estop_config is added to the set."""
+        summary = {
+            "estop_config": {
+                "service_name": "/estop",
+                "service_type": "custom_srvs/srv/EmergencyStop",
+            }
+        }
+        types = self.mod._get_estop_types(summary)
+        self.assertIn("custom_srvs/EmergencyStop", types)
+        self.assertIn("std_srvs/SetBool", types)
+
+    def test_empty_estop_config(self):
+        """Empty or absent estop_config returns baseline only."""
+        self.assertEqual(self.mod._get_estop_types({}), {"std_srvs/SetBool"})
+        self.assertEqual(self.mod._get_estop_types({"estop_config": {}}), {"std_srvs/SetBool"})
+
+    def test_srv_segment_stripped(self):
+        """'/srv/' segment is stripped from service_type."""
+        summary = {"estop_config": {"service_type": "std_srvs/srv/SetBool"}}
+        types = self.mod._get_estop_types(summary)
+        self.assertIn("std_srvs/SetBool", types)
+        self.assertNotIn("std_srvs/srv/SetBool", types)
+
+
+class TestCheckTopicsFindPathA(unittest.TestCase):
+    """Tests for check_topics_find_path_a declarative guard."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_profile
+        self.fn = ros2_profile.check_topics_find_path_a
+
+    # --- guard should FIRE ---
+
+    def test_twist_blocked_when_cmd_vel_in_profile(self):
+        summary = {"cmd_vel_topic": "/cmd_vel", "velocity_topics": []}
+        result = self.fn("geometry_msgs/Twist", summary)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["error"], "path_a_violation")
+        self.assertIn("cmd_vel_topic", result["profile_field"])
+
+    def test_twist_stamped_blocked(self):
+        summary = {"cmd_vel_topic": "/cmd_vel_stamped"}
+        result = self.fn("geometry_msgs/TwistStamped", summary)
+        self.assertIsNotNone(result)
+
+    def test_msg_qualified_twist_blocked(self):
+        """geometry_msgs/msg/Twist (with /msg/) must also be blocked."""
+        summary = {"cmd_vel_topic": "/cmd_vel"}
+        result = self.fn("geometry_msgs/msg/Twist", summary)
+        self.assertIsNotNone(result)
+
+    def test_custom_velocity_type_blocked(self):
+        """A robot-specific velocity type listed in velocity_topics is also blocked."""
+        summary = {
+            "cmd_vel_topic": "/cmd_vel",
+            "velocity_topics": [
+                {"topic": "/cmd_vel", "type": "geometry_msgs/msg/TwistWithCovarianceStamped"}
+            ],
+        }
+        result = self.fn("geometry_msgs/TwistWithCovarianceStamped", summary)
+        self.assertIsNotNone(result)
+
+    def test_odometry_blocked_when_fused_sources_present(self):
+        summary = {
+            "localization_config": {
+                "fused_sources": {"odom": "/wheel/odom", "imu": "/imu/data"}
+            }
+        }
+        result = self.fn("nav_msgs/Odometry", summary)
+        self.assertIsNotNone(result)
+        self.assertIn("fused_sources", result["profile_field"])
+
+    def test_odometry_msg_qualified_blocked(self):
+        """nav_msgs/msg/Odometry must also be blocked."""
+        summary = {"localization_config": {"fused_sources": {"odom": "/wheel/odom"}}}
+        result = self.fn("nav_msgs/msg/Odometry", summary)
+        self.assertIsNotNone(result)
+
+    def test_odometry_substring_match_variant(self):
+        """OdometryWithCovarianceStamped (contains 'odometry') is also blocked."""
+        summary = {"localization_config": {"fused_sources": {"odom": "/odom"}}}
+        result = self.fn("nav_msgs/OdometryWithCovarianceStamped", summary)
+        self.assertIsNotNone(result)
+
+    # --- guard must NOT fire ---
+
+    def test_twist_allowed_when_no_cmd_vel_in_profile(self):
+        """If profile has no cmd_vel_topic the guard must not fire."""
+        result = self.fn("geometry_msgs/Twist", {})
+        self.assertIsNone(result)
+
+    def test_odometry_allowed_when_no_fused_sources(self):
+        summary = {"localization_config": {}}
+        result = self.fn("nav_msgs/Odometry", summary)
+        self.assertIsNone(result)
+
+    def test_unrelated_type_never_blocked(self):
+        """sensor_msgs/LaserScan has no profile coverage — must pass."""
+        summary = {"cmd_vel_topic": "/cmd_vel", "localization_config": {"fused_sources": {}}}
+        result = self.fn("sensor_msgs/LaserScan", summary)
+        self.assertIsNone(result)
+
+    def test_empty_summary_allowed(self):
+        result = self.fn("geometry_msgs/Twist", {})
+        self.assertIsNone(result)
+
+    def test_non_dict_summary_allowed(self):
+        result = self.fn("geometry_msgs/Twist", None)
+        self.assertIsNone(result)
+        result = self.fn("geometry_msgs/Twist", "bad")
+        self.assertIsNone(result)
+
+    def test_violation_contains_command_string(self):
+        """Violation message must include the requested command string."""
+        summary = {"cmd_vel_topic": "/cmd_vel"}
+        result = self.fn("geometry_msgs/Twist", summary)
+        self.assertIn("topics find geometry_msgs/Twist", result["message"])
+
+    def test_violation_has_override_key(self):
+        """Violation must carry the --ignore-profile override hint."""
+        summary = {"cmd_vel_topic": "/cmd_vel"}
+        result = self.fn("geometry_msgs/Twist", summary)
+        self.assertIn("override", result)
+        self.assertIn("--ignore-profile", result["override"])
+
+
+class TestCheckServicesFindPathA(unittest.TestCase):
+    """Tests for check_services_find_path_a declarative guard."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_profile
+        self.fn = ros2_profile.check_services_find_path_a
+
+    # --- guard should FIRE ---
+
+    def test_setbool_blocked_when_estop_in_profile(self):
+        summary = {"estop_config": {"service_name": "/estop", "service_type": "std_srvs/SetBool"}}
+        result = self.fn("std_srvs/SetBool", summary)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["error"], "path_a_violation")
+        self.assertIn("estop_config", result["profile_field"])
+
+    def test_srv_qualified_setbool_blocked(self):
+        """std_srvs/srv/SetBool (with /srv/) must also be blocked."""
+        summary = {"estop_config": {"service_name": "/estop"}}
+        result = self.fn("std_srvs/srv/SetBool", summary)
+        self.assertIsNotNone(result)
+
+    def test_custom_estop_type_blocked(self):
+        """A robot-specific e-stop type listed in estop_config is blocked."""
+        summary = {
+            "estop_config": {
+                "service_name": "/emergency_stop",
+                "service_type": "custom_srvs/EmergencyStop",
+            }
+        }
+        result = self.fn("custom_srvs/EmergencyStop", summary)
+        self.assertIsNotNone(result)
+
+    def test_custom_estop_type_srv_qualified_blocked(self):
+        """custom_srvs/srv/EmergencyStop normalises to the guarded type."""
+        summary = {
+            "estop_config": {
+                "service_name": "/emergency_stop",
+                "service_type": "custom_srvs/EmergencyStop",
+            }
+        }
+        result = self.fn("custom_srvs/srv/EmergencyStop", summary)
+        self.assertIsNotNone(result)
+
+    # --- guard must NOT fire ---
+
+    def test_setbool_allowed_when_no_estop_in_profile(self):
+        result = self.fn("std_srvs/SetBool", {})
+        self.assertIsNone(result)
+
+    def test_estop_empty_service_name_allowed(self):
+        """If estop_config exists but service_name is absent, guard must not fire."""
+        summary = {"estop_config": {"service_type": "std_srvs/SetBool"}}
+        result = self.fn("std_srvs/SetBool", summary)
+        self.assertIsNone(result)
+
+    def test_unrelated_service_never_blocked(self):
+        summary = {"estop_config": {"service_name": "/estop"}}
+        result = self.fn("rcl_interfaces/srv/GetParameters", summary)
+        self.assertIsNone(result)
+
+    def test_empty_summary_allowed(self):
+        result = self.fn("std_srvs/SetBool", {})
+        self.assertIsNone(result)
+
+    def test_non_dict_summary_allowed(self):
+        result = self.fn("std_srvs/SetBool", None)
+        self.assertIsNone(result)
+
+    def test_violation_contains_command_string(self):
+        summary = {"estop_config": {"service_name": "/estop"}}
+        result = self.fn("std_srvs/SetBool", summary)
+        self.assertIn("services find std_srvs/SetBool", result["message"])
+
+    def test_violation_has_override_key(self):
+        summary = {"estop_config": {"service_name": "/estop"}}
+        result = self.fn("std_srvs/SetBool", summary)
+        self.assertIn("--ignore-profile", result["override"])
+
+
 if __name__ == "__main__":
     unittest.main()
