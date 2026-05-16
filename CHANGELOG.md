@@ -2,6 +2,25 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [1.0.8] - 2026-05-17
+
+Nav2 navigation command group.
+
+### New Commands
+
+- `nav2 go <x> <y> [--yaw DEG] [--frame map] [--timeout 120] [--feedback] [--action NAME]` — send a `NavigateToPose` goal and block until SUCCEEDED / ABORTED / timeout; `--feedback` attaches per-step feedback messages to the output; `--yaw` sets heading at the goal
+- `nav2 cancel [--action NAME] [--timeout 10]` — cancel all active `NavigateToPose` goals via the `/_action/cancel_goal` service, then publish three zero-velocity `Twist` messages to the first `cmd_vel` topic found; always call before issuing a new navigation goal
+- `nav2 status [--timeout 5]` — report whether Nav2 is active (detects `/_action/feedback` topic), retrieve one feedback message (2 s window), and optionally report `/collision_monitor_state`; output: `{nav2_available, action_server, active_goal, collision_monitor}`
+- `nav2 go-waypoints x1,y1 x2,y2 ... [--yaw DEG] [--frame map] [--timeout 120] [--no-stop-on-failure]` — navigate through a sequence of waypoints by chaining `NavigateToPose` calls (used because `NavigateThroughPoses` is not configured on all robots); stops on first failure by default; output includes `total_waypoints`, `completed`, `succeeded`, `failed`, `stopped_early`
+- `nav2 initial-pose <x> <y> [--yaw DEG] [--frame map]` — publish `PoseWithCovarianceStamped` to `/initialpose` three times; re-localises AMCL; only meaningful in `amcl` slam mode
+
+### Changes
+
+- **`SKILL.md`:** bumped to v1.0.8; description now mentions Nav2 navigation; new "Nav2 Navigation" section with quickstart examples and key flag summary
+- **`AGENTS.md`:** profile navigation note expanded — `nav2_config` fields described, canonical EKF odom topic noted, full nav2 command group workflow documented; mandatory pre-goal `nav2 cancel` rule added
+
+---
+
 ## [1.0.7] - 2026-05-12
 
 ### New Commands

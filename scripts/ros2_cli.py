@@ -187,6 +187,13 @@ from ros2_control import (
     cmd_control_switch_controllers,
     cmd_control_view_controller_chains,
 )
+from ros2_nav2 import (
+    cmd_nav2_go,
+    cmd_nav2_cancel,
+    cmd_nav2_status,
+    cmd_nav2_go_waypoints,
+    cmd_nav2_initial_pose,
+)
 
 # ---------------------------------------------------------------------------
 # Built-in commands that don't need rclpy
@@ -1320,6 +1327,77 @@ def build_parser():
     p.add_argument("--name", default="robot", metavar="NAME",
                    help="Robot name (default: auto-detected from .profiles/)")
 
+    # -------------------------------------------------------------------------
+    # nav2 — Nav2 navigation stack commands
+    # -------------------------------------------------------------------------
+    nav2 = sub.add_parser("nav2", help="Nav2 navigation stack commands")
+    nav2sub = nav2.add_subparsers(dest="subcommand")
+
+    _NAV2_ACTION_DEFAULT = "/navigate_to_pose"
+    _NAV2_TIMEOUT_DEFAULT = 120.0
+
+    # go
+    p = nav2sub.add_parser("go",
+                           help="Send a NavigateToPose goal and wait for completion")
+    p.add_argument("x", type=float, help="Goal X position in the navigation frame (metres)")
+    p.add_argument("y", type=float, help="Goal Y position in the navigation frame (metres)")
+    p.add_argument("--yaw", type=float, default=None, metavar="DEG",
+                   help="Desired heading at the goal in degrees (omit for no rotation constraint)")
+    p.add_argument("--frame", default="map",
+                   help="Coordinate frame for the goal pose (default: map)")
+    p.add_argument("--timeout", type=float, default=_NAV2_TIMEOUT_DEFAULT,
+                   help=f"Seconds to wait for navigation to complete (default: {_NAV2_TIMEOUT_DEFAULT})")
+    p.add_argument("--feedback", action="store_true",
+                   help="Collect and return Nav2 feedback messages in the output")
+    p.add_argument("--action", default=_NAV2_ACTION_DEFAULT,
+                   help=f"Action server name (default: {_NAV2_ACTION_DEFAULT})")
+
+    # cancel
+    p = nav2sub.add_parser("cancel",
+                           help="Cancel all active NavigateToPose goals and send a zero-velocity burst")
+    p.add_argument("--action", default=_NAV2_ACTION_DEFAULT,
+                   help=f"Action server name (default: {_NAV2_ACTION_DEFAULT})")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Seconds to wait for the cancel service (default: 10)")
+
+    # status
+    p = nav2sub.add_parser("status",
+                           help="Report current navigation status: active goal feedback + collision monitor")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Seconds to wait for feedback/status topics (default: 5)")
+
+    # go-waypoints
+    p = nav2sub.add_parser("go-waypoints",
+                           help="Navigate through a sequence of waypoints by chaining NavigateToPose goals")
+    p.add_argument("waypoints", nargs="+", metavar="x,y",
+                   help="One or more waypoints in 'x,y' format (e.g. 1.0,2.0 3.5,-1.0)")
+    p.add_argument("--yaw", type=float, default=None, metavar="DEG",
+                   help="Desired heading at each waypoint in degrees (omit for no constraint)")
+    p.add_argument("--frame", default="map",
+                   help="Coordinate frame for all waypoints (default: map)")
+    p.add_argument("--timeout", type=float, default=_NAV2_TIMEOUT_DEFAULT,
+                   help=f"Seconds to wait per waypoint (default: {_NAV2_TIMEOUT_DEFAULT})")
+    p.add_argument("--stop-on-failure", dest="stop_on_failure",
+                   action="store_true", default=True,
+                   help="Stop waypoint sequence on first failure (default: True)")
+    p.add_argument("--no-stop-on-failure", dest="stop_on_failure",
+                   action="store_false",
+                   help="Continue waypoint sequence even after a failed waypoint")
+    p.add_argument("--action", default=_NAV2_ACTION_DEFAULT,
+                   help=f"Action server name (default: {_NAV2_ACTION_DEFAULT})")
+
+    # initial-pose
+    p = nav2sub.add_parser("initial-pose",
+                           help="Publish an initial pose estimate to /initialpose for AMCL localisation")
+    p.add_argument("x", type=float, help="X position of the initial pose estimate (metres)")
+    p.add_argument("y", type=float, help="Y position of the initial pose estimate (metres)")
+    p.add_argument("--yaw", type=float, default=0.0, metavar="DEG",
+                   help="Heading of the initial pose estimate in degrees (default: 0)")
+    p.add_argument("--frame", default="map",
+                   help="Coordinate frame for the initial pose (default: map)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout in seconds (currently unused; reserved for future use)")
+
     return parser
 
 
@@ -1503,6 +1581,12 @@ DISPATCH = {
     ("profile", "list"):     cmd_profile_list,
     ("profile", "ls"):       cmd_profile_list,
     ("profile", "annotate"): cmd_profile_annotate,
+    # nav2
+    ("nav2", "go"):            cmd_nav2_go,
+    ("nav2", "cancel"):        cmd_nav2_cancel,
+    ("nav2", "status"):        cmd_nav2_status,
+    ("nav2", "go-waypoints"):  cmd_nav2_go_waypoints,
+    ("nav2", "initial-pose"):  cmd_nav2_initial_pose,
 }
 
 

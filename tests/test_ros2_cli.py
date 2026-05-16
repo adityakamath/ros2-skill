@@ -245,6 +245,12 @@ MINIMAL_ARGS = [
     ("profile",  "list",     ["profile", "list"]),
     ("profile",  "ls",       ["profile", "ls"]),
     ("profile",  "annotate", ["profile", "annotate", "test annotation"]),
+    # nav2
+    ("nav2", "go",           ["nav2", "go", "1.0", "2.0"]),
+    ("nav2", "cancel",       ["nav2", "cancel"]),
+    ("nav2", "status",       ["nav2", "status"]),
+    ("nav2", "go-waypoints", ["nav2", "go-waypoints", "1.0,2.0", "3.0,4.0"]),
+    ("nav2", "initial-pose", ["nav2", "initial-pose", "1.0", "2.0"]),
 ]
 
 
@@ -6647,6 +6653,432 @@ class TestCheckServicesFindPathA(unittest.TestCase):
         summary = {"estop_config": {"service_name": "/estop"}}
         result = self.fn("std_srvs/SetBool", summary)
         self.assertIn("--ignore-profile", result["override"])
+
+
+# ---------------------------------------------------------------------------
+# Nav2 command tests
+# ---------------------------------------------------------------------------
+
+class TestNav2ArgParsing(unittest.TestCase):
+    """Parser tests for all nav2 subcommands."""
+
+    @classmethod
+    def setUpClass(cls):
+        _setup_ros_mocks()
+        import ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    # --- nav2 go ---
+
+    def test_nav2_go_parses_x_y_as_float(self):
+        args = self.parser.parse_args(["nav2", "go", "1.5", "-2.3"])
+        self.assertAlmostEqual(args.x, 1.5)
+        self.assertAlmostEqual(args.y, -2.3)
+
+    def test_nav2_go_default_frame_is_map(self):
+        args = self.parser.parse_args(["nav2", "go", "0", "0"])
+        self.assertEqual(args.frame, "map")
+
+    def test_nav2_go_custom_frame(self):
+        args = self.parser.parse_args(["nav2", "go", "1.0", "2.0", "--frame", "odom"])
+        self.assertEqual(args.frame, "odom")
+
+    def test_nav2_go_yaw_optional_default_none(self):
+        args = self.parser.parse_args(["nav2", "go", "1.0", "2.0"])
+        self.assertIsNone(args.yaw)
+
+    def test_nav2_go_yaw_flag(self):
+        args = self.parser.parse_args(["nav2", "go", "1.0", "2.0", "--yaw", "90.0"])
+        self.assertAlmostEqual(args.yaw, 90.0)
+
+    def test_nav2_go_timeout_default(self):
+        args = self.parser.parse_args(["nav2", "go", "1.0", "2.0"])
+        self.assertIsNotNone(args.timeout)
+        self.assertGreater(args.timeout, 0)
+
+    def test_nav2_go_feedback_flag(self):
+        args = self.parser.parse_args(["nav2", "go", "1.0", "2.0", "--feedback"])
+        self.assertTrue(args.feedback)
+
+    # --- nav2 cancel ---
+
+    def test_nav2_cancel_parses(self):
+        args = self.parser.parse_args(["nav2", "cancel"])
+        self.assertEqual(args.command, "nav2")
+        self.assertEqual(args.subcommand, "cancel")
+
+    def test_nav2_cancel_custom_action(self):
+        args = self.parser.parse_args(["nav2", "cancel", "--action", "/navigate_to_pose"])
+        self.assertEqual(args.action, "/navigate_to_pose")
+
+    # --- nav2 status ---
+
+    def test_nav2_status_parses(self):
+        args = self.parser.parse_args(["nav2", "status"])
+        self.assertEqual(args.command, "nav2")
+        self.assertEqual(args.subcommand, "status")
+
+    # --- nav2 go-waypoints ---
+
+    def test_nav2_go_waypoints_parses_multiple(self):
+        args = self.parser.parse_args(["nav2", "go-waypoints", "1.0,2.0", "3.0,4.0", "5.0,6.0"])
+        self.assertEqual(len(args.waypoints), 3)
+        self.assertEqual(args.waypoints[0], "1.0,2.0")
+        self.assertEqual(args.waypoints[2], "5.0,6.0")
+
+    def test_nav2_go_waypoints_single(self):
+        args = self.parser.parse_args(["nav2", "go-waypoints", "1.0,2.0"])
+        self.assertEqual(len(args.waypoints), 1)
+
+    def test_nav2_go_waypoints_stop_on_failure_default_true(self):
+        args = self.parser.parse_args(["nav2", "go-waypoints", "1.0,2.0"])
+        self.assertTrue(args.stop_on_failure)
+
+    def test_nav2_go_waypoints_no_stop_on_failure(self):
+        args = self.parser.parse_args(["nav2", "go-waypoints", "1.0,2.0", "--no-stop-on-failure"])
+        self.assertFalse(args.stop_on_failure)
+
+    # --- nav2 initial-pose ---
+
+    def test_nav2_initial_pose_parses_x_y(self):
+        args = self.parser.parse_args(["nav2", "initial-pose", "1.5", "2.5"])
+        self.assertAlmostEqual(args.x, 1.5)
+        self.assertAlmostEqual(args.y, 2.5)
+
+    def test_nav2_initial_pose_default_frame_map(self):
+        args = self.parser.parse_args(["nav2", "initial-pose", "0", "0"])
+        self.assertEqual(args.frame, "map")
+
+    def test_nav2_initial_pose_yaw_default_zero(self):
+        args = self.parser.parse_args(["nav2", "initial-pose", "0", "0"])
+        self.assertAlmostEqual(args.yaw, 0.0)
+
+    def test_nav2_initial_pose_yaw_flag(self):
+        args = self.parser.parse_args(["nav2", "initial-pose", "1.0", "2.0", "--yaw", "45.0"])
+        self.assertAlmostEqual(args.yaw, 45.0)
+
+
+class TestNav2YawToQuaternion(unittest.TestCase):
+    """Unit tests for _yaw_to_quaternion — pure Python, no ROS needed."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_nav2
+        self.fn = ros2_nav2._yaw_to_quaternion
+
+    def test_yaw_zero_is_identity(self):
+        q = self.fn(0.0)
+        self.assertAlmostEqual(q["x"], 0.0, places=6)
+        self.assertAlmostEqual(q["y"], 0.0, places=6)
+        self.assertAlmostEqual(q["z"], 0.0, places=6)
+        self.assertAlmostEqual(q["w"], 1.0, places=6)
+
+    def test_yaw_90_deg(self):
+        import math
+        q = self.fn(90.0)
+        self.assertAlmostEqual(q["x"], 0.0, places=5)
+        self.assertAlmostEqual(q["y"], 0.0, places=5)
+        self.assertAlmostEqual(q["z"], math.sin(math.pi / 4), places=5)
+        self.assertAlmostEqual(q["w"], math.cos(math.pi / 4), places=5)
+
+    def test_yaw_180_deg(self):
+        import math
+        q = self.fn(180.0)
+        self.assertAlmostEqual(q["z"], math.sin(math.pi / 2), places=5)
+        self.assertAlmostEqual(q["w"], math.cos(math.pi / 2), places=5)
+
+    def test_yaw_minus_90_deg(self):
+        import math
+        q = self.fn(-90.0)
+        self.assertAlmostEqual(q["z"], -math.sin(math.pi / 4), places=5)
+        self.assertAlmostEqual(q["w"], math.cos(math.pi / 4), places=5)
+
+    def test_quaternion_is_unit(self):
+        """||q|| == 1 for any yaw."""
+        import math
+        for yaw in [0, 30, 45, 90, 135, 180, -90, -45, 270, 360]:
+            with self.subTest(yaw=yaw):
+                q = self.fn(float(yaw))
+                norm = math.sqrt(q["x"]**2 + q["y"]**2 + q["z"]**2 + q["w"]**2)
+                self.assertAlmostEqual(norm, 1.0, places=6)
+
+    def test_yaw_360_equivalent_to_zero(self):
+        import math
+        q0 = self.fn(0.0)
+        q360 = self.fn(360.0)
+        self.assertAlmostEqual(abs(q0["w"]), abs(q360["w"]), places=5)
+
+    def test_returns_dict_with_xyzw_keys(self):
+        q = self.fn(0.0)
+        self.assertIn("x", q)
+        self.assertIn("y", q)
+        self.assertIn("z", q)
+        self.assertIn("w", q)
+
+    def test_x_y_always_zero_for_2d(self):
+        """For planar rotation, x and y components are always 0."""
+        for yaw in [0, 45, 90, 135, 180, -45, -90]:
+            with self.subTest(yaw=yaw):
+                q = self.fn(float(yaw))
+                self.assertAlmostEqual(q["x"], 0.0, places=6)
+                self.assertAlmostEqual(q["y"], 0.0, places=6)
+
+
+class TestNav2ParseWaypoints(unittest.TestCase):
+    """Unit tests for _parse_waypoints — pure Python, no ROS needed."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_nav2
+        self.fn = ros2_nav2._parse_waypoints
+
+    def test_single_waypoint(self):
+        result = self.fn(["1.0,2.0"])
+        self.assertEqual(len(result), 1)
+        self.assertAlmostEqual(result[0][0], 1.0)
+        self.assertAlmostEqual(result[0][1], 2.0)
+
+    def test_multiple_waypoints(self):
+        result = self.fn(["1.0,2.0", "3.0,4.0", "5.0,6.0"])
+        self.assertEqual(len(result), 3)
+        self.assertAlmostEqual(result[1][0], 3.0)
+        self.assertAlmostEqual(result[1][1], 4.0)
+
+    def test_negative_coordinates(self):
+        result = self.fn(["-1.5,-2.5"])
+        self.assertAlmostEqual(result[0][0], -1.5)
+        self.assertAlmostEqual(result[0][1], -2.5)
+
+    def test_integer_coordinates(self):
+        result = self.fn(["1,2"])
+        self.assertAlmostEqual(result[0][0], 1.0)
+        self.assertAlmostEqual(result[0][1], 2.0)
+
+    def test_missing_y_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.fn(["1.0"])
+
+    def test_too_many_values_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.fn(["1.0,2.0,3.0"])
+
+    def test_non_numeric_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.fn(["x,y"])
+
+    def test_empty_string_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.fn([""])
+
+    def test_returns_list_of_tuples(self):
+        result = self.fn(["1.0,2.0"])
+        self.assertIsInstance(result, list)
+        self.assertIsInstance(result[0], tuple)
+        self.assertEqual(len(result[0]), 2)
+
+
+class TestNav2BuildGoal(unittest.TestCase):
+    """Unit tests for _build_nav2_goal — pure Python, no ROS needed."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_nav2
+        self.fn = ros2_nav2._build_nav2_goal
+
+    def test_position_x_y_set(self):
+        goal = self.fn(1.5, -2.3, None, "map")
+        pos = goal["pose"]["pose"]["position"]
+        self.assertAlmostEqual(pos["x"], 1.5)
+        self.assertAlmostEqual(pos["y"], -2.3)
+        self.assertAlmostEqual(pos["z"], 0.0)
+
+    def test_frame_id_set(self):
+        goal = self.fn(0.0, 0.0, None, "odom")
+        self.assertEqual(goal["pose"]["header"]["frame_id"], "odom")
+
+    def test_default_frame_is_map(self):
+        goal = self.fn(0.0, 0.0, None, "map")
+        self.assertEqual(goal["pose"]["header"]["frame_id"], "map")
+
+    def test_no_yaw_gives_identity_quaternion(self):
+        goal = self.fn(0.0, 0.0, None, "map")
+        orient = goal["pose"]["pose"]["orientation"]
+        self.assertAlmostEqual(orient["w"], 1.0, places=6)
+        self.assertAlmostEqual(orient["z"], 0.0, places=6)
+
+    def test_yaw_90_applied_to_orientation(self):
+        import math
+        goal = self.fn(0.0, 0.0, 90.0, "map")
+        orient = goal["pose"]["pose"]["orientation"]
+        self.assertAlmostEqual(orient["z"], math.sin(math.pi / 4), places=5)
+        self.assertAlmostEqual(orient["w"], math.cos(math.pi / 4), places=5)
+
+    def test_returns_dict_with_pose_key(self):
+        goal = self.fn(0.0, 0.0, None, "map")
+        self.assertIn("pose", goal)
+        self.assertIn("pose", goal["pose"])
+        self.assertIn("header", goal["pose"])
+
+
+class TestCmdNav2GoValidation(unittest.TestCase):
+    """Input-validation and error-path tests for cmd_nav2_go (no live ROS)."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_nav2
+        self.mod = ros2_nav2
+
+    def _make_args(self, x=1.0, y=2.0, yaw=None, frame="map",
+                   timeout=5.0, feedback=False, action="/navigate_to_pose"):
+        import argparse
+        return argparse.Namespace(
+            x=x, y=y, yaw=yaw, frame=frame,
+            timeout=timeout, feedback=feedback, action=action,
+        )
+
+    def test_returns_error_when_action_server_unavailable(self):
+        """With mocked rclpy (no real graph), the action server is unavailable."""
+        import io, sys
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_go(self._make_args(timeout=0.1))
+        result = json.loads(captured.getvalue())
+        self.assertIn("error", result)
+
+    def test_error_references_navigate_to_pose(self):
+        """Error message must mention the action server name."""
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_go(self._make_args(timeout=0.1))
+        result = json.loads(captured.getvalue())
+        error_text = str(result.get("error", ""))
+        self.assertIn("navigate_to_pose", error_text.lower())
+
+
+class TestCmdNav2CancelValidation(unittest.TestCase):
+    """Error-path tests for cmd_nav2_cancel."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_nav2
+        self.mod = ros2_nav2
+
+    def _make_args(self, action="/navigate_to_pose", timeout=5.0):
+        import argparse
+        return argparse.Namespace(action=action, timeout=timeout)
+
+    def test_returns_error_when_server_unavailable(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_cancel(self._make_args(timeout=0.1))
+        result = json.loads(captured.getvalue())
+        self.assertIn("error", result)
+
+
+class TestCmdNav2StatusValidation(unittest.TestCase):
+    """Error-path tests for cmd_nav2_status."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_nav2
+        self.mod = ros2_nav2
+
+    def _make_args(self, timeout=2.0):
+        import argparse
+        return argparse.Namespace(timeout=timeout)
+
+    def test_returns_json_output(self):
+        """Status must always emit valid JSON (active or inactive)."""
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_status(self._make_args(timeout=0.1))
+        out = captured.getvalue().strip()
+        self.assertTrue(len(out) > 0)
+        result = json.loads(out)
+        self.assertIsInstance(result, dict)
+
+
+class TestCmdNav2GoWaypointsValidation(unittest.TestCase):
+    """Error-path tests for cmd_nav2_go_waypoints."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_nav2
+        self.mod = ros2_nav2
+
+    def _make_args(self, waypoints=None, yaw=None, frame="map",
+                   timeout=5.0, stop_on_failure=True, action="/navigate_to_pose"):
+        import argparse
+        return argparse.Namespace(
+            waypoints=waypoints or [],
+            yaw=yaw, frame=frame,
+            timeout=timeout,
+            stop_on_failure=stop_on_failure,
+            action=action,
+        )
+
+    def test_empty_waypoints_returns_error(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_go_waypoints(self._make_args(waypoints=[]))
+        result = json.loads(captured.getvalue())
+        self.assertIn("error", result)
+
+    def test_invalid_waypoint_format_returns_error(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_go_waypoints(self._make_args(waypoints=["notanumber"]))
+        result = json.loads(captured.getvalue())
+        self.assertIn("error", result)
+
+    def test_too_many_values_in_waypoint_returns_error(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_go_waypoints(self._make_args(waypoints=["1.0,2.0,3.0"]))
+        result = json.loads(captured.getvalue())
+        self.assertIn("error", result)
+
+
+class TestCmdNav2InitialPoseValidation(unittest.TestCase):
+    """Error-path tests for cmd_nav2_initial_pose."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_nav2
+        self.mod = ros2_nav2
+
+    def _make_args(self, x=1.0, y=2.0, yaw=0.0, frame="map", timeout=5.0):
+        import argparse
+        return argparse.Namespace(x=x, y=y, yaw=yaw, frame=frame, timeout=timeout)
+
+    def test_returns_json_output(self):
+        """Must always emit valid JSON."""
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_initial_pose(self._make_args(timeout=0.1))
+        out = captured.getvalue().strip()
+        self.assertTrue(len(out) > 0)
+        result = json.loads(out)
+        self.assertIsInstance(result, dict)
+
+    def test_result_contains_x_y_or_error(self):
+        """Output must contain x/y echo or an error key."""
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_nav2_initial_pose(self._make_args(x=3.0, y=4.0, timeout=0.1))
+        result = json.loads(captured.getvalue())
+        has_coords = "x" in result and "y" in result
+        has_error = "error" in result
+        self.assertTrue(has_coords or has_error,
+                        f"Expected x/y or error in output, got: {result}")
 
 
 if __name__ == "__main__":

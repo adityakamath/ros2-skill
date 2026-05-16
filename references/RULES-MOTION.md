@@ -151,7 +151,16 @@ topics hz <ODOM_TOPIC> --duration 2
 **Never issue a new motion command on top of an existing one without stopping first.** Overlapping velocity commands cause unpredictable trajectories and runaway motion.
 
 **Nav2 goal preemption (SG-9) — check before every new motion command:**
-Before issuing any velocity command (`publish-until`, `publish-sequence`, `topics publish`), check whether a Nav2 action goal is currently in flight:
+Before issuing any velocity command (`publish-until`, `publish-sequence`, `topics publish`) or a new `nav2 go`, check whether a Nav2 action goal is currently in flight.
+
+**Preferred (nav2 commands available):**
+```bash
+nav2 status      # → nav2_available + active_goal (null if no goal in flight)
+nav2 cancel      # cancel all goals + send zero-velocity burst in one call
+```
+If `nav2 status` returns `active_goal: null`, no goal is in flight — proceed. If `active_goal` is non-null, run `nav2 cancel` and wait for the command to return before issuing the new motion command.
+
+**Fallback (nav2 commands unavailable — e.g. nav2_msgs not installed):**
 ```bash
 actions list   # look for NavigateToPose or NavigateThroughPoses with an active goal
 ```

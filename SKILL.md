@@ -1,7 +1,7 @@
 ---
 name: ros2-skill
-description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), diagnostics, battery, system health checks, TF frames, bags, logs, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
-version: "1.0.7"
+description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), Nav2 navigation (go, cancel, status, waypoints, initial-pose), diagnostics, battery, system health checks, TF frames, bags, logs, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
+version: "1.0.8"
 license: Apache-2.0
 compatibility: "python3, rclpy, ROS 2 environment sourced"
 allowed-tools: ["Bash", "Read"]
@@ -590,6 +590,42 @@ python3 {baseDir}/scripts/ros2_cli.py estop
 ```
 
 After estop: verify velocity ≈ 0 by subscribing `<ODOM_TOPIC> --max-messages 1 --timeout 5`. If velocity is still non-zero after 5 s (10 s for heavy platforms > 20 kg), escalate as critical failure.
+
+---
+
+## Nav2 Navigation
+
+Send autonomous navigation goals to the Nav2 stack (`NavigateToPose` action). Requires Nav2 to be running on the robot.
+
+```bash
+# Navigate to a map pose and wait for completion (up to 120 s)
+python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.5 -0.3
+
+# With heading constraint
+python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.5 -0.3 --yaw 90
+
+# Waypoint sequence (chained NavigateToPose calls)
+python3 {baseDir}/scripts/ros2_cli.py nav2 go-waypoints 1.0,0.0 2.0,1.5 3.0,0.0
+
+# Cancel active goal + send zero-velocity burst
+python3 {baseDir}/scripts/ros2_cli.py nav2 cancel
+
+# Check whether Nav2 is active and report current feedback
+python3 {baseDir}/scripts/ros2_cli.py nav2 status
+
+# Set AMCL initial pose (slam_mode: amcl only)
+python3 {baseDir}/scripts/ros2_cli.py nav2 initial-pose 1.0 2.0 --yaw 45
+```
+
+**Key flags:**
+- `--frame MAP` — coordinate frame (default: `map`)
+- `--timeout 120` — seconds to wait for goal completion (default: 120; navigation can take minutes)
+- `--feedback` — include per-step feedback messages in output (`nav2 go` only)
+- `--no-stop-on-failure` — continue waypoint sequence even if one leg fails (`go-waypoints`)
+
+**Output fields (`nav2 go`):** `success` (bool), `status` (int, 4=SUCCEEDED), `status_name`, `goal {x,y,frame}`, `error?`
+
+**Before `nav2 go`:** always run `nav2 cancel` first if a previous goal may still be active (Rule 9 pre-motion check). Use `nav2 status` to confirm no active goal is present.
 
 ---
 
