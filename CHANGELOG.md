@@ -2,9 +2,9 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.8] - 2026-05-17
+## [1.0.8] - 2026-05-20
 
-Nav2 navigation command group.
+Nav2 navigation command group and seven quality-of-life improvements from ros-mcp-server gap analysis.
 
 ### New Commands
 
@@ -13,11 +13,18 @@ Nav2 navigation command group.
 - `nav2 status [--timeout 5]` — report whether Nav2 is active (detects `/_action/feedback` topic), retrieve one feedback message (2 s window), and optionally report `/collision_monitor_state`; output: `{nav2_available, action_server, active_goal, collision_monitor}`
 - `nav2 go-waypoints x1,y1 x2,y2 ... [--yaw DEG] [--frame map] [--timeout 120] [--no-stop-on-failure]` — navigate through a sequence of waypoints by chaining `NavigateToPose` calls (used because `NavigateThroughPoses` is not configured on all robots); stops on first failure by default; output includes `total_waypoints`, `completed`, `succeeded`, `failed`, `stopped_early`
 - `nav2 initial-pose <x> <y> [--yaw DEG] [--frame map]` — publish `PoseWithCovarianceStamped` to `/initialpose` three times; re-localises AMCL; only meaningful in `amcl` slam mode
+- `params exists /node:param [--timeout 5]` — check whether a parameter exists on a node without fetching its value; uses `GetParameters` RPC and inspects the returned `ParameterType` — `type == 0` (NOT_SET) means absent; output: `{exists, node, param, name}`
+- `actions status <action> [--timeout 3]` — one-shot subscribe to `/<action>/_action/status` (`GoalStatusArray`) and return the current goal list with human-readable status names (`UNKNOWN`, `ACCEPTED`, `EXECUTING`, `CANCELING`, `SUCCEEDED`, `CANCELED`, `ABORTED`); output: `{action, goal_statuses: [{goal_id, status, status_name, active}], active_count}`
 
 ### Changes
 
+- **`topics subscribe` / `topics echo` — `--throttle-rate-ms N`:** drop messages arriving within N milliseconds of the previous accepted message; wall-clock tracking via `_last_received_ms` in `TopicSubscriber`; useful on high-rate topics (camera, IMU, lidar) where only trend data is needed
+- **`topics subscribe` / `topics echo` — capped output fields:** duration-mode output now includes `capped: bool` (true when the collection loop exited because the message cap was reached, not because time expired) and `messages_dropped: int` (total messages received minus messages kept); gives agents feedback on whether the sample is representative
+- **`topics capture-image --inline`:** encode the saved image via `cv2.imencode` + `base64.b64encode` and add `image_base64` (ASCII string) and `image_encoding` (`jpeg` or `png`) to the JSON output; allows VLM pipelines to consume the image directly without a filesystem read
+- **`actions cancel --goal-id UUID`:** extend cancel from "all goals" (all-zeros UUID sentinel) to a specific goal by UUID; `_parse_goal_id_uuid()` converts standard UUID string to 16-byte list via `uuid.UUID(goal_id_str).bytes`; without `--goal-id` the all-goals behaviour is unchanged
+- **`actions list` — `has_active_goals` field:** each entry in the `has_active_goals` dict is `None` when the `/_action/status` topic is present (server running, state indeterminate without subscribing) or `False` when the topic is absent (no server / no goals ever published); agents can skip `actions status` calls when the value is `False`
 - **`SKILL.md`:** bumped to v1.0.8; description now mentions Nav2 navigation; new "Nav2 Navigation" section with quickstart examples and key flag summary
-- **`AGENTS.md`:** profile navigation note expanded — `nav2_config` fields described, canonical EKF odom topic noted, full nav2 command group workflow documented; mandatory pre-goal `nav2 cancel` rule added
+- **`AGENTS.md`:** profile navigation note expanded — `nav2_config` fields described, canonical EKF odom topic noted, full nav2 command group workflow documented; mandatory pre-goal `nav2 cancel` rule added; `nav2 status` + `nav2 cancel` promoted to preferred preemption path in `RULES-MOTION.md` SG-9
 
 ---
 
