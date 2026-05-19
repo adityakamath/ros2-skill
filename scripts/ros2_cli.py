@@ -67,6 +67,7 @@ from ros2_param import (
     cmd_params_preset_list,
     cmd_params_preset_delete,
     cmd_params_find,
+    cmd_params_exists,
 )
 
 from ros2_service import (
@@ -86,6 +87,7 @@ from ros2_action import (
     cmd_actions_type,
     cmd_actions_cancel,
     cmd_actions_find,
+    cmd_actions_status,
 )
 
 from ros2_doctor import (
@@ -279,6 +281,9 @@ def _add_subscribe_args(p):
                    help="Max messages to collect")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout (seconds) when waiting for a single message (default: 5)")
+    p.add_argument("--throttle-rate-ms", dest="throttle_rate_ms", type=int, default=None,
+                   help="Skip messages arriving faster than N ms (e.g. 100 for 10 Hz on a "
+                        "100 Hz topic). Useful to reduce output size on high-frequency topics.")
 
 
 def build_parser():
@@ -358,6 +363,10 @@ def build_parser():
     p.add_argument("--no-profile", dest="no_profile", action="store_true",
                    help="Skip profile-driven camera orientation correction "
                         "(use when the detected rotation is wrong for this specific capture)")
+    p.add_argument("--inline", action="store_true", default=False,
+                   help="Also return the image as base64-encoded data in the JSON output "
+                        "(in addition to saving to --output). Eliminates a follow-up file read "
+                        "for multimodal LLM pipelines.")
     p = tsub.add_parser("info", help="Alias for details (ros2 topic info)")
     p.add_argument("topic", help="Topic name (e.g. /cmd_vel)")
     p = tsub.add_parser("hz", help="Measure topic publish rate")
@@ -740,6 +749,11 @@ def build_parser():
                    help="Limit search to a single node (e.g. /turtlesim)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Timeout per node in seconds (default: 10)")
+    p = psub.add_parser("exists",
+                        help="Check whether a parameter exists on a node (non-throwing)")
+    p.add_argument("name", help="Node and parameter in '/node:param' format (e.g. /turtlesim:background_r)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout in seconds (default: 5)")
     p = psub.add_parser("preset-save", help="Save node parameters as a named preset")
     p.add_argument("node", help="Node name (e.g. /turtlesim)")
     p.add_argument("preset", help="Preset name (e.g. indoor)")
@@ -781,10 +795,17 @@ def build_parser():
     p = asub.add_parser("cancel",
                         help="Cancel all in-flight goals on an action server")
     p.add_argument("action", nargs="?", help="Action server name (e.g. /turtle1/rotate_absolute)")
+    p.add_argument("--goal-id", dest="goal_id", default=None,
+                   help="Cancel only the goal with this UUID string (default: cancel ALL goals)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
     p.add_argument("--retries", type=int, default=None,
                    help="Number of attempts before giving up (overrides global --retries)")
+    p = asub.add_parser("status",
+                        help="One-shot poll of active goal IDs and status codes for an action server")
+    p.add_argument("action", nargs="?", help="Action server name (e.g. /navigate_to_pose)")
+    p.add_argument("--timeout", type=float, default=3.0,
+                   help="Seconds to wait for a status message (default: 3)")
     p = asub.add_parser("echo", help="Echo action feedback and status messages")
     p.add_argument("action", help="Action server name (e.g. /turtle1/rotate_absolute)")
     p.add_argument("--duration", type=float, default=None,
@@ -1490,6 +1511,7 @@ DISPATCH = {
     ("params", "preset-list"):   cmd_params_preset_list,
     ("params", "preset-delete"): cmd_params_preset_delete,
     ("params", "find"): cmd_params_find,
+    ("params", "exists"): cmd_params_exists,
     # params — alias
     ("params", "ls"): cmd_params_list,
     # actions — canonical
@@ -1500,6 +1522,7 @@ DISPATCH = {
     ("actions", "cancel"): cmd_actions_cancel,
     ("actions", "echo"): cmd_actions_echo,
     ("actions", "find"): cmd_actions_find,
+    ("actions", "status"): cmd_actions_status,
     # actions — aliases
     ("actions", "info"): cmd_actions_details,
     ("actions", "ls"): cmd_actions_list,

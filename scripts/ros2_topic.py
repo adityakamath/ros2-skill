@@ -245,12 +245,14 @@ def _node_name(prefix, topic):
 # ---------------------------------------------------------------------------
 
 class TopicSubscriber(Node):
-    def __init__(self, topic, msg_type, msg_class=None, qos=None):
+    def __init__(self, topic, msg_type, msg_class=None, qos=None, throttle_rate_ms=None):
         super().__init__(_node_name('sub', topic))
         self.msg_type = msg_type
         self.messages = []
         self.lock = threading.Lock()
         self.sub = None
+        self._throttle_rate_ms = throttle_rate_ms
+        self._last_received_ms = None   # wall-clock ms of last kept message
 
         resolved_class = msg_class if msg_class is not None else get_msg_type(msg_type)
         resolved_qos = qos if qos is not None else qos_profile_system_default
@@ -260,13 +262,21 @@ class TopicSubscriber(Node):
             )
 
     def callback(self, msg):
+        now_ms = time.time() * 1000.0
         with self.lock:
+            if self._throttle_rate_ms is not None and self._last_received_ms is not None:
+                elapsed = now_ms - self._last_received_ms
+                if elapsed < self._throttle_rate_ms:
+                    return          # drop — within throttle window
+            self._last_received_ms = now_ms
             self.messages.append(msg_to_dict(msg))
 
 
 def cmd_topics_subscribe(args):
     if not args.topic:
         return output({"error": "topic argument is required"})
+
+    throttle_rate_ms = getattr(args, "throttle_rate_ms", None)
 
     try:
         with ros2_context():
@@ -277,7 +287,8 @@ def cmd_topics_subscribe(args):
             if not msg_type:
                 return output({"error": f"Could not detect message type for topic: {args.topic}"})
 
-            subscriber = TopicSubscriber(args.topic, msg_type)
+            subscriber = TopicSubscriber(args.topic, msg_type,
+                                         throttle_rate_ms=throttle_rate_ms)
 
             if subscriber.sub is None:
                 return output({"error": f"Could not load message type: {msg_type}"})
@@ -286,18 +297,27 @@ def cmd_topics_subscribe(args):
             executor.add_node(subscriber)
 
             if args.duration:
+                cap = args.max_messages or 100
                 end_time = time.time() + args.duration
-                while time.time() < end_time and len(subscriber.messages) < (args.max_messages or 100):
+                while time.time() < end_time and len(subscriber.messages) < cap:
                     executor.spin_once(timeout_sec=0.1)
 
                 with subscriber.lock:
-                    messages = subscriber.messages[:args.max_messages] if args.max_messages else subscriber.messages
+                    all_received = len(subscriber.messages)
+                    messages = subscriber.messages[:cap]
 
-                output({
+                capped = all_received >= cap
+                messages_dropped = max(0, all_received - len(messages))
+                out = {
                     "topic": args.topic,
                     "collected_count": len(messages),
-                    "messages": messages
-                })
+                    "capped": capped,
+                    "messages_dropped": messages_dropped,
+                    "messages": messages,
+                }
+                if throttle_rate_ms is not None:
+                    out["throttle_rate_ms"] = throttle_rate_ms
+                output(out)
             else:
                 timeout_sec = args.timeout
                 end_time = time.time() + timeout_sec
@@ -1650,6 +1670,17 @@ def cmd_topics_capture_image(args):
             result["image_rotated_deg"] = profile_rotation_deg
         if profile_note:
             result["profile_note"] = profile_note
+
+        if getattr(args, "inline", False):
+            import base64
+            _, buf = cv2.imencode(
+                ".jpg" if out_path.lower().endswith((".jpg", ".jpeg")) else
+                ".png" if out_path.lower().endswith(".png") else ".jpg",
+                img
+            )
+            result["image_base64"] = base64.b64encode(buf.tobytes()).decode("ascii")
+            result["image_encoding"] = "jpeg" if out_path.lower().endswith((".jpg", ".jpeg")) else "png"
+
         output(result)
     except Exception as e:
         output({"error": str(e)})

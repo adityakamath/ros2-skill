@@ -157,6 +157,7 @@ MINIMAL_ARGS = [
     ("params",   "preset-list",      ["params", "preset-list"]),
     ("params",   "preset-delete",    ["params", "preset-delete", "p"]),
     ("params",   "find",             ["params", "find", "velocity"]),
+    ("params",   "exists",           ["params", "exists", "/n:p"]),
     ("params",   "ls",               ["params", "ls", "/n"]),
     # actions
     ("actions",  "list",             ["actions", "list"]),
@@ -166,6 +167,7 @@ MINIMAL_ARGS = [
     ("actions",  "cancel",           ["actions", "cancel", "/a"]),
     ("actions",  "echo",             ["actions", "echo", "/a"]),
     ("actions",  "find",             ["actions", "find", "pkg/action/Type"]),
+    ("actions",  "status",           ["actions", "status", "/a"]),
     ("actions",  "info",             ["actions", "info", "/a"]),
     ("actions",  "ls",               ["actions", "ls"]),
     # doctor / wtf
@@ -7079,6 +7081,284 @@ class TestCmdNav2InitialPoseValidation(unittest.TestCase):
         has_error = "error" in result
         self.assertTrue(has_coords or has_error,
                         f"Expected x/y or error in output, got: {result}")
+
+
+# ===========================================================================
+# v1.0.9 gap-analysis improvements
+# ===========================================================================
+
+class TestSubscribeThrottleRateParsing(unittest.TestCase):
+    """Parser: --throttle-rate-ms on topics subscribe / echo."""
+
+    @classmethod
+    def setUpClass(cls):
+        _setup_ros_mocks()
+        import ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_throttle_rate_ms_accepted(self):
+        args = self.parser.parse_args(["topics", "subscribe", "/imu", "--throttle-rate-ms", "100"])
+        self.assertEqual(args.throttle_rate_ms, 100)
+
+    def test_throttle_rate_ms_default_none(self):
+        args = self.parser.parse_args(["topics", "subscribe", "/t"])
+        self.assertIsNone(args.throttle_rate_ms)
+
+    def test_echo_alias_accepts_throttle_rate(self):
+        args = self.parser.parse_args(["topics", "echo", "/t", "--throttle-rate-ms", "50"])
+        self.assertEqual(args.throttle_rate_ms, 50)
+
+
+class TestSubscribeDurationOutput(unittest.TestCase):
+    """Duration-mode subscribe output includes capped / messages_dropped fields."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_topic
+        self.mod = ros2_topic
+
+    def _make_args(self, topic="/t", duration=0.05, max_messages=3, throttle_rate_ms=None):
+        import argparse
+        return argparse.Namespace(
+            topic=topic, msg_type=None, duration=duration,
+            max_messages=max_messages, timeout=5.0,
+            throttle_rate_ms=throttle_rate_ms,
+        )
+
+    def test_duration_output_is_valid_json(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_topics_subscribe(self._make_args())
+        out = captured.getvalue().strip()
+        self.assertTrue(len(out) > 0)
+        result = json.loads(out)
+        self.assertIsInstance(result, dict)
+
+    def test_duration_output_contains_capped_key(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_topics_subscribe(self._make_args())
+        result = json.loads(captured.getvalue())
+        # Must include capped key (False when no messages received in mock env)
+        if "error" not in result:
+            self.assertIn("capped", result)
+
+    def test_duration_output_contains_messages_dropped_key(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_topics_subscribe(self._make_args())
+        result = json.loads(captured.getvalue())
+        if "error" not in result:
+            self.assertIn("messages_dropped", result)
+
+
+class TestParamsExistsParsing(unittest.TestCase):
+    """Parser: params exists subcommand."""
+
+    @classmethod
+    def setUpClass(cls):
+        _setup_ros_mocks()
+        import ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_params_exists_subcommand_accepted(self):
+        args = self.parser.parse_args(["params", "exists", "/node:param"])
+        self.assertEqual(args.subcommand, "exists")
+
+    def test_params_exists_name_stored(self):
+        args = self.parser.parse_args(["params", "exists", "/node:my_param"])
+        self.assertEqual(args.name, "/node:my_param")
+
+    def test_params_exists_in_dispatch(self):
+        from ros2_cli import DISPATCH
+        self.assertIn(("params", "exists"), DISPATCH)
+        self.assertTrue(callable(DISPATCH[("params", "exists")]))
+
+    def test_params_exists_has_timeout(self):
+        args = self.parser.parse_args(["params", "exists", "/n:p", "--timeout", "3"])
+        self.assertEqual(args.timeout, 3.0)
+
+
+class TestParamsExistsValidation(unittest.TestCase):
+    """Error-path / output-structure tests for cmd_params_exists."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_param
+        self.mod = ros2_param
+
+    def _make_args(self, name="/n:p", timeout=0.1):
+        import argparse
+        return argparse.Namespace(name=name, timeout=timeout)
+
+    def test_returns_valid_json(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_params_exists(self._make_args())
+        result = json.loads(captured.getvalue())
+        self.assertIsInstance(result, dict)
+
+    def test_output_has_exists_or_error(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_params_exists(self._make_args())
+        result = json.loads(captured.getvalue())
+        self.assertTrue("exists" in result or "error" in result,
+                        f"Expected 'exists' or 'error', got: {result}")
+
+    def test_bad_format_returns_error(self):
+        """Name without colon should return an error."""
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_params_exists(self._make_args(name="/nocodon"))
+        result = json.loads(captured.getvalue())
+        self.assertIn("error", result)
+
+
+class TestActionsStatusParsing(unittest.TestCase):
+    """Parser: actions status subcommand."""
+
+    @classmethod
+    def setUpClass(cls):
+        _setup_ros_mocks()
+        import ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_actions_status_accepted(self):
+        args = self.parser.parse_args(["actions", "status", "/my_action"])
+        self.assertEqual(args.subcommand, "status")
+
+    def test_actions_status_action_stored(self):
+        args = self.parser.parse_args(["actions", "status", "/navigate_to_pose"])
+        self.assertEqual(args.action, "/navigate_to_pose")
+
+    def test_actions_status_timeout_flag(self):
+        args = self.parser.parse_args(["actions", "status", "/a", "--timeout", "3"])
+        self.assertEqual(args.timeout, 3.0)
+
+    def test_actions_status_in_dispatch(self):
+        from ros2_cli import DISPATCH
+        self.assertIn(("actions", "status"), DISPATCH)
+        self.assertTrue(callable(DISPATCH[("actions", "status")]))
+
+
+class TestActionsStatusValidation(unittest.TestCase):
+    """Error-path / output-structure tests for cmd_actions_status."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_action
+        self.mod = ros2_action
+
+    def _make_args(self, action="/a", timeout=0.1):
+        import argparse
+        return argparse.Namespace(action=action, timeout=timeout)
+
+    def test_missing_action_returns_error(self):
+        import io, argparse
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_actions_status(argparse.Namespace(action=None, timeout=0.1))
+        result = json.loads(captured.getvalue())
+        self.assertIn("error", result)
+
+    def test_returns_valid_json(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_actions_status(self._make_args())
+        result = json.loads(captured.getvalue())
+        self.assertIsInstance(result, dict)
+
+    def test_output_has_action_or_error(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_actions_status(self._make_args())
+        result = json.loads(captured.getvalue())
+        self.assertTrue("action" in result or "error" in result)
+
+
+class TestCaptureImageInlineParsing(unittest.TestCase):
+    """Parser: --inline flag on topics capture-image."""
+
+    @classmethod
+    def setUpClass(cls):
+        _setup_ros_mocks()
+        import ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_inline_flag_accepted(self):
+        args = self.parser.parse_args([
+            "topics", "capture-image",
+            "--topic", "/camera/image_raw",
+            "--output", "out.jpg",
+            "--inline",
+        ])
+        self.assertTrue(args.inline)
+
+    def test_inline_default_false(self):
+        args = self.parser.parse_args([
+            "topics", "capture-image",
+            "--topic", "/camera/image_raw",
+            "--output", "out.jpg",
+        ])
+        self.assertFalse(args.inline)
+
+
+class TestActionsCancelGoalIdParsing(unittest.TestCase):
+    """Parser: optional --goal-id on actions cancel."""
+
+    @classmethod
+    def setUpClass(cls):
+        _setup_ros_mocks()
+        import ros2_cli
+        cls.parser = ros2_cli.build_parser()
+
+    def test_cancel_accepts_goal_id(self):
+        args = self.parser.parse_args(["actions", "cancel", "/a", "--goal-id", "abc-123"])
+        self.assertEqual(args.goal_id, "abc-123")
+
+    def test_cancel_goal_id_default_none(self):
+        args = self.parser.parse_args(["actions", "cancel", "/a"])
+        self.assertIsNone(args.goal_id)
+
+
+class TestActionsListHasActiveGoals(unittest.TestCase):
+    """actions list output includes has_active_goals dict."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_action
+        self.mod = ros2_action
+
+    def _make_args(self, timeout=0.1):
+        import argparse
+        return argparse.Namespace(timeout=timeout)
+
+    def test_actions_list_returns_dict(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_actions_list(self._make_args())
+        result = json.loads(captured.getvalue())
+        self.assertIsInstance(result, dict)
+
+    def test_actions_list_has_active_goals_key(self):
+        import io
+        captured = io.StringIO()
+        with unittest.mock.patch("sys.stdout", captured):
+            self.mod.cmd_actions_list(self._make_args())
+        result = json.loads(captured.getvalue())
+        if "error" not in result:
+            self.assertIn("has_active_goals", result)
+            self.assertIsInstance(result["has_active_goals"], dict)
 
 
 if __name__ == "__main__":

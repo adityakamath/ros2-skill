@@ -567,6 +567,51 @@ def cmd_params_find(args):
         output({"error": str(e)})
 
 
+def cmd_params_exists(args):
+    """Check whether a parameter exists on a node without raising an error.
+
+    Accepts the same '/node:param' format as params get.
+    Returns {exists: true/false, node, param, name} or {error: ...} on
+    service failure (node down, timeout, bad format).
+    """
+    name = args.name
+    if ":" not in name or not name.split(":", 1)[1]:
+        return output({
+            "error": "Use format /node_name:param_name "
+                     "(e.g. /turtlesim:background_r)"
+        })
+
+    try:
+        from rcl_interfaces.srv import GetParameters
+        with ros2_context():
+            node_rclpy = ROS2CLI()
+            node_name, param_name = name.split(":", 1)
+            node_name = _norm_node(node_name)
+
+            result, err = _call_service(
+                node_rclpy,
+                GetParameters,
+                f"{node_name}/get_parameters",
+                GetParameters.Request(names=[param_name]),
+                timeout=args.timeout,
+            )
+
+        if err:
+            return output(err)
+
+        # ParameterValue.type == 0 means NOT_SET (parameter does not exist)
+        exists = bool(result.values and result.values[0].type != 0)
+        output({
+            "exists": exists,
+            "node": node_name,
+            "param": param_name,
+            "name": name,
+        })
+
+    except Exception as e:
+        output({"error": str(e)})
+
+
 if __name__ == "__main__":
     import sys
     _mod = os.path.basename(__file__)

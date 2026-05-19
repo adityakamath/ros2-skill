@@ -31,13 +31,20 @@ def cmd_actions_list(args):
             topics = node.get_topic_names_and_types()
         actions = []
         seen = set()
+        status_topics = set()
         for name, _ in topics:
             if '/_action/' in name:
                 action_name = name.split('/_action/')[0]
                 if action_name not in seen:
                     seen.add(action_name)
                     actions.append(action_name)
-        output({"actions": actions, "count": len(actions)})
+                if name.endswith('/_action/status'):
+                    status_topics.add(action_name)
+        # has_active_goals: None (indeterminate) when action server is present but
+        # we haven't subscribed to check; use 'actions status /name' for live state.
+        has_active_goals = {a: (None if a in status_topics else False) for a in actions}
+        output({"actions": actions, "count": len(actions),
+                "has_active_goals": has_active_goals})
     except Exception as e:
         output({"error": str(e)})
 
@@ -175,14 +182,41 @@ def cmd_actions_type(args):
         output({"error": str(e)})
 
 
+def _parse_goal_id_uuid(goal_id_str: str):
+    """Convert a UUID string to a 16-byte list for CancelGoal.Request.
+
+    Accepts dash-separated UUID (e.g. '550e8400-e29b-41d4-a716-446655440000')
+    or plain 32-hex string.  Returns list of 16 ints or raises ValueError.
+    """
+    import uuid as _uuid
+    try:
+        parsed = _uuid.UUID(goal_id_str)
+        return list(parsed.bytes)
+    except ValueError:
+        raise ValueError(f"Invalid goal UUID '{goal_id_str}' — expected standard UUID format")
+
+
 def cmd_actions_cancel(args):
-    """Cancel all in-flight goals on an action server."""
+    """Cancel in-flight goals on an action server.
+
+    Without --goal-id: cancels ALL goals (uuid = all-zeros sentinel).
+    With --goal-id UUID: cancels only the goal with that UUID.
+    """
     if not args.action:
         return output({"error": "action argument is required"})
 
     action = args.action.rstrip('/')
     timeout = args.timeout
     retries = getattr(args, 'retries', 1)
+    goal_id_str = getattr(args, 'goal_id', None)
+
+    # Parse goal UUID if provided
+    goal_uuid = [0] * 16   # all-zeros = cancel ALL
+    if goal_id_str:
+        try:
+            goal_uuid = _parse_goal_id_uuid(goal_id_str)
+        except ValueError as e:
+            return output({"error": str(e)})
 
     try:
         from action_msgs.srv import CancelGoal
@@ -200,7 +234,7 @@ def cmd_actions_cancel(args):
                     return output({"error": f"Action server '{action}' not available"})
 
                 request = CancelGoal.Request()
-                request.goal_info.goal_id.uuid = [0] * 16
+                request.goal_info.goal_id.uuid = goal_uuid
                 request.goal_info.stamp = BuiltinTime(sec=0, nanosec=0)
 
                 future = client.call_async(request)
@@ -211,11 +245,14 @@ def cmd_actions_cancel(args):
                 if future.done():
                     result = future.result()
                     cancelled = [str(bytes(g.goal_id.uuid)) for g in (result.goals_canceling or [])]
-                    output({
+                    out = {
                         "action": action,
                         "return_code": result.return_code,
                         "cancelled_goals": len(cancelled),
-                    })
+                    }
+                    if goal_id_str:
+                        out["goal_id"] = goal_id_str
+                    output(out)
                     return
 
                 future.cancel()
@@ -333,6 +370,93 @@ def cmd_actions_find(args):
             "actions": matched,
             "count": len(matched),
         })
+    except Exception as e:
+        output({"error": str(e)})
+
+
+_STATUS_NAMES = {
+    0: "UNKNOWN", 1: "ACCEPTED", 2: "EXECUTING", 3: "CANCELING",
+    4: "SUCCEEDED", 5: "CANCELED", 6: "ABORTED",
+}
+
+
+def cmd_actions_status(args):
+    """One-shot poll of active goal IDs and status codes for an action server.
+
+    Subscribes to /<action>/_action/status for up to --timeout seconds,
+    captures the first status message, and returns the goal list with
+    human-readable status names.  Returns {action, goal_statuses, active_count}
+    or {error} if the action server is not found or times out.
+    """
+    if not args.action:
+        return output({"error": "action argument is required"})
+
+    action = args.action.rstrip('/')
+    status_topic = action + '/_action/status'
+    timeout = args.timeout
+
+    try:
+        from action_msgs.msg import GoalStatusArray
+
+        with ros2_context():
+            node = ROS2CLI()
+
+            # Verify the action server exists by checking topic presence
+            all_topics = dict(node.get_topic_names_and_types())
+            if status_topic not in all_topics:
+                return output({
+                    "error": f"Action server not found: {action}",
+                    "hint": "Is the action server running? Use 'actions list' to see active servers.",
+                })
+
+            received = []
+            done_event = threading.Event()
+
+            sub = node.create_subscription(
+                GoalStatusArray,
+                status_topic,
+                lambda msg: (received.append(msg), done_event.set()),
+                10,
+            )
+
+            end = time.time() + timeout
+            while time.time() < end and not done_event.is_set():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+        if not received:
+            # No status message within timeout — server present but no goals published yet
+            return output({
+                "action": action,
+                "goal_statuses": [],
+                "active_count": 0,
+                "note": f"No status message received within {timeout}s — "
+                        "server is present but may have no active goals.",
+            })
+
+        msg = received[0]
+        goal_statuses = []
+        active_count = 0
+        for gs in msg.status_list:
+            uuid_bytes = bytes(gs.goal_info.goal_id.uuid)
+            import uuid as _uuid
+            goal_id_str = str(_uuid.UUID(bytes=uuid_bytes))
+            status_int = int(gs.status)
+            is_active = status_int in (1, 2, 3)  # ACCEPTED, EXECUTING, CANCELING
+            if is_active:
+                active_count += 1
+            goal_statuses.append({
+                "goal_id": goal_id_str,
+                "status": status_int,
+                "status_name": _STATUS_NAMES.get(status_int, f"STATUS_{status_int}"),
+                "active": is_active,
+            })
+
+        output({
+            "action": action,
+            "goal_statuses": goal_statuses,
+            "active_count": active_count,
+        })
+
     except Exception as e:
         output({"error": str(e)})
 
