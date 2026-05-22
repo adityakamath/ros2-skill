@@ -26,6 +26,79 @@ except ImportError as e:
 
 
 # ---------------------------------------------------------------------------
+# Distribution detection
+# ---------------------------------------------------------------------------
+
+# Canonical ROS 2 release ordering (oldest → newest).
+# Listed alphabetically, which matches actual release chronology for ROS 2.
+# Unknown distro names are ranked alphabetically relative to this list so
+# future releases (e.g. anything after "lyrical") are handled gracefully
+# without requiring code changes.
+_DISTRO_ORDER: list = [
+    "humble",   # H — May 2022
+    "iron",     # I — May 2023
+    "jazzy",    # J — May 2024
+    "kilted",   # K — May 2025
+    "lyrical",  # L — May 2026
+]
+
+_DISTRO_UNKNOWN = "unknown"
+
+
+def get_ros_distro() -> str:
+    """Return the active ROS 2 distribution name in lowercase.
+
+    Reads ``$ROS_DISTRO`` (set automatically by ``source setup.bash``).
+    Returns ``"unknown"`` when the variable is absent, which causes
+    :func:`is_at_least` to return ``False`` for every distro check so that
+    Lyrical-only code paths are never taken on unrecognised systems.
+    """
+    return os.environ.get("ROS_DISTRO", _DISTRO_UNKNOWN).lower().strip()
+
+
+def _distro_rank(name: str) -> int:
+    """Return a numeric rank for *name* suitable for ordering comparisons.
+
+    Known distros get their index in ``_DISTRO_ORDER``.  Unknown names are
+    ranked by their alphabetical position relative to known distros, so
+    any future release that sorts after "lyrical" is automatically treated
+    as newer than all currently known distros.
+    """
+    name = name.lower().strip()
+    try:
+        return _DISTRO_ORDER.index(name)
+    except ValueError:
+        # Alphabetical fallback: find where name would sit in the sorted list.
+        for i, known in enumerate(_DISTRO_ORDER):
+            if name < known:
+                return i - 1  # ranks below this known distro
+        # Alphabetically after all known distros → newer than all of them.
+        return len(_DISTRO_ORDER)
+
+
+def is_at_least(distro: str) -> bool:
+    """Return ``True`` if the active distro is *distro* or newer.
+
+    Uses the canonical release ordering so callers never need to hard-code
+    string comparisons.  Returns ``False`` when ``$ROS_DISTRO`` is unset.
+
+    Examples::
+
+        # On a Lyrical system:
+        is_at_least("humble")   # True  — Lyrical ≥ Humble
+        is_at_least("lyrical")  # True  — exact match
+        is_at_least("melodic")  # False — hypothetical future distro
+
+        # When $ROS_DISTRO is unset:
+        is_at_least("humble")   # False — always safe default
+    """
+    active = get_ros_distro()
+    if active == _DISTRO_UNKNOWN:
+        return False
+    return _distro_rank(active) >= _distro_rank(distro)
+
+
+# ---------------------------------------------------------------------------
 # QoS helpers
 # ---------------------------------------------------------------------------
 
@@ -154,16 +227,16 @@ def get_srv_type(type_str):
 
 def get_msg_error(msg_type):
     """Generate helpful error message when message type cannot be loaded."""
-    ros_distro = os.environ.get('ROS_DISTRO', '')
+    ros_distro = get_ros_distro()
     hint = "ROS 2 message types use /msg/ format (e.g., geometry_msgs/msg/Twist)"
-    if ros_distro:
+    if ros_distro != _DISTRO_UNKNOWN:
         hint += f". Ensure ROS 2 workspace is built: cd ~/ros2_ws && colcon build && source install/setup.bash"
     else:
         hint += ". Ensure ROS 2 environment is sourced: source /opt/ros/<distro>/setup.bash"
     return {
         "error": f"Unknown message type: {msg_type}",
         "hint": hint,
-        "ros_distro": ros_distro if ros_distro else None,
+        "ros_distro": ros_distro if ros_distro != _DISTRO_UNKNOWN else None,
         "troubleshooting": [
             "1. Source ROS 2: source /opt/ros/<distro>/setup.bash",
             "2. If using custom messages, build workspace: cd ~/ros2_ws && colcon build",
