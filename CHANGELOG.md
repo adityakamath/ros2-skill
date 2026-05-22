@@ -26,6 +26,18 @@ Nav2 navigation command group and seven quality-of-life improvements from ros-mc
 - **`SKILL.md`:** bumped to v1.0.8; description now mentions Nav2 navigation; new "Nav2 Navigation" section with quickstart examples and key flag summary
 - **`AGENTS.md`:** profile navigation note expanded — `nav2_config` fields described, canonical EKF odom topic noted, full nav2 command group workflow documented; mandatory pre-goal `nav2 cancel` rule added; `nav2 status` + `nav2 cancel` promoted to preferred preemption path in `RULES-MOTION.md` SG-9
 
+### Lyrical Luth Compatibility
+
+All changes are backward-compatible with Humble, Iron, Jazzy, and Kilted. New behaviour activates automatically on `ROS_DISTRO=lyrical` (or any later distro) via `is_at_least("lyrical")` guards; alphabetical fallback in `_distro_rank()` means future unknown distros are handled without code changes.
+
+- **Version detection helpers** (`ros2_utils`): `get_ros_distro()` reads `$ROS_DISTRO`; `_distro_rank()` maps distro names to an ordered rank with alphabetical fallback for future distros; `is_at_least(distro)` returns `True` when the active distro is equal to or newer than the given name
+- **`topics bw` — multi-topic concurrent monitoring:** accepts zero or more topic names (no topic → `--all` required); `--all` monitors every currently-published topic; single-topic path preserves the original output format exactly; multi-topic path uses `MultiThreadedExecutor` and returns `{topics: {name: {bw, bytes_per_msg, rate, samples}}, no_data: [...], count: N}`
+- **`params set` — multi-pair and `--type` flag:** pass additional `node:param value` pairs after the first to set multiple parameters in one call; `--type {bool,int,float,str}` forces value coercion when type inference is wrong (e.g. the string `"123"`); single-pair output unchanged; multi-pair returns `{results: [...]}`
+- **`params get-all-nodes <param_name>`:** new command — queries every running node's `ListParameters` + `GetParameters` for a single exact parameter name; returns `{param, nodes: {node: value}, count, not_set: [...]}`; replaces manual `params get /node key` × N sweeps for cross-node checks like `use_sim_time`
+- **`services info --verbose`:** without `--verbose` output is identical to `services details`; with `--verbose` on Lyrical+ calls `get_servers_info_by_service()` and `get_clients_info_by_service()` to append `servers: [{node_name, node_namespace, qos}]` and `clients: [{node_name, node_namespace}]` to the response; degrades gracefully with a `verbose_note` on pre-Lyrical distros
+- **`AGENTS.md` + `COMMANDS.md` Lyrical documentation pass:** `TRACETOOLS_RUNTIME_DISABLE=1` tracing-overhead note added to Session Start Step 1; RSP `use_robot_description_topic` topic-based URDF delivery note added to Session Start Step 7; `RCL_LOGGING_IMPLEMENTATION` troubleshooting row added to When Things Go Wrong; `services info --verbose` output documented; `topics bw` multi-topic syntax documented; `params set` multi-pair / `--type` documented; `params get-all-nodes` new section added; Lyrical `StringJoinSubstitution` / `PathJoinSubstitution` / `Log*` launch actions noted in launch section; bag remote service control (`~/record`, `~/stop`, `~/pause`, `~/resume`, `~/split`) documented; `ros2 trace` snapshot / dual-session callout added; `RCL_LOGGING_IMPLEMENTATION` / `TRACETOOLS_*` env var table added to doctor section
+- **Test consolidation:** 151 → 85 test methods with 566 subtests via `subTest` loops; `TestExhaustiveParser` enforces DISPATCH↔MINIMAL_ARGS symmetry bidirectionally; all new commands covered
+
 ---
 
 ## [1.0.7] - 2026-05-12
