@@ -10,6 +10,7 @@ import rclpy
 from ros2_utils import (
     ROS2CLI, get_srv_type, msg_to_dict, dict_to_msg, output,
     ros2_context, _get_service_event_qos,
+    is_at_least, get_ros_distro,
 )
 from ros2_topic import TopicSubscriber
 
@@ -65,6 +66,82 @@ def cmd_services_details(args):
                         result["response"] = msg_to_dict(srv_class.Response())
                     except Exception:
                         pass
+        output(result)
+    except Exception as e:
+        output({"error": str(e)})
+
+
+def cmd_services_info(args):
+    """Alias for details; on Lyrical Luth adds QoS/endpoint data with --verbose.
+
+    Without ``--verbose`` (or on pre-Lyrical distros) the output is identical
+    to ``services details``.  With ``--verbose`` on Lyrical or newer, two extra
+    keys are added::
+
+        "servers": [{"node_name": ..., "node_namespace": ..., "qos": {...}}, ...]
+        "clients": [{"node_name": ..., "node_namespace": ...}, ...]
+    """
+    verbose = getattr(args, 'verbose', False)
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            services = node.get_service_names()
+            result = {"service": args.service, "type": "", "request": {}, "response": {}}
+            for name, types in services:
+                if name == args.service:
+                    result["type"] = types[0] if types else ""
+                    break
+
+            if result["type"]:
+                srv_class = get_srv_type(result["type"])
+                if srv_class:
+                    try:
+                        result["request"] = msg_to_dict(srv_class.Request())
+                    except Exception:
+                        pass
+                    try:
+                        result["response"] = msg_to_dict(srv_class.Response())
+                    except Exception:
+                        pass
+
+            if verbose:
+                if is_at_least("lyrical"):
+                    try:
+                        servers = node.get_servers_info_by_service(args.service)
+                        result["servers"] = [
+                            {
+                                "node_name": s.node_name,
+                                "node_namespace": s.node_namespace,
+                                "qos": {
+                                    "reliability": str(s.qos_profile.reliability),
+                                    "durability": str(s.qos_profile.durability),
+                                    "history": str(s.qos_profile.history),
+                                    "depth": s.qos_profile.depth,
+                                },
+                            }
+                            for s in (servers or [])
+                        ]
+                        clients = node.get_clients_info_by_service(args.service)
+                        result["clients"] = [
+                            {
+                                "node_name": c.node_name,
+                                "node_namespace": c.node_namespace,
+                            }
+                            for c in (clients or [])
+                        ]
+                    except AttributeError:
+                        # API exists on Lyrical but method name may vary
+                        result["verbose_note"] = (
+                            "QoS/endpoint info unavailable — "
+                            "get_servers_info_by_service() not found on this rclpy build"
+                        )
+                else:
+                    result["verbose_note"] = (
+                        f"--verbose requires Lyrical Luth or newer "
+                        f"(active distro: {get_ros_distro()})"
+                    )
+
         output(result)
     except Exception as e:
         output({"error": str(e)})

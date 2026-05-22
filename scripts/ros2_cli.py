@@ -68,12 +68,14 @@ from ros2_param import (
     cmd_params_preset_delete,
     cmd_params_find,
     cmd_params_exists,
+    cmd_params_get_all_nodes,
 )
 
 from ros2_service import (
     cmd_services_list,
     cmd_services_type,
     cmd_services_details,
+    cmd_services_info,
     cmd_services_call,
     cmd_services_echo,
     cmd_services_find,
@@ -526,8 +528,10 @@ def build_parser():
     p.add_argument("service", help="Service name (e.g. /add_two_ints)")
     p = ssub.add_parser("details", help="Get service details")
     p.add_argument("service", help="Service name (e.g. /add_two_ints)")
-    p = ssub.add_parser("info", help="Alias for details (ros2 service info)")
+    p = ssub.add_parser("info", help="Service details; --verbose adds QoS/endpoints (Lyrical+)")
     p.add_argument("service", help="Service name (e.g. /add_two_ints)")
+    p.add_argument("--verbose", "-v", action="store_true", default=False,
+                   help="Include QoS profiles and endpoint node info (requires Lyrical Luth or newer)")
     p = ssub.add_parser("find", help="Find services by service type")
     p.add_argument("service_type", nargs="?", help="Service type to search for (e.g. std_srvs/srv/SetBool)")
     p.add_argument("--timeout", type=float, default=5.0,
@@ -754,6 +758,11 @@ def build_parser():
     p.add_argument("name", help="Node and parameter in '/node:param' format (e.g. /turtlesim:background_r)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p = psub.add_parser("get-all-nodes",
+                        help="Get one parameter's value from every running node that has it")
+    p.add_argument("param_name", help="Parameter name to look up across all nodes (e.g. use_sim_time)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Timeout per node in seconds (default: 10)")
     p = psub.add_parser("preset-save", help="Save node parameters as a named preset")
     p.add_argument("node", help="Node name (e.g. /turtlesim)")
     p.add_argument("preset", help="Preset name (e.g. indoor)")
@@ -1467,7 +1476,7 @@ DISPATCH = {
     ("services", "find"): cmd_services_find,
     # services — aliases
     ("services", "ls"): cmd_services_list,
-    ("services", "info"): cmd_services_details,
+    ("services", "info"): cmd_services_info,
     ("services", "echo"): cmd_services_echo,
     # nodes — canonical
     ("nodes", "list"): cmd_nodes_list,
@@ -1512,6 +1521,7 @@ DISPATCH = {
     ("params", "preset-delete"): cmd_params_preset_delete,
     ("params", "find"): cmd_params_find,
     ("params", "exists"): cmd_params_exists,
+    ("params", "get-all-nodes"): cmd_params_get_all_nodes,
     # params — alias
     ("params", "ls"): cmd_params_list,
     # actions — canonical

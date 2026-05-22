@@ -567,6 +567,88 @@ def cmd_params_find(args):
         output({"error": str(e)})
 
 
+def cmd_params_get_all_nodes(args):
+    """Get the value of one parameter from every running node that has it.
+
+    Lyrical Luth-inspired: mirrors ``ros2 param get --all-nodes <param>``.
+    Implemented with standard service calls so it works on all ROS 2 distros.
+
+    Output::
+
+        {
+            "param": "use_sim_time",
+            "nodes": {"/controller_manager": "False", "/robot_state_publisher": "True"},
+            "count": 2,
+            "not_set": ["/some_node_without_it"]
+        }
+    """
+    param_name = args.param_name
+    timeout = getattr(args, 'timeout', 5.0)
+
+    try:
+        from rcl_interfaces.srv import ListParameters, GetParameters
+        with ros2_context():
+            node = ROS2CLI()
+            node_info = node.get_node_names_and_namespaces()
+            nodes_to_search = [
+                f"{ns.rstrip('/')}/{n}" if not ns.endswith('/') else f"{ns}{n}"
+                for n, ns in node_info
+            ]
+
+            found = {}
+            not_set = []
+            errors = []
+            per_node_timeout = min(timeout, 3.0)
+
+            for node_name in nodes_to_search:
+                list_result, err = _call_service(
+                    node, ListParameters, f"{node_name}/list_parameters",
+                    ListParameters.Request(), per_node_timeout,
+                )
+                if err:
+                    continue  # node has no param service — skip silently
+
+                names = list_result.result.names if list_result.result else []
+                if param_name not in names:
+                    not_set.append(node_name)
+                    continue
+
+                get_req = GetParameters.Request()
+                get_req.names = [param_name]
+                get_result, err = _call_service(
+                    node, GetParameters, f"{node_name}/get_parameters",
+                    get_req, per_node_timeout,
+                )
+                if err:
+                    errors.append(node_name)
+                    continue
+
+                values = get_result.values or []
+                if values and values[0].type != 0:
+                    py_val = _param_value_to_python(values[0])
+                    found[node_name] = str(py_val) if py_val is not None else ""
+                else:
+                    not_set.append(node_name)
+
+        if not found and not errors:
+            return output({
+                "error": f"Parameter '{param_name}' not found on any running node",
+                "searched": len(nodes_to_search),
+            })
+
+        out = {
+            "param": param_name,
+            "nodes": found,
+            "count": len(found),
+            "not_set": not_set,
+        }
+        if errors:
+            out["errors"] = errors
+        output(out)
+    except Exception as e:
+        output({"error": str(e)})
+
+
 def cmd_params_exists(args):
     """Check whether a parameter exists on a node without raising an error.
 

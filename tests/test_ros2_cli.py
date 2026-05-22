@@ -158,6 +158,7 @@ MINIMAL_ARGS = [
     ("params",   "preset-delete",    ["params", "preset-delete", "p"]),
     ("params",   "find",             ["params", "find", "velocity"]),
     ("params",   "exists",           ["params", "exists", "/n:p"]),
+    ("params",   "get-all-nodes",    ["params", "get-all-nodes", "use_sim_time"]),
     ("params",   "ls",               ["params", "ls", "/n"]),
     # actions
     ("actions",  "list",             ["actions", "list"]),
