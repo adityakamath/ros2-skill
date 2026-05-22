@@ -1177,28 +1177,33 @@ No matches:
 
 ---
 
-## topics bw `<topic>` [options]
+## topics bw `[topics...]` [options]
 
-Measure the bandwidth of a topic in bytes per second. Serialises each received message to measure its size.
+Measure the bandwidth of one or more topics in bytes per second. Serialises each received message to measure its size. Pass multiple topic names to monitor them concurrently in a single call (Lyrical Luth feature — works on all distros).
 
 **ROS 2 CLI equivalent:** `ros2 topic bw /topic`
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `topic` | Yes | Topic name |
+| `topics` | No | One or more topic names (zero triggers `--all`) |
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--window N` | `10` | Number of message samples to collect |
-| `--timeout SECONDS` | `10` | Max wait time; returns error if fewer than 2 messages arrive |
+| `--all` | false | Monitor all currently-published topics |
+| `--window N` | `10` | Number of message samples to collect per topic |
+| `--timeout SECONDS` | `10` | Max wait time per topic |
 
 ```bash
+# Single topic (original format)
 python3 {baseDir}/scripts/ros2_cli.py topics bw /camera/image_raw
 python3 {baseDir}/scripts/ros2_cli.py topics bw /scan --window 20 --timeout 15
-python3 {baseDir}/scripts/ros2_cli.py topics bw /odom --window 5
+
+# Multiple topics (concurrent)
+python3 {baseDir}/scripts/ros2_cli.py topics bw /scan /odom /cmd_vel
+python3 {baseDir}/scripts/ros2_cli.py topics bw /camera/image_raw /scan --window 5
 ```
 
-Output:
+Single-topic output:
 ```json
 {
   "topic": "/camera/image_raw",
@@ -1209,7 +1214,20 @@ Output:
 }
 ```
 
-`bw` is bytes/s. `bytes_per_msg` is mean serialised message size. Error if fewer than 2 messages:
+Multi-topic output:
+```json
+{
+  "topics": {
+    "/scan": {"bw": 38400.0, "bytes_per_msg": 3840, "rate": 10.0, "samples": 10},
+    "/odom": {"bw": 2048.0, "bytes_per_msg": 256, "rate": 8.0, "samples": 10},
+    "/cmd_vel": {"bw": 480.0, "bytes_per_msg": 48, "rate": 10.0, "samples": 10}
+  },
+  "no_data": [],
+  "count": 3
+}
+```
+
+`bw` is bytes/s. `bytes_per_msg` is mean serialised message size. Topics that produced fewer than 2 messages appear in `no_data`. Single-topic error:
 ```json
 {"error": "Fewer than 2 messages received within 10.0s on '/camera/image_raw'"}
 ```
@@ -1314,10 +1332,15 @@ Get service details including type, request fields, and response fields.
 |----------|----------|-------------|
 | `service` | Yes | Service name |
 
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--verbose` / `-v` | false | Include QoS profiles and endpoint node info (Lyrical Luth and newer only) |
+
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py services details /spawn
 python3 {baseDir}/scripts/ros2_cli.py services info /spawn
 python3 {baseDir}/scripts/ros2_cli.py services details /turtle1/set_pen
+python3 {baseDir}/scripts/ros2_cli.py services info /my_service --verbose   # Lyrical+ only
 ```
 
 Output:
@@ -1329,6 +1352,33 @@ Output:
   "response": {"name": ""}
 }
 ```
+
+Output with `--verbose` (Lyrical Luth and newer):
+```json
+{
+  "service": "/my_service",
+  "type": "std_srvs/srv/SetBool",
+  "request": {"data": false},
+  "response": {"success": false, "message": ""},
+  "servers": [
+    {
+      "node_name": "my_node",
+      "node_namespace": "/",
+      "qos": {
+        "reliability": "ReliabilityPolicy.RELIABLE",
+        "durability": "DurabilityPolicy.VOLATILE",
+        "history": "HistoryPolicy.KEEP_LAST",
+        "depth": 10
+      }
+    }
+  ],
+  "clients": [
+    {"node_name": "caller_node", "node_namespace": "/"}
+  ]
+}
+```
+
+If `--verbose` is used on a pre-Lyrical distro, a `"verbose_note"` key is returned instead of `"servers"`/`"clients"` with an explanation.
 
 ---
 
@@ -1590,7 +1640,7 @@ Output:
 
 ## params set `<node:param_name>` `<value>` or `<node> <param_name> <value>`
 
-Set a parameter value. Accepts colon-separated or space-separated format.
+Set one or more parameter values. Accepts colon-separated or space-separated format. Pass additional `name=value` pairs after the first to set multiple parameters in a single call (Lyrical Luth feature — works on all distros).
 
 **ROS 2 CLI equivalent:** `ros2 param set /turtlesim background_r 255`
 
@@ -1599,33 +1649,88 @@ Set a parameter value. Accepts colon-separated or space-separated format.
 | `name` | Yes | Node name with `:param_name` suffix, or just the node name |
 | `value` | Yes | New value (colon format) |
 | `param_name` | No | Parameter name (space format) |
-| `extra_value` | No | Value to set (space format) |
+| `extra_value` | No | Value to set (space format); additional `name=value` pairs for multi-set |
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--timeout SECONDS` | `5` | Service call timeout |
+| `--type TYPE` | auto-detect | Force value type: `bool`, `int`, `float`, or `str`. Use when the inferred type is wrong (e.g. `"123"` should be a string). |
 
 ```bash
-# Colon format
+# Colon format (single)
 python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
 
-# Space-separated format
+# Space-separated format (single)
 python3 {baseDir}/scripts/ros2_cli.py params set /base_controller base_frame_id base_link_new
 
-python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_g 0
-python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_b 0
-python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:use_sim_time true
+# Force type (Lyrical+ multi-param set feature — works on all distros)
+python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:name_param 123 --type str
+
+# Multi-pair: set background_r, background_g, and background_b in one call
+python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255 \
+  /turtlesim:background_g 0 /turtlesim:background_b 0
 ```
 
-Output:
+Single-pair output:
 ```json
 {"name": "/turtlesim:background_r", "value": "255", "success": true}
+```
+
+Multi-pair output:
+```json
+{
+  "results": [
+    {"name": "/turtlesim:background_r", "value": "255", "success": true},
+    {"name": "/turtlesim:background_g", "value": "0", "success": true},
+    {"name": "/turtlesim:background_b", "value": "0", "success": true}
+  ]
+}
 ```
 
 Read-only parameter:
 ```json
 {"name": "/base_controller:base_frame_id", "value": "base_link_new", "success": false, "error": "Parameter is read-only and cannot be changed at runtime", "read_only": true}
 ```
+
+---
+
+## params get-all-nodes `<param_name>` [options]
+
+Query every running node for a single parameter by exact name. Returns the value from each node that has the parameter, and lists nodes where it is not set. Useful for checking `use_sim_time` or any other cross-node parameter without knowing which nodes own it.
+
+**ROS 2 CLI equivalent:** No direct equivalent — replaces `ros2 param get` × N nodes. Related to Lyrical Luth's `--all-nodes` param query feature.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `param_name` | Yes | Exact parameter name to search for (e.g. `use_sim_time`) |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECONDS` | `5` | Per-node service call timeout |
+
+```bash
+# Check use_sim_time across all nodes
+python3 {baseDir}/scripts/ros2_cli.py params get-all-nodes use_sim_time
+
+# Check a controller parameter across all nodes
+python3 {baseDir}/scripts/ros2_cli.py params get-all-nodes max_vel_x
+```
+
+Output:
+```json
+{
+  "param": "use_sim_time",
+  "nodes": {
+    "/turtlesim": "False",
+    "/robot_state_publisher": "False",
+    "/controller_manager": "False"
+  },
+  "count": 3,
+  "not_set": ["/some_node_without_it"]
+}
+```
+
+`nodes` maps node name → string-formatted value for every node that has the parameter. `not_set` lists nodes contacted but that do not have the parameter. Nodes that timed out are omitted silently.
 
 ---
 
@@ -2777,6 +2882,14 @@ Output (ros2doctor not installed):
 {"error": "No ros2doctor checkers found. Is ros2doctor installed? Source ROS 2 setup.bash."}
 ```
 
+**Environment variables that affect ROS 2 health (Lyrical Luth additions):**
+
+| Variable | Effect | When to use |
+|----------|--------|-------------|
+| `RCL_LOGGING_IMPLEMENTATION` | Swap the logging backend at runtime (`rcl_logging_spdlog` is the default; `rcl_logging_log4cxx` for structured log aggregation). | Node logs missing or in unexpected format: unset this variable or set it explicitly to `rcl_logging_spdlog`. |
+| `TRACETOOLS_RUNTIME_DISABLE` | Set to `1` to disable tracetools instrumentation globally at runtime. | Suppress tracing overhead when `ros2 trace` is not in use (Lyrical+ only). |
+| `TRACETOOLS_STATUS_OVERRIDE` | Force tracing status reporting (`enabled`/`disabled`). | Debug tracing configuration issues without restarting nodes. |
+
 ---
 
 ### doctor hello
@@ -3112,6 +3225,12 @@ Run a ROS 2 launch file in a tmux session. System ROS is assumed to be already s
 - Partial argument names are auto-matched (e.g., "mock" → "use_mock")
 
 **Workspace sourcing:** If the launch file is in a local workspace, the skill automatically sources it. Set `ROS2_LOCAL_WS` environment variable if the workspace is not in the default search paths (`~/ros2_ws`, `~/colcon_ws`, `~/dev_ws`, `~/workspace`, `~/ros2`).
+
+**Lyrical Luth launch additions (available in launch files on Lyrical+ only):**
+- **New substitutions:** `StringJoinSubstitution(values, delimiter)` — concatenates a list of strings; `PathJoinSubstitution(values)` — joins path segments (replaces manual `[FindPackageShare(...), "subdir", "file.yaml"]` patterns).
+- **Log actions:** `LogInfo(msg)`, `LogWarn(msg)`, `LogError(msg)`, `LogDebug(msg)` — emit structured messages from inside a launch file at the appropriate log level. More precise than `LogInfo` with a `condition` argument for runtime-conditional logging.
+
+These are launch-file authoring features, not `ros2_cli.py` flags. They affect launch files you write or inspect, not how `launch new` is invoked.
 
 **Discovery workflow:** Resolve the launch file location before running:
 1. **Path A (profile loaded):** check `summary.launch_files` and `summary.packages` for the package + launch file. No live calls needed for naming.
@@ -3834,6 +3953,51 @@ Error (PyYAML not installed):
 ```json
 {"error": "PyYAML is required for bag info: pip install pyyaml"}
 ```
+
+### Bag remote service control (Lyrical Luth and newer)
+
+On Lyrical Luth and newer, `ros2 bag record` exposes ROS 2 services on the recording node that allow another node or agent to control an ongoing recording session remotely:
+
+| Service | Type | Effect |
+|---------|------|--------|
+| `~/record` | `std_srvs/srv/Empty` | Start recording (if not already running) |
+| `~/stop` | `std_srvs/srv/Empty` | Stop and finalise the current bag |
+| `~/pause` | `std_srvs/srv/Empty` | Pause recording (messages buffered, not written) |
+| `~/resume` | `std_srvs/srv/Empty` | Resume a paused recording |
+| `~/split` | `std_srvs/srv/Empty` | Close the current bag file and open a new one |
+
+The services are relative to the recording node's namespace (default `~` = the node's own namespace, typically `/ros2bag_…`). Discover the exact names with `services list` and use `services call` to invoke them:
+
+```bash
+# Discover the recording node's services
+python3 {baseDir}/scripts/ros2_cli.py services list
+
+# Pause an active recording
+python3 {baseDir}/scripts/ros2_cli.py services call /ros2bag_record/pause '{}'
+
+# Split to a new file
+python3 {baseDir}/scripts/ros2_cli.py services call /ros2bag_record/split '{}'
+
+# Stop the recording
+python3 {baseDir}/scripts/ros2_cli.py services call /ros2bag_record/stop '{}'
+```
+
+These services are not available on Humble, Iron, Jazzy, or Kilted. On those distros, the recording node does not expose control services.
+
+---
+
+## ros2 trace (Lyrical Luth — native CLI only)
+
+> **Not wrapped by ros2-skill.** Use the native `ros2 trace` CLI directly. ros2-skill does not provide a `trace` command.
+
+`ros2 trace` gained two new modes in Lyrical Luth. Use the native CLI for these operations:
+
+| Mode | Command | Effect |
+|------|---------|--------|
+| Snapshot | `ros2 trace snapshot` | Capture a point-in-time snapshot of the current trace buffer without stopping an ongoing session. |
+| Dual-session | `ros2 trace --dual-session` | Run two simultaneous trace sessions — one for the agent and one for the robot hardware. Useful for correlating AI decision points with low-level actuator events. |
+
+Set `TRACETOOLS_RUNTIME_DISABLE=1` to suppress all tracing overhead when `ros2 trace` is not in use.
 
 ---
 

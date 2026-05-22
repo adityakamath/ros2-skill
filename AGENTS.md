@@ -259,6 +259,8 @@ python3 {baseDir}/scripts/ros2_cli.py doctor
 ```
 If critical failures are reported (DDS issues, no nodes found), stop and tell the user. Do not attempt to operate a robot that fails its health check.
 
+**Tracing overhead (Lyrical Luth and newer):** On `ROS_DISTRO=lyrical` or later, `tracetools` instrumentation is enabled by default and adds minor overhead. Set `TRACETOOLS_RUNTIME_DISABLE=1` in the shell environment to suppress it when trace data is not needed. For snapshot or dual-session tracing, use `ros2 trace` from the native CLI (not wrapped by ros2-skill).
+
 **Step 2 — Daemon check:**
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py daemon status
@@ -304,6 +306,7 @@ When a profile is loaded:
 - **Annotations (MANDATORY):** If `annotations` is non-empty, read every note and treat it as mandatory operational context before executing any command this session. Annotations capture information that static analysis cannot detect — hardware quirks, sensor calibrations, operational constraints. They override default behaviour where relevant. Example: if an annotation says "left encoder drifts — apply 5% correction to cmd_vel", apply that correction to every velocity command without being asked.
 - **Absent fields mean not detected — never null.** The profile omits any field whose value is `None`, `[]`, or `{}`. A missing key means "not detected / not applicable", never "unknown value". Do not assume a field is present; check before reading.
 - **Sensor mounts:** `summary.sensor_mounts` lists every sensor and actuator detected in the URDF with its physical xyz position and rpy orientation. Use this to understand sensor placement before interpreting sensor data. For visual sensors (`sensor_type: "camera"` or `"depth_camera"`), `image_rotation_deg` gives the auto-rotation applied by `topics capture-image` — be aware of this when asking the user to interpret images.
+- **Robot State Publisher — Lyrical Luth and newer:** On Lyrical+, `robot_state_publisher` accepts a `use_robot_description_topic` parameter. When `true`, the URDF is delivered at runtime via the `/robot_description` topic rather than being required as a startup argument. The profile scanner handles this transparently — `summary.sensor_mounts` is still populated. If `profile scan` reports no URDF on a Lyrical+ system, check whether `use_robot_description_topic` is set and whether `/robot_description` is being published.
 - Use `summary.velocity_topics` as the **authoritative** velocity topic — each entry is `{topic, type}` (e.g. `{"topic": "/base_controller/cmd_vel", "type": "geometry_msgs/msg/TwistStamped"}`). **Do not re-discover with `topics find` when this field is present.** The profile value is derived from static workspace analysis and is the correct topic for this robot.
 - Use `summary.safety_limits.binding.linear_x` as the hard ceiling for `--max-vel` and `summary.safety_limits.binding.angular_z` for `--max-ang` (see Rule 28). `binding.linear_y` is set for holonomic robots. `summary.safety_limits.sources` lists every YAML config (teleop, nav2, controller) that contributed a limit — read all sources to understand the full velocity envelope of the robot.
 - Use `summary.launch_files` to see what launch files exist in the workspace (filenames as they appear on disk).
@@ -656,6 +659,7 @@ Mismatched signs (e.g. `--rotate 90` with `angular.z: -0.5`) = monitor waits for
 | Rotation command runs until timeout, robot spins but never stops | `--rotate` and `angular.z` sign mismatch | Signs must match: both positive for CCW/left, both negative for CW/right |
 | Movement command returns but robot does not move | Controller not active or wrong topic used | `control list-controllers`, re-run topic discovery |
 | `--help` returns JSON error instead of help text | ROS 2 not sourced | Source ROS 2 environment first |
+| Node logs missing or written in unexpected format | Non-default `RCL_LOGGING_IMPLEMENTATION` active | Unset `RCL_LOGGING_IMPLEMENTATION` to restore the default `spdlog` backend, or set it explicitly: `export RCL_LOGGING_IMPLEMENTATION=rcl_logging_spdlog` |
 
 ---
 
