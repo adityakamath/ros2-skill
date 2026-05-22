@@ -1463,32 +1463,144 @@ class BwMonitor(Node):
                 self.done_event.set()
 
 
-def cmd_topics_bw(args):
-    """Measure the bandwidth of a topic."""
-    if not args.topic:
-        return output({"error": "topic argument is required"})
+def _run_bw_multi(topic_types_dict, target_topics, window, timeout):
+    """Run BwMonitor concurrently on multiple topics within the current ros2_context.
 
-    topic, window, timeout = args.topic, args.window, args.timeout
+    Must be called inside ros2_context().  Returns ``(results, no_data)`` where
+    ``results`` maps topic → stats dict for topics that got enough samples, and
+    ``no_data`` is the list of topics that received fewer than 2 messages.
+    """
+    monitors = {}
+    done_events = {}
+
+    executor = rclpy.executors.MultiThreadedExecutor()
+
+    for topic in target_topics:
+        msg_type_str = topic_types_dict.get(topic, [None])[0]
+        if not msg_type_str:
+            continue
+        done = threading.Event()
+        mon = BwMonitor(topic, msg_type_str, window, done)
+        if mon.sub is None:
+            continue
+        executor.add_node(mon)
+        monitors[topic] = mon
+        done_events[topic] = done
+
+    if not monitors:
+        return {}, []
+
+    stop = threading.Event()
+
+    def _spin():
+        while not stop.is_set():
+            executor.spin_once(timeout_sec=0.1)
+
+    spin_thread = threading.Thread(target=_spin, daemon=True)
+    spin_thread.start()
+
+    deadline = time.time() + timeout
+    for done in done_events.values():
+        remaining = max(deadline - time.time(), 0.05)
+        done.wait(timeout=remaining)
+
+    stop.set()
+    spin_thread.join(timeout=1.0)
+
+    results = {}
+    no_data = []
+    for topic, mon in monitors.items():
+        with mon.lock:
+            samples = list(mon.samples)
+        if len(samples) >= 2:
+            duration = samples[-1][0] - samples[0][0]
+            total_bytes = sum(s for _, s in samples)
+            results[topic] = {
+                "bw": round(total_bytes / duration if duration > 0 else 0.0, 4),
+                "bytes_per_msg": round(total_bytes / len(samples), 2),
+                "rate": round(len(samples) / duration if duration > 0 else 0.0, 4),
+                "samples": len(samples),
+            }
+        else:
+            no_data.append(topic)
+
+    return results, no_data
+
+
+def cmd_topics_bw(args):
+    """Measure the bandwidth of one or more topics.
+
+    Lyrical Luth: accepts multiple topic names or ``--all`` for every topic
+    in the ROS graph.
+
+    Single topic (backward-compatible output)::
+
+        {"topic": "/odom", "bw": 12345.6, ...}
+
+    Multiple topics or ``--all``::
+
+        {"topics": {"/odom": {"bw": ...}, "/cmd_vel": {"bw": ...}}, "count": 2}
+    """
+    topics_arg = list(getattr(args, 'topics', None) or [])
+    all_flag = getattr(args, 'all', False)
+    window, timeout = args.window, args.timeout
+
+    if not topics_arg and not all_flag:
+        return output({"error": "Specify at least one topic or use --all"})
+
     try:
         with ros2_context():
-            monitor, err = _run_monitor(topic, window, timeout, BwMonitor)
-            if err:
-                return output(err)
-            with monitor.lock:
-                samples = list(monitor.samples)
+            probe = ROS2CLI()
+            topic_types = dict(probe.get_topic_names_and_types())
+            probe.destroy_node()
 
-        if len(samples) < 2:
-            return output({"error": f"Fewer than 2 messages received within {timeout}s on '{topic}'"})
+            if all_flag:
+                target_topics = list(topic_types.keys())
+                per_timeout = min(timeout, 5.0)   # cap per-topic window for --all
+            else:
+                target_topics = topics_arg
+                per_timeout = timeout
 
-        duration = samples[-1][0] - samples[0][0]
-        total_bytes = sum(s for _, s in samples)
-        output({
-            "topic": topic,
-            "bw": round(total_bytes / duration if duration > 0 else 0.0, 4),
-            "bytes_per_msg": round(total_bytes / len(samples), 2),
-            "rate": round(len(samples) / duration if duration > 0 else 0.0, 4),
-            "samples": len(samples),
-        })
+            if not target_topics:
+                return output({"error": "No topics found in the ROS graph"})
+
+            missing = [t for t in target_topics if t not in topic_types]
+            valid = [t for t in target_topics if t in topic_types]
+
+            if not valid:
+                return output({"error": "None of the requested topics exist", "missing": missing})
+
+            # Single topic — preserve original output format for backward compat
+            if len(valid) == 1 and not all_flag:
+                topic = valid[0]
+                monitor, err = _run_monitor(topic, window, per_timeout, BwMonitor)
+                if err:
+                    return output(err)
+                with monitor.lock:
+                    samples = list(monitor.samples)
+                if len(samples) < 2:
+                    return output({
+                        "error": f"Fewer than 2 messages received within {per_timeout}s on '{topic}'"
+                    })
+                duration = samples[-1][0] - samples[0][0]
+                total_bytes = sum(s for _, s in samples)
+                return output({
+                    "topic": topic,
+                    "bw": round(total_bytes / duration if duration > 0 else 0.0, 4),
+                    "bytes_per_msg": round(total_bytes / len(samples), 2),
+                    "rate": round(len(samples) / duration if duration > 0 else 0.0, 4),
+                    "samples": len(samples),
+                })
+
+            # Multi-topic — concurrent monitoring
+            results, no_data = _run_bw_multi(topic_types, valid, window, per_timeout)
+
+        out = {"topics": results, "count": len(results)}
+        if missing:
+            out["not_found"] = missing
+        if no_data:
+            out["no_data"] = no_data
+        output(out)
     except Exception as e:
         output({"error": str(e)})
 

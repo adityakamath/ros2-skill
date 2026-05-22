@@ -385,12 +385,14 @@ def build_parser():
                    help="Override the Path A guard: run live discovery even "
                         "when the loaded profile already has this field. "
                         "Use only for legitimate Path B / debug needs.")
-    p = tsub.add_parser("bw", help="Measure topic bandwidth")
-    p.add_argument("topic", nargs="?", help="Topic name (e.g. /camera/image_raw)")
+    p = tsub.add_parser("bw", help="Measure topic bandwidth (Lyrical: multiple topics or --all)")
+    p.add_argument("topics", nargs="*", help="Topic name(s) (e.g. /odom /cmd_vel); omit with --all")
+    p.add_argument("--all", dest="all", action="store_true", default=False,
+                   help="Measure bandwidth for every topic in the ROS graph (Lyrical Luth+)")
     p.add_argument("--window", type=int, default=10,
-                   help="Number of messages to sample (default: 10)")
+                   help="Number of messages to sample per topic (default: 10)")
     p.add_argument("--timeout", type=float, default=10.0,
-                   help="Max wait time in seconds (default: 10)")
+                   help="Max wait time in seconds per topic (default: 10)")
     p = tsub.add_parser("delay", help="Measure header.stamp → wall-clock latency")
     p.add_argument("topic", nargs="?", help="Topic name (must publish messages with header.stamp)")
     p.add_argument("--window", type=int, default=10,
@@ -715,12 +717,18 @@ def build_parser():
                    help="Additional parameter names to fetch in the same call")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
-    p = psub.add_parser("set", help="Set parameter value")
+    p = psub.add_parser("set", help="Set one or more parameter values (Lyrical: multi-pair + --type)")
     p.add_argument("name", help="/node_name:param_name or just /node_name")
     p.add_argument("value",
                    help="Value to set, or parameter name when using /node param value format")
     p.add_argument("extra_value", nargs="?", default=None,
                    help="Value when using /node param value format")
+    p.add_argument("rest", nargs="*", default=[],
+                   help="Additional param-value pairs: p2 v2 p3 v3 ... (Lyrical multi-pair)")
+    p.add_argument("--type", dest="force_type", default=None,
+                   choices=["bool", "int", "float", "str"],
+                   help="Force parameter type, overriding heuristic inference "
+                        "(mirrors Lyrical YAML !! annotations: !!bool, !!int, !!float, !!str)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
     p = psub.add_parser("describe", help="Get parameter descriptor")

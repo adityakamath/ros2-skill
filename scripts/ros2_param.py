@@ -182,47 +182,104 @@ def cmd_params_get(args):
         output({"error": str(e)})
 
 
+def _coerce_param_value(value_str, force_type=None):
+    """Build a ParameterValue from *value_str*.
+
+    If *force_type* is one of ``'bool'``, ``'int'``, ``'float'``, ``'str'``
+    (from the ``--type`` flag, Lyrical Luth YAML annotation style), that type
+    is used directly.  Otherwise the existing heuristic inference applies so
+    that all pre-Lyrical call sites continue to work unchanged.
+    """
+    pv = ParameterValue()
+    try:
+        if force_type == 'bool':
+            pv.type = 1
+            pv.bool_value = value_str.lower() in ('true', '1', 'yes')
+        elif force_type == 'int':
+            pv.type = 2
+            pv.integer_value = int(value_str)
+        elif force_type == 'float':
+            pv.type = 3
+            pv.double_value = float(value_str)
+        elif force_type == 'str':
+            pv.type = 4
+            pv.string_value = value_str
+        else:
+            # Heuristic inference (all distros)
+            if value_str.lower() in ('true', 'false'):
+                pv.type = 1
+                pv.bool_value = value_str.lower() == 'true'
+            elif '.' in value_str:
+                pv.type = 3
+                pv.double_value = float(value_str)
+            else:
+                try:
+                    pv.type = 2
+                    pv.integer_value = int(value_str)
+                except Exception:
+                    pv.type = 4
+                    pv.string_value = value_str
+    except Exception:
+        pv.type = 4
+        pv.string_value = value_str
+    return pv
+
+
 def cmd_params_set(args):
+    """Set one or more parameters on a node.
+
+    Accepts the existing single-parameter formats unchanged::
+
+        params set /turtlesim:background_r 255
+        params set /turtlesim background_r 255
+
+    Lyrical Luth extensions:
+
+    *Multiple pairs* — set several parameters in one call::
+
+        params set /turtlesim background_r 255 background_g 128 background_b 64
+
+    *Explicit type override* (``--type``) — mirrors YAML ``!!`` annotations::
+
+        params set /turtlesim use_sim_time true --type bool
+        params set /turtlesim some_id 007 --type str
+    """
     if getattr(args, 'extra_value', None) is not None:
         full_name = args.name.rstrip(':') + ':' + args.value
-        value_str = args.extra_value
+        first_value_str = args.extra_value
     else:
         full_name = args.name
-        value_str = args.value
+        first_value_str = args.value
     if ':' not in full_name or not full_name.split(':', 1)[1]:
         return output({"error": "Use format /node_name:param_name value or /node_name param_name value (e.g. /turtlesim background_r 255)"})
+
+    node_name, first_param = full_name.split(':', 1)
+    node_name = _norm_node(node_name)
+    force_type = getattr(args, 'force_type', None)
+
+    # Build first pair
+    pairs = [(first_param, first_value_str)]
+
+    # Additional pairs from Lyrical multi-pair extension: rest = [p2, v2, p3, v3, ...]
+    rest = list(getattr(args, 'rest', None) or [])
+    if rest:
+        if len(rest) % 2 != 0:
+            return output({"error": "Extra param-value pairs must be even: p2 v2 p3 v3 ..."})
+        for i in range(0, len(rest), 2):
+            pairs.append((rest[i], rest[i + 1]))
 
     try:
         from rcl_interfaces.srv import SetParameters
         with ros2_context():
             node = ROS2CLI()
-            node_name, param_name = full_name.split(':', 1)
-            node_name = _norm_node(node_name)
-
-            pv = ParameterValue()
-            try:
-                if value_str.lower() in ('true', 'false'):
-                    pv.type = 1
-                    pv.bool_value = value_str.lower() == 'true'
-                elif '.' in value_str:
-                    pv.type = 3
-                    pv.double_value = float(value_str)
-                else:
-                    try:
-                        pv.type = 2
-                        pv.integer_value = int(value_str)
-                    except Exception:
-                        pv.type = 4
-                        pv.string_value = value_str
-            except Exception:
-                pv.type = 4
-                pv.string_value = value_str
-
             request = SetParameters.Request()
-            param = Parameter()
-            param.name = param_name
-            param.value = pv
-            request.parameters = [param]
+            params_list = []
+            for pname, pval_str in pairs:
+                p = Parameter()
+                p.name = pname
+                p.value = _coerce_param_value(pval_str, force_type)
+                params_list.append(p)
+            request.parameters = params_list
 
             result, err = _call_service(
                 node, SetParameters, f"{node_name}/set_parameters",
@@ -230,18 +287,36 @@ def cmd_params_set(args):
             )
         if err:
             return output(err)
-        if result.results and result.results[0].successful:
-            output({"name": full_name, "value": value_str, "success": True})
-        else:
-            reason = result.results[0].reason if result.results else ""
-            reason_lc = reason.lower()
-            if re.search(r'\b(read[- ]?only|readonly)\b', reason_lc):
-                output({"name": full_name, "value": value_str, "success": False,
-                        "error": "Parameter is read-only and cannot be changed at runtime",
-                        "read_only": True})
+
+        # Single param — preserve original compact output format
+        if len(pairs) == 1:
+            pname, pval_str = pairs[0]
+            if result.results and result.results[0].successful:
+                output({"name": f"{node_name}:{pname}", "value": pval_str, "success": True})
             else:
-                output({"name": full_name, "value": value_str, "success": False,
-                        "error": reason or "Parameter rejected by node"})
+                reason = result.results[0].reason if result.results else ""
+                reason_lc = reason.lower()
+                if re.search(r'\b(read[- ]?only|readonly)\b', reason_lc):
+                    output({"name": f"{node_name}:{pname}", "value": pval_str, "success": False,
+                            "error": "Parameter is read-only and cannot be changed at runtime",
+                            "read_only": True})
+                else:
+                    output({"name": f"{node_name}:{pname}", "value": pval_str, "success": False,
+                            "error": reason or "Parameter rejected by node"})
+        else:
+            # Multi-param — return structured results list
+            results_out = []
+            for (pname, pval_str), r in zip(pairs, result.results or []):
+                entry = {"name": pname, "value": pval_str, "success": r.successful}
+                if not r.successful:
+                    reason = r.reason.lower()
+                    if re.search(r'\b(read[- ]?only|readonly)\b', reason):
+                        entry["error"] = "Parameter is read-only"
+                        entry["read_only"] = True
+                    else:
+                        entry["error"] = r.reason or "Parameter rejected by node"
+                results_out.append(entry)
+            output({"node": node_name, "results": results_out, "count": len(pairs)})
     except Exception as e:
         output({"error": str(e)})
 
@@ -341,19 +416,36 @@ def cmd_params_dump(args):
 
 
 def cmd_params_load(args):
-    """Load parameters onto a node from a JSON string or file."""
+    """Load parameters onto a node from a JSON or YAML string or file.
+
+    Lyrical Luth: YAML files (``.yaml``/``.yml``) are now fully supported,
+    including ``!!str``, ``!!bool``, ``!!int``, ``!!float`` type annotations
+    that override YAML's automatic type inference.  JSON files and inline JSON
+    strings continue to work unchanged on all distros.
+    """
     node_name = _norm_node(args.node)
 
     raw = args.params
     try:
         import pathlib
-        if pathlib.Path(raw).exists():
-            with open(raw) as f:
-                data = json.load(f)
+        p = pathlib.Path(raw)
+        if p.exists():
+            if p.suffix.lower() in ('.yaml', '.yml'):
+                import yaml
+                with open(raw) as f:
+                    data = yaml.safe_load(f)
+            else:
+                with open(raw) as f:
+                    data = json.load(f)
         else:
-            data = json.loads(raw)
-    except (json.JSONDecodeError, TypeError, ValueError, OSError) as e:
-        return output({"error": f"Invalid JSON or file not found: {e}"})
+            # Inline string: try JSON first, fall back to YAML
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                import yaml
+                data = yaml.safe_load(raw)
+    except Exception as e:
+        return output({"error": f"Invalid JSON/YAML or file not found: {e}"})
 
     if not isinstance(data, dict):
         return output({"error": "JSON must be a flat object {param_name: value, ...}"})
