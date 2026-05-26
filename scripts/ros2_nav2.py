@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """ROS 2 Nav2 navigation commands.
 
-Supports only NavigateToPose — the only action server configured on lekiwi_ros2.
-NavigateThroughPoses and FollowWaypoints are intentionally absent (not in the
-robot's Nav2 bringup).
+Supports NavigateToPose, waypoint navigation, map lifecycle management
+(``nav map list/save/load/delete``) and navigation mode detection /
+switching (``nav mode get/set``).
 
 Action status codes (action_msgs/GoalStatus):
   0 = UNKNOWN, 1 = ACCEPTED, 2 = EXECUTING, 3 = CANCELING,
   4 = SUCCEEDED, 5 = CANCELED, 6 = ABORTED
+
+Nav2 lifecycle transition IDs (lifecycle_msgs/msg/Transition):
+  1 = CONFIGURE, 2 = CLEANUP, 3 = ACTIVATE, 4 = DEACTIVATE
+  5 = UNCONFIGURED_SHUTDOWN, 6 = INACTIVE_SHUTDOWN, 7 = ACTIVE_SHUTDOWN
+
+Nav2 lifecycle state IDs (lifecycle_msgs/msg/State):
+  0 = UNKNOWN, 1 = UNCONFIGURED, 2 = INACTIVE, 3 = ACTIVE, 4 = FINALIZED
 """
 
 import json
@@ -491,3 +498,538 @@ def cmd_nav2_initial_pose(args):
 
     except Exception as e:
         output({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Shared service-call helper
+# ---------------------------------------------------------------------------
+
+def _call_service(node, svc_name, srv_class, request, timeout: float = 5.0):
+    """Call *svc_name* with *request* and return ``(response, error_str)``.
+
+    Returns ``(None, error_message)`` on failure; ``(response, None)`` on
+    success.  Destroys the client before returning.
+    """
+    client = node.create_client(srv_class, svc_name)
+    try:
+        if not client.wait_for_service(timeout_sec=timeout):
+            return None, f"Service '{svc_name}' not available (waited {timeout:.0f}s)"
+        future = client.call_async(request)
+        end = time.time() + timeout
+        while time.time() < end and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.1)
+        if not future.done():
+            future.cancel()
+            return None, f"Timeout waiting for response from '{svc_name}'"
+        return future.result(), None
+    finally:
+        client.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Map lifecycle — nav map list / save / load / delete
+# ---------------------------------------------------------------------------
+
+# Lifecycle state IDs
+_LC_ACTIVE = 3
+_LC_STATE_NAMES = {0: "unknown", 1: "unconfigured", 2: "inactive", 3: "active", 4: "finalized"}
+
+# Lifecycle transition IDs
+_LC_CONFIGURE   = 1
+_LC_ACTIVATE    = 3
+_LC_DEACTIVATE  = 4
+
+
+def _get_managed_node_state(node, node_name: str, timeout: float = 3.0) -> dict | None:
+    """Return ``{"state_id": N, "state": label}`` for a lifecycle node, or None."""
+    from lifecycle_msgs.srv import GetState  # noqa: PLC0415
+    svc = f"{node_name}/get_state"
+    resp, err = _call_service(node, svc, GetState, GetState.Request(), timeout)
+    if err or resp is None:
+        return None
+    sid = int(resp.current_state.id)
+    return {"state_id": sid, "state": _LC_STATE_NAMES.get(sid, str(sid))}
+
+
+def _lifecycle_transition(node, node_name: str, transition_id: int,
+                           timeout: float = 10.0) -> tuple[bool, str]:
+    """Trigger a lifecycle transition; return (success, message)."""
+    from lifecycle_msgs.srv import ChangeState  # noqa: PLC0415
+    from lifecycle_msgs.msg import Transition   # noqa: PLC0415
+
+    req = ChangeState.Request()
+    req.transition = Transition()
+    req.transition.id = transition_id
+
+    svc = f"{node_name}/change_state"
+    resp, err = _call_service(node, svc, ChangeState, req, timeout)
+    if err:
+        return False, err
+    if not resp.success:
+        return False, f"Transition {transition_id} rejected by '{node_name}'"
+    return True, "ok"
+
+
+def cmd_nav2_map_list(args):
+    """List available maps.
+
+    Reads from the robot profile's ``summary.maps`` field (populated by
+    ``profile scan``) and from ``--maps-dir`` (default ``./maps/``) on the
+    filesystem.  Deduplicates by stem name so the same map only appears once
+    even if listed in both sources.
+    """
+    import glob
+    import json as _json
+    import os
+
+    maps_dir = getattr(args, "maps_dir", None) or "maps"
+    maps: dict[str, dict] = {}
+
+    # ---- Profile source (non-ROS, instant) ---------------------------------
+    profile_path = os.path.expanduser("~/.ros2_skill/.profiles/profile.json")
+    try:
+        with open(profile_path) as f:
+            profile = _json.load(f)
+        for m in profile.get("summary", {}).get("maps", []):
+            stem = os.path.splitext(os.path.basename(m.get("image", m.get("name", ""))))[0]
+            if not stem:
+                stem = m.get("name", "")
+            maps[stem] = {
+                "name": stem,
+                "type": m.get("type", "occupancy"),
+                "resolution": m.get("resolution"),
+                "source": "profile",
+                "yaml": m.get("yaml") or m.get("name"),
+            }
+    except (FileNotFoundError, KeyError, Exception):
+        pass
+
+    # ---- Filesystem scan ---------------------------------------------------
+    if os.path.isdir(maps_dir):
+        for yaml_path in glob.glob(os.path.join(maps_dir, "*.yaml")):
+            stem = os.path.splitext(os.path.basename(yaml_path))[0]
+            if stem not in maps:
+                maps[stem] = {
+                    "name": stem,
+                    "type": "occupancy",
+                    "source": "filesystem",
+                    "yaml": yaml_path,
+                }
+
+    result = sorted(maps.values(), key=lambda m: m["name"])
+    return output({
+        "maps": result,
+        "count": len(result),
+        "maps_dir": maps_dir,
+        **({"hint": (
+            "Use 'nav map load <name>' to activate a saved map. "
+            "Use 'nav map save [--name N]' to save the current slam_toolbox map."
+        )} if not result else {}),
+    })
+
+
+def cmd_nav2_map_save(args):
+    """Save the current slam_toolbox map (or map_saver fallback).
+
+    Tries ``/slam_toolbox/save_map`` first (SLAM Toolbox), then
+    ``/map_saver/save_map`` (Nav2 map_saver_server).  The saved files are
+    ``<name>.yaml`` and ``<name>.pgm`` (or ``<name>.png``).
+
+    ``--name`` is the filename stem (default: ``map``).  Relative to the
+    current directory unless an absolute path is given.
+    """
+    map_name = getattr(args, "name", None) or "map"
+    timeout  = getattr(args, "timeout", 10.0)
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+
+            # ---- slam_toolbox/save_map (preferred) -------------------------
+            try:
+                from slam_toolbox.srv import SaveMap  # noqa: PLC0415
+                req = SaveMap.Request()
+                req.name.data = map_name
+                resp, err = _call_service(node, "/slam_toolbox/save_map", SaveMap, req, timeout)
+                if not err and resp is not None:
+                    result = resp.result if hasattr(resp, 'result') else True
+                    return output({
+                        "success": bool(result),
+                        "method": "slam_toolbox",
+                        "service": "/slam_toolbox/save_map",
+                        "name": map_name,
+                        "files": [f"{map_name}.yaml", f"{map_name}.pgm"],
+                    })
+            except ImportError:
+                pass
+
+            # ---- nav2_msgs/srv/SaveMap (map_saver_server fallback) ---------
+            try:
+                from nav2_msgs.srv import SaveMap  # noqa: PLC0415
+                req = SaveMap.Request()
+                req.map_topic = "/map"
+                req.map_url   = map_name
+                req.image_format = "pgm"
+                req.map_mode  = "trinary"
+                req.free_thresh = 0.25
+                req.occupied_thresh = 0.65
+                resp, err = _call_service(node, "/map_saver/save_map", SaveMap, req, timeout)
+                if not err and resp is not None:
+                    return output({
+                        "success": resp.result,
+                        "method": "map_saver",
+                        "service": "/map_saver/save_map",
+                        "name": map_name,
+                        "files": [f"{map_name}.yaml", f"{map_name}.pgm"],
+                    })
+                if err:
+                    return output({
+                        "error": err,
+                        "hint": (
+                            "Ensure slam_toolbox or nav2_map_saver_server is running. "
+                            "Check with 'nodes list'."
+                        ),
+                    })
+            except ImportError:
+                pass
+
+            return output({
+                "error": "No map-save service available (tried slam_toolbox and map_saver)",
+                "hint": (
+                    "Start slam_toolbox or nav2_map_saver_server, then retry. "
+                    "Or save manually: ros2 run nav2_map_server map_saver_cli -f <name>"
+                ),
+            })
+
+    except Exception as e:
+        return output({"error": str(e)})
+
+
+def cmd_nav2_map_load(args):
+    """Load a saved map via the map_server/load_map service.
+
+    The map server must be running and in the ``active`` lifecycle state.
+    ``<name>`` is a path to a map YAML file (absolute or relative to the
+    current directory).  Appends ``.yaml`` if the path has no extension.
+    """
+    import os
+
+    map_name = args.name
+    timeout  = getattr(args, "timeout", 10.0)
+
+    # Resolve path
+    if not os.path.splitext(map_name)[1]:
+        map_name = map_name + ".yaml"
+    if not os.path.isabs(map_name):
+        if not os.path.exists(map_name) and os.path.exists(os.path.join("maps", map_name)):
+            map_name = os.path.join("maps", map_name)
+    map_name = os.path.abspath(map_name)
+
+    if not os.path.exists(map_name):
+        return output({
+            "error": f"Map file not found: {map_name}",
+            "hint": "Use 'nav map list' to see available maps.",
+        })
+
+    try:
+        from nav2_msgs.srv import LoadMap  # noqa: PLC0415
+    except ImportError:
+        return output({
+            "error": "nav2_msgs not available — cannot load LoadMap service type",
+            "hint": "Install nav2_msgs: sudo apt install ros-$ROS_DISTRO-nav2-msgs",
+        })
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            req = LoadMap.Request()
+            req.map_url = map_name
+            resp, err = _call_service(node, "/map_server/load_map", LoadMap, req, timeout)
+
+        if err:
+            return output({
+                "error": err,
+                "hint": (
+                    "Ensure map_server is running and active. "
+                    "Check: lifecycle get /map_server"
+                ),
+            })
+        result_code = int(resp.result)
+        success = (result_code == 0)
+        _LOAD_RESULTS = {
+            0: "SUCCESS", 1: "MAP_DOES_NOT_EXIST", 2: "INVALID_MAP_DATA",
+            3: "INVALID_MAP_METADATA", 255: "UNDEFINED_FAILURE",
+        }
+        return output({
+            "success": success,
+            "map": map_name,
+            "result_code": result_code,
+            "result_name": _LOAD_RESULTS.get(result_code, str(result_code)),
+            "service": "/map_server/load_map",
+            **({"hint": "Activate map_server if inactive: 'lifecycle set /map_server activate'"}
+               if not success else {}),
+        })
+
+    except Exception as e:
+        return output({"error": str(e)})
+
+
+def cmd_nav2_map_delete(args):
+    """Delete a map's files from the filesystem.
+
+    Removes ``<name>.yaml`` and the associated image file (``.pgm`` / ``.png`` /
+    ``.bmp``).  **Requires ``--confirm``** to prevent accidental deletion.
+    """
+    import os
+
+    if not getattr(args, "confirm", False):
+        return output({
+            "error": "Safety interlock: --confirm flag required",
+            "hint": "Re-run with --confirm to permanently delete the map files.",
+        })
+
+    map_name = args.name
+    maps_dir = getattr(args, "maps_dir", None) or "maps"
+
+    # Resolve YAML path
+    if not os.path.splitext(map_name)[1]:
+        candidates = [
+            map_name + ".yaml",
+            os.path.join(maps_dir, map_name + ".yaml"),
+        ]
+    else:
+        candidates = [map_name, os.path.join(maps_dir, map_name)]
+
+    yaml_path = None
+    for c in candidates:
+        if os.path.exists(c):
+            yaml_path = os.path.abspath(c)
+            break
+
+    if yaml_path is None:
+        return output({
+            "error": f"Map YAML file not found for '{map_name}'",
+            "hint": "Use 'nav map list' to see available maps.",
+        })
+
+    stem = os.path.splitext(yaml_path)[0]
+    deleted = []
+
+    # Delete YAML
+    try:
+        os.remove(yaml_path)
+        deleted.append(yaml_path)
+    except OSError as e:
+        return output({"error": f"Cannot delete {yaml_path}: {e}"})
+
+    # Delete associated image (pgm, png, bmp)
+    for ext in (".pgm", ".png", ".bmp"):
+        img = stem + ext
+        if os.path.exists(img):
+            try:
+                os.remove(img)
+                deleted.append(img)
+            except OSError:
+                pass
+
+    return output({"success": True, "deleted": deleted})
+
+
+# ---------------------------------------------------------------------------
+# Navigation mode — nav mode get / set
+# ---------------------------------------------------------------------------
+
+def _infer_nav_mode(node, timeout: float = 3.0) -> dict:
+    """Query lifecycle states of slam_toolbox and amcl to infer navigation mode.
+
+    Returns::
+
+        {
+          "mode": "mapfree" | "mapping" | "navigation" | "unknown",
+          "slam_node": "/slam_toolbox" | None,
+          "slam_state": "active" | "inactive" | None,
+          "amcl_node": "/amcl" | None,
+          "amcl_state": "active" | "inactive" | None,
+        }
+    """
+    slam_node, slam_state_id = None, None
+    amcl_node, amcl_state_id = None, None
+
+    # Discover managed nodes via their /get_state service
+    service_info = node.get_service_names_and_types()
+    managed = [
+        svc[:-len('/get_state')]
+        for svc, types in service_info
+        if 'lifecycle_msgs/srv/GetState' in types and svc.endswith('/get_state')
+    ]
+
+    for n in managed:
+        lc_name = n.lower()
+        if any(c in lc_name for c in ("slam_toolbox", "slam_tool")):
+            slam_node = n
+        elif "amcl" in lc_name:
+            amcl_node = n
+
+    if slam_node:
+        st = _get_managed_node_state(node, slam_node, timeout)
+        slam_state_id = st["state_id"] if st else None
+
+    if amcl_node:
+        st = _get_managed_node_state(node, amcl_node, timeout)
+        amcl_state_id = st["state_id"] if st else None
+
+    slam_active = (slam_state_id == _LC_ACTIVE)
+    amcl_active = (amcl_state_id == _LC_ACTIVE)
+
+    if slam_active and amcl_active:
+        mode = "unknown"
+    elif slam_active:
+        mode = "mapping"
+    elif amcl_active:
+        mode = "navigation"
+    else:
+        mode = "mapfree"
+
+    return {
+        "mode": mode,
+        "slam_node":  slam_node,
+        "slam_state": _LC_STATE_NAMES.get(slam_state_id) if slam_state_id is not None else None,
+        "amcl_node":  amcl_node,
+        "amcl_state": _LC_STATE_NAMES.get(amcl_state_id) if amcl_state_id is not None else None,
+    }
+
+
+def cmd_nav2_mode_get(args):
+    """Report the current navigation mode by inspecting lifecycle states.
+
+    Checks which of slam_toolbox and amcl are in the ``active`` lifecycle
+    state and infers the navigation mode:
+
+    * ``mapfree``    — neither slam_toolbox nor amcl active
+    * ``mapping``    — slam_toolbox active (building a new map)
+    * ``navigation`` — amcl active (localising against a saved map)
+    * ``unknown``    — both active simultaneously (misconfiguration)
+    """
+    timeout = getattr(args, "timeout", 5.0)
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            info = _infer_nav_mode(node, timeout)
+
+        result: dict = {"mode": info["mode"]}
+        if info["slam_node"]:
+            result["slam"] = {"node": info["slam_node"], "state": info["slam_state"]}
+        if info["amcl_node"]:
+            result["amcl"] = {"node": info["amcl_node"], "state": info["amcl_state"]}
+
+        if not info["slam_node"] and not info["amcl_node"]:
+            result["note"] = (
+                "No slam_toolbox or amcl lifecycle nodes detected. "
+                "Nav2 may be running without lifecycle management, or not started. "
+                "Mode assumed mapfree."
+            )
+        elif info["mode"] == "unknown":
+            result["warning"] = (
+                "Both slam_toolbox and amcl are active simultaneously — "
+                "this is usually a misconfiguration. Deactivate one before proceeding."
+            )
+
+        return output(result)
+
+    except Exception as e:
+        return output({"error": str(e)})
+
+
+def cmd_nav2_mode_set(args):
+    """Switch the navigation mode by orchestrating lifecycle transitions.
+
+    Valid modes:
+
+    * ``mapfree``    — deactivate slam_toolbox and amcl (if running)
+    * ``mapping``    — activate slam_toolbox; deactivate amcl
+    * ``navigation`` — deactivate slam_toolbox; activate amcl (requires a
+      saved map to have been loaded first with ``nav map load``)
+
+    Activation follows the full lifecycle sequence: configure (if
+    unconfigured) → activate.  Deactivation: deactivate (if active).
+    Nodes that are not detected are skipped with a note.
+    """
+    new_mode = args.mode.lower()
+    if new_mode not in ("mapfree", "mapping", "navigation"):
+        return output({
+            "error": f"Unknown mode '{new_mode}'",
+            "hint": "Valid modes: mapfree | mapping | navigation",
+        })
+
+    timeout = getattr(args, "timeout", 10.0)
+
+    want_slam_active = (new_mode == "mapping")
+    want_amcl_active = (new_mode == "navigation")
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            info = _infer_nav_mode(node, timeout=3.0)
+
+            actions: list[dict] = []
+            errors:  list[str]  = []
+
+            def _ensure_state(lc_node: str | None, currently_active: bool,
+                               want_active: bool, label: str) -> None:
+                if lc_node is None:
+                    actions.append({"node": label, "skipped": "not detected as a lifecycle node"})
+                    return
+
+                if want_active and not currently_active:
+                    st = _get_managed_node_state(node, lc_node, timeout)
+                    current_id = st["state_id"] if st else 0
+                    if current_id == 1:   # unconfigured → configure first
+                        ok, msg = _lifecycle_transition(node, lc_node, _LC_CONFIGURE, timeout)
+                        actions.append({"node": lc_node, "transition": "configure",
+                                        "ok": ok, "detail": msg})
+                        if not ok:
+                            errors.append(msg)
+                            return
+                    ok, msg = _lifecycle_transition(node, lc_node, _LC_ACTIVATE, timeout)
+                    actions.append({"node": lc_node, "transition": "activate",
+                                    "ok": ok, "detail": msg})
+                    if not ok:
+                        errors.append(msg)
+
+                elif not want_active and currently_active:
+                    ok, msg = _lifecycle_transition(node, lc_node, _LC_DEACTIVATE, timeout)
+                    actions.append({"node": lc_node, "transition": "deactivate",
+                                    "ok": ok, "detail": msg})
+                    if not ok:
+                        errors.append(msg)
+                else:
+                    actions.append({
+                        "node": lc_node,
+                        "skipped": f"already {'active' if currently_active else 'inactive'}",
+                    })
+
+            _ensure_state(info["slam_node"], info["slam_state"] == "active",
+                          want_slam_active, "slam_toolbox")
+            _ensure_state(info["amcl_node"], info["amcl_state"] == "active",
+                          want_amcl_active, "amcl")
+
+            final_info = _infer_nav_mode(node, timeout=3.0)
+
+        result: dict = {
+            "success": not errors,
+            "requested_mode": new_mode,
+            "actual_mode": final_info["mode"],
+            "actions": actions,
+        }
+        if errors:
+            result["errors"] = errors
+        if new_mode == "navigation" and not info["amcl_node"]:
+            result["note"] = (
+                "amcl node not detected — ensure Nav2 is started with amcl configured "
+                "and a map is loaded via 'nav map load'."
+            )
+        return output(result)
+
+    except Exception as e:
+        return output({"error": str(e)})

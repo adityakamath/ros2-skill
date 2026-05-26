@@ -262,6 +262,9 @@ MINIMAL_ARGS = [
     ("system",   "battery",  ["system", "battery"]),
     ("system",   "shutdown", ["system", "shutdown"]),
     ("system",   "reboot",   ["system", "reboot"]),
+    # nav2 map / mode (three-level commands; subcommand is "map" / "mode")
+    ("nav2",     "map",      ["nav2", "map", "list"]),
+    ("nav2",     "mode",     ["nav2", "mode", "get"]),
 ]
 
 
@@ -5497,6 +5500,239 @@ class TestSystem(unittest.TestCase):
         p = build_parser()
         self.assertFalse(p.parse_args(["system", "reboot"]).confirm)
         self.assertTrue(p.parse_args(["system", "reboot", "--confirm"]).confirm)
+
+
+class TestNav2MapMode(unittest.TestCase):
+    """Unit tests for nav2 map and nav2 mode commands."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ros2_nav2
+        cls.mod = ros2_nav2
+
+    def _capture(self, fn, args):
+        import ros2_utils
+        buf = StringIO()
+        with patch.object(ros2_utils, "output", side_effect=lambda d: buf.write(json.dumps(d))):
+            fn(args)
+        return json.loads(buf.getvalue()) if buf.getvalue() else {}
+
+    def _ns(self, **kwargs):
+        defaults = dict(
+            maps_dir="maps",
+            name=None,
+            confirm=False,
+            timeout=5.0,
+            mode=None,
+        )
+        defaults.update(kwargs)
+        return argparse.Namespace(**defaults)
+
+    # ------------------------------------------------------------------ nav2 map list
+
+    def test_map_list_empty(self):
+        """nav2 map list → empty list when no profile and maps dir absent."""
+        with patch("os.path.isdir", return_value=False):
+            r = self._capture(self.mod.cmd_nav2_map_list, self._ns())
+        self.assertEqual(r.get("maps"), [])
+        self.assertEqual(r.get("count"), 0)
+
+    def test_map_list_from_filesystem(self):
+        """nav2 map list reads .yaml files from the maps directory."""
+        import glob as _glob
+        with (
+            patch("os.path.isdir", return_value=True),
+            patch("glob.glob", return_value=["/ws/maps/office.yaml", "/ws/maps/lab.yaml"]),
+            patch("builtins.open", side_effect=FileNotFoundError),  # no profile
+        ):
+            r = self._capture(self.mod.cmd_nav2_map_list, self._ns())
+        names = [m["name"] for m in r.get("maps", [])]
+        self.assertIn("office", names)
+        self.assertIn("lab", names)
+
+    # ------------------------------------------------------------------ nav2 map save
+
+    def test_map_save_no_service(self):
+        """nav2 map save → error when neither slam_toolbox nor map_saver available."""
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_call_service", return_value=(None, "Service not available")),
+        ):
+            r = self._capture(self.mod.cmd_nav2_map_save, self._ns(name="test_map"))
+        # Should return error (no slam_toolbox service imported)
+        # ImportError is caught, falls through to error
+        self.assertIn("error", r)
+
+    # ------------------------------------------------------------------ nav2 map load
+
+    def test_map_load_file_not_found(self):
+        """nav2 map load → error when map file does not exist."""
+        with patch("os.path.exists", return_value=False):
+            r = self._capture(self.mod.cmd_nav2_map_load, self._ns(name="missing_map"))
+        self.assertIn("error", r)
+        self.assertIn("not found", r.get("error", "").lower())
+
+    def test_map_load_success(self):
+        """nav2 map load → success when service returns result_code=0."""
+        mock_resp = MagicMock()
+        mock_resp.result = 0
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.path.isabs", return_value=True),
+            patch("os.path.abspath", return_value="/maps/office.yaml"),
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_call_service", return_value=(mock_resp, None)),
+        ):
+            # nav2_msgs.srv.LoadMap must be importable (mock it)
+            with patch.dict("sys.modules", {"nav2_msgs.srv": MagicMock()}):
+                r = self._capture(self.mod.cmd_nav2_map_load, self._ns(name="/maps/office.yaml"))
+        self.assertTrue(r.get("success"))
+        self.assertEqual(r.get("result_name"), "SUCCESS")
+
+    # ------------------------------------------------------------------ nav2 map delete
+
+    def test_map_delete_requires_confirm(self):
+        """nav2 map delete without --confirm → safety interlock."""
+        r = self._capture(self.mod.cmd_nav2_map_delete, self._ns(name="office", confirm=False))
+        self.assertIn("error", r)
+        self.assertIn("--confirm", r.get("hint", ""))
+
+    def test_map_delete_file_not_found(self):
+        """nav2 map delete with --confirm → error when map file absent."""
+        with patch("os.path.exists", return_value=False):
+            r = self._capture(self.mod.cmd_nav2_map_delete,
+                              self._ns(name="office", confirm=True))
+        self.assertIn("error", r)
+
+    # ------------------------------------------------------------------ nav2 mode get
+
+    def test_mode_get_no_lifecycle_nodes(self):
+        """nav2 mode get → mapfree when no managed nodes found."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = []
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+        ):
+            r = self._capture(self.mod.cmd_nav2_mode_get, self._ns())
+        self.assertEqual(r.get("mode"), "mapfree")
+        self.assertIn("note", r)
+
+    def test_mode_get_mapping(self):
+        """nav2 mode get → mapping when slam_toolbox is active."""
+        mock_node = MagicMock()
+        # Pretend slam_toolbox has a /get_state service
+        mock_node.get_service_names_and_types.return_value = [
+            ("/slam_toolbox/get_state", ["lifecycle_msgs/srv/GetState"]),
+        ]
+        mock_state = {"state_id": 3, "state": "active"}
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+            patch.object(self.mod, "_get_managed_node_state", return_value=mock_state),
+        ):
+            r = self._capture(self.mod.cmd_nav2_mode_get, self._ns())
+        self.assertEqual(r.get("mode"), "mapping")
+        self.assertIn("slam", r)
+
+    def test_mode_get_navigation(self):
+        """nav2 mode get → navigation when amcl is active."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = [
+            ("/amcl/get_state", ["lifecycle_msgs/srv/GetState"]),
+        ]
+        mock_state = {"state_id": 3, "state": "active"}
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+            patch.object(self.mod, "_get_managed_node_state", return_value=mock_state),
+        ):
+            r = self._capture(self.mod.cmd_nav2_mode_get, self._ns())
+        self.assertEqual(r.get("mode"), "navigation")
+
+    # ------------------------------------------------------------------ nav2 mode set
+
+    def test_mode_set_invalid(self):
+        """nav2 mode set with invalid mode → error."""
+        r = self._capture(self.mod.cmd_nav2_mode_set, self._ns(mode="teleop"))
+        self.assertIn("error", r)
+
+    def test_mode_set_mapping_activates_slam(self):
+        """nav2 mode set mapping → activates slam_toolbox, notes amcl not detected."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = [
+            ("/slam_toolbox/get_state", ["lifecycle_msgs/srv/GetState"]),
+        ]
+        # Initial: slam inactive; after set: slam active
+        inactive = {"state_id": 2, "state": "inactive"}
+        active   = {"state_id": 3, "state": "active"}
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+            patch.object(self.mod, "_get_managed_node_state",
+                         side_effect=[inactive, inactive, active, None]),
+            patch.object(self.mod, "_lifecycle_transition", return_value=(True, "ok")),
+        ):
+            r = self._capture(self.mod.cmd_nav2_mode_set, self._ns(mode="mapping"))
+        self.assertTrue(r.get("success"))
+        self.assertEqual(r.get("requested_mode"), "mapping")
+
+    # ------------------------------------------------------------------ parsers
+
+    def test_nav2_map_list_parser(self):
+        """nav2 map list parses correctly with default maps-dir."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["nav2", "map", "list"])
+        self.assertEqual(args.subcommand, "map")
+        self.assertEqual(args.map_subcommand, "list")
+        self.assertEqual(args.maps_dir, "maps")
+
+    def test_nav2_map_load_parser(self):
+        """nav2 map load <name> parses name correctly."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["nav2", "map", "load", "office"])
+        self.assertEqual(args.map_subcommand, "load")
+        self.assertEqual(args.name, "office")
+
+    def test_nav2_map_delete_parser(self):
+        """nav2 map delete --confirm parses correctly."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["nav2", "map", "delete", "office", "--confirm"])
+        self.assertEqual(args.map_subcommand, "delete")
+        self.assertEqual(args.name, "office")
+        self.assertTrue(args.confirm)
+
+    def test_nav2_mode_get_parser(self):
+        """nav2 mode get parses correctly."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["nav2", "mode", "get"])
+        self.assertEqual(args.subcommand, "mode")
+        self.assertEqual(args.mode_subcommand, "get")
+
+    def test_nav2_mode_set_parser(self):
+        """nav2 mode set mapping parses correctly."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["nav2", "mode", "set", "mapping"])
+        self.assertEqual(args.mode_subcommand, "set")
+        self.assertEqual(args.mode, "mapping")
+
+    def test_dispatch_nav2_map_mode(self):
+        """DISPATCH has nav2 map and nav2 mode entries."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("nav2", "map"),  DISPATCH)
+        self.assertIn(("nav2", "mode"), DISPATCH)
 
 
 if __name__ == "__main__":

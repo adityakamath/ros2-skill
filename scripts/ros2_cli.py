@@ -207,6 +207,12 @@ from ros2_nav2 import (
     cmd_nav2_status,
     cmd_nav2_go_waypoints,
     cmd_nav2_initial_pose,
+    cmd_nav2_map_list,
+    cmd_nav2_map_save,
+    cmd_nav2_map_load,
+    cmd_nav2_map_delete,
+    cmd_nav2_mode_get,
+    cmd_nav2_mode_set,
 )
 
 # ---------------------------------------------------------------------------
@@ -276,6 +282,38 @@ def cmd_context(args):
         output(result)
     except Exception as e:
         output({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Sub-subcommand routers (nav2 map / nav2 mode)
+# ---------------------------------------------------------------------------
+
+def cmd_nav2_map(args):
+    """Route ``nav2 map`` to the correct map lifecycle handler."""
+    sub = getattr(args, "map_subcommand", None)
+    handlers = {
+        "list":   cmd_nav2_map_list,
+        "save":   cmd_nav2_map_save,
+        "load":   cmd_nav2_map_load,
+        "delete": cmd_nav2_map_delete,
+    }
+    h = handlers.get(sub)
+    if h:
+        return h(args)
+    output({"error": "Usage: nav2 map <list|save|load|delete>"})
+
+
+def cmd_nav2_mode(args):
+    """Route ``nav2 mode`` to the correct mode handler."""
+    sub = getattr(args, "mode_subcommand", None)
+    handlers = {
+        "get": cmd_nav2_mode_get,
+        "set": cmd_nav2_mode_set,
+    }
+    h = handlers.get(sub)
+    if h:
+        return h(args)
+    output({"error": "Usage: nav2 mode <get|set>"})
 
 
 # ---------------------------------------------------------------------------
@@ -1536,6 +1574,58 @@ def build_parser():
     )
 
     # ------------------------------------------------------------------
+    # nav2 map sub-group
+    # ------------------------------------------------------------------
+    nav2map = nav2sub.add_parser("map", help="Map lifecycle: list / save / load / delete")
+    nav2mapsub = nav2map.add_subparsers(dest="map_subcommand")
+
+    # nav2 map list
+    p = nav2mapsub.add_parser("list", help="List available maps (from profile + filesystem)")
+    p.add_argument("--maps-dir", default="maps", metavar="DIR",
+                   help="Directory to scan for map YAML files (default: maps/)")
+
+    # nav2 map save
+    p = nav2mapsub.add_parser("save", help="Save the current slam_toolbox map")
+    p.add_argument("--name", default="map", metavar="NAME",
+                   help="Output filename stem (default: map)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Service call timeout in seconds (default: 10)")
+
+    # nav2 map load
+    p = nav2mapsub.add_parser("load", help="Load a map via map_server/load_map")
+    p.add_argument("name", metavar="NAME",
+                   help="Map name or path (appends .yaml if no extension)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Service call timeout in seconds (default: 10)")
+
+    # nav2 map delete
+    p = nav2mapsub.add_parser("delete", help="Delete a map's files from disk (requires --confirm)")
+    p.add_argument("name", metavar="NAME",
+                   help="Map name (stem or full path to .yaml file)")
+    p.add_argument("--maps-dir", default="maps", metavar="DIR",
+                   help="Directory where maps are stored (default: maps/)")
+    p.add_argument("--confirm", action="store_true",
+                   help="Safety interlock — must be set to actually delete")
+
+    # ------------------------------------------------------------------
+    # nav2 mode sub-group
+    # ------------------------------------------------------------------
+    nav2mode = nav2sub.add_parser("mode", help="Navigation mode: get / set")
+    nav2modesub = nav2mode.add_subparsers(dest="mode_subcommand")
+
+    # nav2 mode get
+    p = nav2modesub.add_parser("get", help="Infer current nav mode from slam_toolbox/amcl lifecycle states")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout for lifecycle queries (default: 5)")
+
+    # nav2 mode set
+    p = nav2modesub.add_parser("set", help="Switch navigation mode (mapfree | mapping | navigation)")
+    p.add_argument("mode", choices=["mapfree", "mapping", "navigation"],
+                   help="Target navigation mode")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Timeout for lifecycle transitions (default: 10)")
+
+    # ------------------------------------------------------------------
     # initial-pose (nav2 continuation)
     # ------------------------------------------------------------------
     # initial-pose
@@ -1750,6 +1840,8 @@ DISPATCH = {
     ("nav2", "status"):        cmd_nav2_status,
     ("nav2", "go-waypoints"):  cmd_nav2_go_waypoints,
     ("nav2", "initial-pose"):  cmd_nav2_initial_pose,
+    ("nav2", "map"):           cmd_nav2_map,
+    ("nav2", "mode"):          cmd_nav2_mode,
 }
 
 
