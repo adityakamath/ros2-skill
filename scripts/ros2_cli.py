@@ -122,6 +122,7 @@ from ros2_arm import (
     cmd_arm_joints_set,
     cmd_arm_home,
     cmd_arm_pose_get,
+    cmd_arm_ik_check,
 )
 from ros2_run import (
     cmd_run,
@@ -219,6 +220,10 @@ from ros2_nav2 import (
     cmd_nav2_map_delete,
     cmd_nav2_mode_get,
     cmd_nav2_mode_set,
+    cmd_nav2_localize,
+)
+from ros2_skills import (
+    cmd_skills_list,
 )
 
 # ---------------------------------------------------------------------------
@@ -1715,6 +1720,55 @@ def build_parser():
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (currently unused; reserved for future use)")
 
+    # nav2 localize
+    p = nav2sub.add_parser("localize",
+                           help="Trigger AMCL global re-localisation (spreads particles across full map)")
+    p.add_argument("--service", default=None, metavar="SERVICE",
+                   help="Override service name (default: /reinitialize_global_localization)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Service call timeout in seconds (default: 10)")
+
+    # ------------------------------------------------------------------
+    # arm ik-check
+    # ------------------------------------------------------------------
+    p = armsub.add_parser("ik-check",
+                           help="Check if a Cartesian pose is reachable via MoveIt2 IK")
+    p.add_argument("x", type=float, help="X position in metres")
+    p.add_argument("y", type=float, help="Y position in metres")
+    p.add_argument("z", type=float, help="Z position in metres")
+    p.add_argument("--rpy", nargs=3, type=float, default=[0.0, 0.0, 0.0],
+                   metavar=("ROLL", "PITCH", "YAW"),
+                   help="Roll/pitch/yaw in degrees (default: 0 0 0). Use --rad for radians.")
+    p.add_argument("--rad", action="store_true",
+                   help="Interpret RPY values as radians (default: degrees)")
+    p.add_argument("--group", default="arm", metavar="GROUP",
+                   help="MoveIt2 planning group name (default: arm)")
+    p.add_argument("--eef", default="tool0", metavar="EEF_LINK",
+                   help="End-effector link name for IK (default: tool0)")
+    p.add_argument("--frame", default="base_link", metavar="FRAME",
+                   help="Reference frame for the target pose (default: base_link)")
+    p.add_argument("--service", default=None, metavar="SERVICE",
+                   help="Override IK service name (default: /compute_ik)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Service call timeout in seconds (default: 10)")
+
+    # ------------------------------------------------------------------
+    # skills
+    # ------------------------------------------------------------------
+    skills_parser = sub.add_parser("skills", help="Skills/behaviours introspection")
+    skillssub = skills_parser.add_subparsers(dest="subcommand")
+
+    p = skillssub.add_parser("list",
+                              help="List skills/behaviours registered on the running robot stack")
+    p.add_argument("--loaded", action="store_true",
+                   help="Show only skills that are currently loaded/active")
+    p.add_argument("--all", action="store_true", dest="show_all",
+                   help="Show all discovered skills including inactive ones (default)")
+    p.add_argument("--service", default=None, metavar="SERVICE",
+                   help="Override behaviour-server service name")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Service call timeout in seconds (default: 10)")
+
     return parser
 
 
@@ -1910,10 +1964,11 @@ DISPATCH = {
     ("system", "shutdown"): cmd_system_shutdown,
     ("system", "reboot"):   cmd_system_reboot,
     # arm
-    ("arm", "state"):   cmd_arm_state,
-    ("arm", "joints"):  cmd_arm_joints,
-    ("arm", "home"):    cmd_arm_home,
-    ("arm", "pose"):    cmd_arm_pose,
+    ("arm", "state"):    cmd_arm_state,
+    ("arm", "joints"):   cmd_arm_joints,
+    ("arm", "home"):     cmd_arm_home,
+    ("arm", "pose"):     cmd_arm_pose,
+    ("arm", "ik-check"): cmd_arm_ik_check,
     # nav2
     ("nav2", "go"):            cmd_nav2_go,
     ("nav2", "cancel"):        cmd_nav2_cancel,
@@ -1922,6 +1977,9 @@ DISPATCH = {
     ("nav2", "initial-pose"):  cmd_nav2_initial_pose,
     ("nav2", "map"):           cmd_nav2_map,
     ("nav2", "mode"):          cmd_nav2_mode,
+    ("nav2", "localize"):      cmd_nav2_localize,
+    # skills
+    ("skills", "list"):   cmd_skills_list,
 }
 
 

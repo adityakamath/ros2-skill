@@ -24,7 +24,7 @@ import time
 import rclpy
 
 from ros2_utils import (
-    ROS2CLI, get_msg_type, msg_to_dict, output, ros2_context,
+    ROS2CLI, get_msg_type, get_srv_type, msg_to_dict, output, ros2_context,
 )
 from ros2_topic import TopicSubscriber
 
@@ -237,7 +237,6 @@ def cmd_arm_joints_set(args):
             srv_type_str = service_types[0]
 
             # Try to load the service class
-            from ros2_utils import get_srv_type  # noqa: PLC0415
             srv_class = get_srv_type(srv_type_str)
             if srv_class is None:
                 return output({
@@ -447,6 +446,180 @@ def cmd_arm_pose_get(args):
                 "yaw":   math.degrees(yaw),
             },
         })
+
+    except Exception as e:
+        return output({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# arm ik-check
+# ---------------------------------------------------------------------------
+
+def cmd_arm_ik_check(args):
+    """Check if a Cartesian pose is reachable via MoveIt2 IK.
+
+    Calls the ``/compute_ik`` service (``moveit_msgs/srv/GetPositionIK``)
+    to determine whether the target position/orientation has a valid
+    inverse-kinematics solution.
+
+    Returns::
+
+        {
+          "reachable": true/false,
+          "joint_solution": {"joint1": 0.0, ...},   # only when reachable
+          "error_code": 1,                           # MoveIt error code
+          "error_name": "SUCCESS",
+          "service": "/compute_ik"
+        }
+
+    Position is in metres; RPY is in **degrees** by default (use ``--rad``
+    for radians).  The end-effector group defaults to ``"arm"`` — pass
+    ``--group`` to change it.
+
+    **Frame resolution:** position is expressed in the robot's base frame
+    (default ``base_link``).  Use ``--frame`` to override.
+    """
+    x       = args.x
+    y       = args.y
+    z       = args.z
+    rpy_deg = getattr(args, "rpy", None) or [0.0, 0.0, 0.0]
+    use_rad = getattr(args, "rad", False)
+    group   = getattr(args, "group", "arm") or "arm"
+    eef     = getattr(args, "eef", "tool0") or "tool0"
+    frame   = getattr(args, "frame", "base_link") or "base_link"
+    service_name = getattr(args, "service", None) or "/compute_ik"
+    timeout = getattr(args, "timeout", 10.0)
+
+    # Convert RPY to radians for the quaternion
+    if use_rad:
+        roll, pitch, yaw = float(rpy_deg[0]), float(rpy_deg[1]), float(rpy_deg[2])
+    else:
+        roll  = math.radians(float(rpy_deg[0]))
+        pitch = math.radians(float(rpy_deg[1]))
+        yaw   = math.radians(float(rpy_deg[2]))
+
+    # RPY → quaternion (intrinsic X-Y-Z / extrinsic Z-Y-X)
+    cr, sr = math.cos(roll  / 2), math.sin(roll  / 2)
+    cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
+    cy, sy = math.cos(yaw   / 2), math.sin(yaw   / 2)
+    qx = sr * cp * cy - cr * sp * sy
+    qy = cr * sp * cy + sr * cp * sy
+    qz = cr * cp * sy - sr * sp * cy
+    qw = cr * cp * cy + sr * sp * sy
+
+    try:
+        srv_class = get_srv_type("moveit_msgs/srv/GetPositionIK")
+        if srv_class is None:
+            return output({
+                "error": "Cannot load moveit_msgs/srv/GetPositionIK",
+                "hint": "Install: sudo apt install ros-$ROS_DISTRO-moveit-msgs",
+            })
+
+        with ros2_context():
+            node = ROS2CLI()
+
+            # Confirm service exists
+            svc_types: list[str] = []
+            for svc, types in node.get_service_names_and_types():
+                if svc == service_name:
+                    svc_types = list(types)
+                    break
+
+            if not svc_types:
+                return output({
+                    "error": f"Service '{service_name}' not found on the graph",
+                    "hint": "Ensure MoveIt2 is running. Use --service to specify a custom IK service.",
+                    "available_ik_services": [
+                        s for s, _ in node.get_service_names_and_types()
+                        if "ik" in s.lower() or "compute" in s.lower() or "moveit" in s.lower()
+                    ][:10],
+                })
+
+            req = srv_class.Request()
+
+            # Fill the IK request (moveit_msgs/msg/PositionIKRequest)
+            req.ik_request.group_name = group
+
+            # Pose stamped
+            req.ik_request.pose_stamped.header.frame_id = frame
+            req.ik_request.pose_stamped.pose.position.x = float(x)
+            req.ik_request.pose_stamped.pose.position.y = float(y)
+            req.ik_request.pose_stamped.pose.position.z = float(z)
+            req.ik_request.pose_stamped.pose.orientation.x = qx
+            req.ik_request.pose_stamped.pose.orientation.y = qy
+            req.ik_request.pose_stamped.pose.orientation.z = qz
+            req.ik_request.pose_stamped.pose.orientation.w = qw
+
+            # EEF link
+            if hasattr(req.ik_request, "ik_link_name"):
+                req.ik_request.ik_link_name = eef
+
+            # Timeout
+            if hasattr(req.ik_request, "timeout"):
+                import builtin_interfaces.msg as _bi  # noqa: PLC0415
+                t = _bi.Duration()
+                t.sec = int(timeout)
+                t.nanosec = int((timeout - int(timeout)) * 1e9)
+                req.ik_request.timeout = t
+
+            client = node.create_client(srv_class, service_name)
+            try:
+                if not client.wait_for_service(timeout_sec=timeout):
+                    return output({
+                        "error": f"Service '{service_name}' not available (waited {timeout:.0f}s)",
+                    })
+                future = client.call_async(req)
+                end = time.time() + timeout
+                while time.time() < end and not future.done():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+                if not future.done():
+                    future.cancel()
+                    return output({"error": f"IK service timed out after {timeout:.0f}s"})
+                resp = future.result()
+            finally:
+                client.destroy()
+
+        # MoveIt error codes: 1 = SUCCESS, negative = failure
+        error_code = getattr(resp.error_code, "val", None)
+        _EC_NAMES = {
+            1: "SUCCESS", -1: "FAILURE", -2: "PLANNING_FAILED",
+            -5: "INVALID_MOTION_PLAN", -7: "NO_IK_SOLUTION",
+            -31: "FRAME_TRANSFORM_FAILURE", -32: "COLLISION_CHECKING_UNAVAILABLE",
+        }
+        ec_name = _EC_NAMES.get(error_code, f"CODE_{error_code}")
+        reachable = (error_code == 1)
+
+        result: dict = {
+            "reachable":   reachable,
+            "error_code":  error_code,
+            "error_name":  ec_name,
+            "service":     service_name,
+            "target": {
+                "x": float(x), "y": float(y), "z": float(z),
+                "roll_deg": math.degrees(roll),
+                "pitch_deg": math.degrees(pitch),
+                "yaw_deg": math.degrees(yaw),
+            },
+        }
+
+        if reachable and hasattr(resp, "solution"):
+            sol = resp.solution
+            joint_state = getattr(sol, "joint_state", None)
+            if joint_state:
+                names = list(getattr(joint_state, "name", []) or [])
+                positions = list(getattr(joint_state, "position", []) or [])
+                result["joint_solution"] = {
+                    n: round(p, 6) for n, p in zip(names, positions)
+                }
+
+        if not reachable:
+            result["hint"] = (
+                f"No IK solution found (error: {ec_name}). "
+                "Check the target pose is within the arm's workspace and "
+                "doesn't collide with the environment."
+            )
+
+        return output(result)
 
     except Exception as e:
         return output({"error": str(e)})

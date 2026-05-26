@@ -25,7 +25,7 @@ import time
 import rclpy
 
 from ros2_utils import (
-    ROS2CLI, get_action_type, get_msg_type, msg_to_dict, dict_to_msg,
+    ROS2CLI, get_action_type, get_msg_type, get_srv_type, msg_to_dict, dict_to_msg,
     output, ros2_context,
 )
 
@@ -1030,6 +1030,86 @@ def cmd_nav2_mode_set(args):
                 "and a map is loaded via 'nav map load'."
             )
         return output(result)
+
+    except Exception as e:
+        return output({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# nav localize
+# ---------------------------------------------------------------------------
+
+def cmd_nav2_localize(args):
+    """Trigger global re-localisation via AMCL.
+
+    Calls the ``/reinitialize_global_localization`` service (standard Nav2
+    empty service) which tells AMCL to spread particles uniformly across the
+    map and re-estimate the robot's pose.  Use this after loading a new map
+    or when the robot's pose estimate has drifted badly.
+
+    After calling this command, drive the robot around slowly to let AMCL
+    converge, or provide an explicit initial pose via ``nav2 initial-pose``.
+
+    Returns::
+
+        {
+          "localized": true,
+          "service": "/reinitialize_global_localization",
+          "note": "AMCL will reinitialize particle filter..."
+        }
+
+    **Profile usage:** if the profile lists a non-standard localization
+    service, pass it via ``--service``.
+    """
+    service_name = getattr(args, "service", None) or "/reinitialize_global_localization"
+    timeout      = getattr(args, "timeout", 10.0)
+
+    try:
+        # Try to load std_srvs/srv/Empty
+        srv_class = get_srv_type("std_srvs/srv/Empty") or get_srv_type("std_srvs/Empty")
+        if srv_class is None:
+            return output({
+                "error": "Cannot load std_srvs/srv/Empty",
+                "hint": "Install: sudo apt install ros-$ROS_DISTRO-std-srvs",
+            })
+
+        with ros2_context():
+            node = ROS2CLI()
+
+            # Check service exists
+            service_types: list[str] = []
+            for svc, types in node.get_service_names_and_types():
+                if svc == service_name:
+                    service_types = list(types)
+                    break
+
+            if not service_types:
+                return output({
+                    "error": f"Service '{service_name}' not found on the graph",
+                    "hint": (
+                        "Ensure AMCL is running in navigation mode. "
+                        "Switch mode with: nav mode set navigation"
+                    ),
+                    "available_localization_services": [
+                        s for s, _ in node.get_service_names_and_types()
+                        if "localiz" in s.lower() or "amcl" in s.lower()
+                    ][:10],
+                })
+
+            req = srv_class.Request()
+            resp, err = _call_service(node, service_name, srv_class, req, timeout=timeout)
+            if err:
+                return output({"error": err, "service": service_name})
+
+        return output({
+            "localized": True,
+            "service": service_name,
+            "note": (
+                "AMCL will reinitialize the particle filter across the full map. "
+                "Drive the robot slowly to let it converge on the correct pose, "
+                "or use 'nav2 initial-pose' to provide an estimate."
+            ),
+        })
 
     except Exception as e:
         return output({"error": str(e)})

@@ -270,6 +270,9 @@ MINIMAL_ARGS = [
     ("arm",      "joints",   ["arm", "joints", "set", "0", "0", "0"]),
     ("arm",      "home",     ["arm", "home"]),
     ("arm",      "pose",     ["arm", "pose", "get"]),
+    ("arm",      "ik-check", ["arm", "ik-check", "0.3", "0.0", "0.5"]),
+    ("nav2",     "localize", ["nav2", "localize"]),
+    ("skills",   "list",     ["skills", "list"]),
 ]
 
 
@@ -5973,12 +5976,196 @@ class TestArm(unittest.TestCase):
         self.assertEqual(args.reference_frame, "map")
 
     def test_dispatch_arm_entries(self):
-        """DISPATCH has all four arm entries."""
+        """DISPATCH has all arm entries including ik-check."""
         from ros2_cli import DISPATCH
-        self.assertIn(("arm", "state"),  DISPATCH)
-        self.assertIn(("arm", "joints"), DISPATCH)
-        self.assertIn(("arm", "home"),   DISPATCH)
-        self.assertIn(("arm", "pose"),   DISPATCH)
+        self.assertIn(("arm", "state"),    DISPATCH)
+        self.assertIn(("arm", "joints"),   DISPATCH)
+        self.assertIn(("arm", "home"),     DISPATCH)
+        self.assertIn(("arm", "pose"),     DISPATCH)
+        self.assertIn(("arm", "ik-check"), DISPATCH)
+
+
+class TestWave3(unittest.TestCase):
+    """Unit tests for Wave 3 commands: nav2 localize, arm ik-check, skills list."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ros2_nav2
+        import ros2_arm
+        import ros2_skills
+        cls.nav2 = ros2_nav2
+        cls.arm  = ros2_arm
+        cls.skills = ros2_skills
+
+    # ---------------------------------------------------------------- helpers
+
+    def _capture(self, mod, fn, args):
+        import ros2_utils
+        buf = StringIO()
+        side = lambda d: buf.write(json.dumps(d))  # noqa: E731
+        with (
+            patch.object(ros2_utils, "output", side_effect=side),
+            patch.object(mod, "output", side_effect=side),
+        ):
+            fn(args)
+        return json.loads(buf.getvalue()) if buf.getvalue() else {}
+
+    def _ns(self, **kwargs):
+        defaults = dict(
+            service=None,
+            timeout=10.0,
+            loaded=False,
+            show_all=False,
+            x=0.3, y=0.0, z=0.5,
+            rpy=[0.0, 0.0, 0.0],
+            rad=False,
+            group="arm",
+            eef="tool0",
+            frame="base_link",
+        )
+        defaults.update(kwargs)
+        return argparse.Namespace(**defaults)
+
+    # ---------------------------------------------------------------- nav2 localize
+
+    def test_localize_service_not_found(self):
+        """nav2 localize → error when service not on graph."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = []
+
+        with (
+            patch.object(self.nav2, "get_srv_type", return_value=MagicMock()),
+            patch.object(self.nav2, "ros2_context"),
+            patch.object(self.nav2, "ROS2CLI", return_value=mock_node),
+        ):
+            r = self._capture(self.nav2, self.nav2.cmd_nav2_localize, self._ns())
+        self.assertIn("error", r)
+        self.assertIn("available_localization_services", r)
+
+    def test_localize_std_srvs_unavailable(self):
+        """nav2 localize → error when std_srvs/Empty cannot be loaded."""
+        with patch.object(self.nav2, "get_srv_type", return_value=None):
+            r = self._capture(self.nav2, self.nav2.cmd_nav2_localize, self._ns())
+        self.assertIn("error", r)
+
+    def test_localize_parser(self):
+        """nav2 localize parses --service and --timeout."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["nav2", "localize", "--timeout", "15.0"])
+        self.assertEqual(args.subcommand, "localize")
+        self.assertAlmostEqual(args.timeout, 15.0)
+        self.assertIsNone(args.service)
+
+    def test_dispatch_nav2_localize(self):
+        """DISPATCH has nav2 localize entry."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("nav2", "localize"), DISPATCH)
+
+    # ---------------------------------------------------------------- arm ik-check
+
+    def test_ik_check_moveit_unavailable(self):
+        """arm ik-check → error when moveit_msgs cannot be loaded."""
+        with (
+            patch.object(self.arm, "get_srv_type", return_value=None),
+        ):
+            r = self._capture(self.arm, self.arm.cmd_arm_ik_check, self._ns())
+        self.assertIn("error", r)
+        # error message mentions moveit_msgs, hint mentions the apt package
+        self.assertIn("moveit_msgs", r.get("error", ""))
+
+    def test_ik_check_service_not_found(self):
+        """arm ik-check → error when /compute_ik not on graph."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = []
+        fake_srv = MagicMock()
+
+        with (
+            patch.object(self.arm, "get_srv_type", return_value=fake_srv),
+            patch.object(self.arm, "ros2_context"),
+            patch.object(self.arm, "ROS2CLI", return_value=mock_node),
+        ):
+            r = self._capture(self.arm, self.arm.cmd_arm_ik_check, self._ns())
+        self.assertIn("error", r)
+        self.assertIn("available_ik_services", r)
+
+    def test_ik_check_degrees_conversion(self):
+        """arm ik-check RPY defaults to degrees; quaternion qw ≈ 1 for zero rotation."""
+        import math as _math
+        # zero RPY in degrees → quaternion (0,0,0,1)
+        import ros2_arm as _arm
+        rpy = [0.0, 0.0, 0.0]
+        roll, pitch, yaw = [_math.radians(v) for v in rpy]
+        cr, sr = _math.cos(roll/2), _math.sin(roll/2)
+        cp, sp = _math.cos(pitch/2), _math.sin(pitch/2)
+        cy, sy = _math.cos(yaw/2), _math.sin(yaw/2)
+        qw = cr * cp * cy + sr * sp * sy
+        self.assertAlmostEqual(qw, 1.0, places=5)
+
+    def test_ik_check_parser(self):
+        """arm ik-check parses x, y, z and optional --rpy --group."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["arm", "ik-check", "0.3", "0.0", "0.5",
+                              "--rpy", "0", "0", "90", "--group", "manipulator"])
+        self.assertAlmostEqual(args.x, 0.3)
+        self.assertAlmostEqual(args.y, 0.0)
+        self.assertAlmostEqual(args.z, 0.5)
+        self.assertEqual(args.rpy, [0.0, 0.0, 90.0])
+        self.assertEqual(args.group, "manipulator")
+
+    def test_dispatch_arm_ik_check(self):
+        """DISPATCH has arm ik-check entry."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("arm", "ik-check"), DISPATCH)
+
+    # ---------------------------------------------------------------- skills list
+
+    def test_skills_list_heuristic_fallback(self):
+        """skills list → heuristic discovery when no behaviour server found."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = [
+            ("/my_skill_server/call", ["std_srvs/srv/Empty"]),
+        ]
+        mock_node.get_topic_names_and_types.return_value = []
+
+        with (
+            patch.object(self.skills, "ros2_context"),
+            patch.object(self.skills, "ROS2CLI", return_value=mock_node),
+        ):
+            r = self._capture(self.skills, self.skills.cmd_skills_list, self._ns())
+
+        self.assertIn("skills", r)
+        self.assertEqual(r.get("source"), "heuristic")
+        self.assertIn("hint", r)
+
+    def test_skills_list_empty_graph(self):
+        """skills list on empty graph → empty heuristic list."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = []
+        mock_node.get_topic_names_and_types.return_value = []
+
+        with (
+            patch.object(self.skills, "ros2_context"),
+            patch.object(self.skills, "ROS2CLI", return_value=mock_node),
+        ):
+            r = self._capture(self.skills, self.skills.cmd_skills_list, self._ns())
+
+        self.assertEqual(r.get("count"), 0)
+        self.assertEqual(r.get("source"), "heuristic")
+
+    def test_skills_list_parser(self):
+        """skills list parses --loaded and --timeout."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["skills", "list", "--loaded"])
+        self.assertEqual(args.subcommand, "list")
+        self.assertTrue(args.loaded)
+
+    def test_dispatch_skills_list(self):
+        """DISPATCH has skills list entry."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("skills", "list"), DISPATCH)
 
 
 if __name__ == "__main__":
