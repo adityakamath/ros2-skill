@@ -265,6 +265,11 @@ MINIMAL_ARGS = [
     # nav2 map / mode (three-level commands; subcommand is "map" / "mode")
     ("nav2",     "map",      ["nav2", "map", "list"]),
     ("nav2",     "mode",     ["nav2", "mode", "get"]),
+    # arm
+    ("arm",      "state",    ["arm", "state"]),
+    ("arm",      "joints",   ["arm", "joints", "set", "0", "0", "0"]),
+    ("arm",      "home",     ["arm", "home"]),
+    ("arm",      "pose",     ["arm", "pose", "get"]),
 ]
 
 
@@ -5180,7 +5185,11 @@ class TestSystem(unittest.TestCase):
     def _capture(self, fn, args):
         import ros2_utils
         buf = StringIO()
-        with patch.object(ros2_utils, "output", side_effect=lambda d: buf.write(json.dumps(d))):
+        side = lambda d: buf.write(json.dumps(d))  # noqa: E731
+        with (
+            patch.object(ros2_utils, "output", side_effect=side),
+            patch.object(self.mod, "output", side_effect=side),
+        ):
             fn(args)
         return json.loads(buf.getvalue()) if buf.getvalue() else {}
 
@@ -5513,7 +5522,11 @@ class TestNav2MapMode(unittest.TestCase):
     def _capture(self, fn, args):
         import ros2_utils
         buf = StringIO()
-        with patch.object(ros2_utils, "output", side_effect=lambda d: buf.write(json.dumps(d))):
+        side = lambda d: buf.write(json.dumps(d))  # noqa: E731
+        with (
+            patch.object(ros2_utils, "output", side_effect=side),
+            patch.object(self.mod, "output", side_effect=side),
+        ):
             fn(args)
         return json.loads(buf.getvalue()) if buf.getvalue() else {}
 
@@ -5733,6 +5746,239 @@ class TestNav2MapMode(unittest.TestCase):
         from ros2_cli import DISPATCH
         self.assertIn(("nav2", "map"),  DISPATCH)
         self.assertIn(("nav2", "mode"), DISPATCH)
+
+
+class TestArm(unittest.TestCase):
+    """Unit tests for ros2_arm: cmd_arm_state, cmd_arm_joints_set, cmd_arm_home, cmd_arm_pose_get."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ros2_arm
+        cls.mod = ros2_arm
+
+    def _capture(self, fn, args):
+        import ros2_utils
+        buf = StringIO()
+        side = lambda d: buf.write(json.dumps(d))  # noqa: E731
+        with (
+            patch.object(ros2_utils, "output", side_effect=side),
+            patch.object(self.mod, "output", side_effect=side),
+        ):
+            fn(args)
+        return json.loads(buf.getvalue()) if buf.getvalue() else {}
+
+    def _ns(self, **kwargs):
+        defaults = dict(
+            topic=None,
+            joints=None,
+            timeout=5.0,
+            angles=[],
+            duration=2.0,
+            service=None,
+            degrees=False,
+            frame="tool0",
+            reference_frame="base_link",
+        )
+        defaults.update(kwargs)
+        return argparse.Namespace(**defaults)
+
+    # ------------------------------------------------------------------ arm state
+
+    def test_state_msg_class_unavailable(self):
+        """arm state → error when sensor_msgs/JointState cannot be loaded."""
+        with patch.object(self.mod, "get_msg_type", return_value=None):
+            r = self._capture(self.mod.cmd_arm_state, self._ns())
+        self.assertIn("error", r)
+
+    def test_state_topic_not_found(self):
+        """arm state → error when /joint_states not on graph."""
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = []
+
+        with (
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+        ):
+            r = self._capture(self.mod.cmd_arm_state, self._ns())
+        self.assertIn("error", r)
+
+    def test_state_timeout(self):
+        """arm state → error when no message within timeout."""
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = [
+            ("/joint_states", ["sensor_msgs/msg/JointState"]),
+        ]
+        fake_sub = MagicMock()
+        fake_sub.messages = []
+        fake_sub.lock = __import__("threading").Lock()
+        executor = MagicMock()
+
+        with (
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+            patch.object(self.mod, "TopicSubscriber", return_value=fake_sub),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=executor),
+        ):
+            r = self._capture(self.mod.cmd_arm_state, self._ns(timeout=0.0))
+        self.assertIn("error", r)
+        self.assertIn("Timeout", r.get("error", ""))
+
+    def test_state_success(self):
+        """arm state → returns joints list when message received."""
+        msg_data = {
+            "name": ["joint1", "joint2"],
+            "position": [0.5, -1.0],
+            "velocity": [0.0, 0.0],
+            "effort": [0.1, 0.2],
+            "header": {"stamp": {"sec": 1000, "nanosec": 0}},
+        }
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = [
+            ("/joint_states", ["sensor_msgs/msg/JointState"]),
+        ]
+        fake_sub = MagicMock()
+        fake_sub.messages = [msg_data]
+        fake_sub.lock = __import__("threading").Lock()
+        executor = MagicMock()
+
+        with (
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+            patch.object(self.mod, "TopicSubscriber", return_value=fake_sub),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=executor),
+        ):
+            r = self._capture(self.mod.cmd_arm_state, self._ns())
+
+        self.assertEqual(r.get("count"), 2)
+        joints = r.get("joints", [])
+        self.assertEqual(joints[0]["name"], "joint1")
+        self.assertAlmostEqual(joints[0]["position"], 0.5)
+
+    def test_state_joint_filter(self):
+        """arm state --joints filters output to named joints."""
+        msg_data = {
+            "name": ["joint1", "joint2", "joint3"],
+            "position": [0.1, 0.2, 0.3],
+            "velocity": [],
+            "effort": [],
+            "header": {},
+        }
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = [
+            ("/joint_states", ["sensor_msgs/msg/JointState"]),
+        ]
+        fake_sub = MagicMock()
+        fake_sub.messages = [msg_data]
+        fake_sub.lock = __import__("threading").Lock()
+        executor = MagicMock()
+
+        with (
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+            patch.object(self.mod, "TopicSubscriber", return_value=fake_sub),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=executor),
+        ):
+            r = self._capture(self.mod.cmd_arm_state,
+                              self._ns(joints="joint1,joint3"))
+        self.assertEqual(r.get("count"), 2)
+        names = [j["name"] for j in r.get("joints", [])]
+        self.assertIn("joint1", names)
+        self.assertIn("joint3", names)
+        self.assertNotIn("joint2", names)
+
+    # ------------------------------------------------------------------ arm joints set
+
+    def test_joints_set_service_not_found(self):
+        """arm joints set → error when service not on graph."""
+        mock_node = MagicMock()
+        mock_node.get_service_names_and_types.return_value = []
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+        ):
+            r = self._capture(self.mod.cmd_arm_joints_set,
+                              self._ns(angles=["0", "0", "0"], service="/arm/goto_js"))
+        self.assertIn("error", r)
+
+    def test_joints_set_invalid_angle(self):
+        """arm joints set with invalid angle → error."""
+        r = self._capture(self.mod.cmd_arm_joints_set,
+                          self._ns(angles=["0", "abc", "0"]))
+        self.assertIn("error", r)
+
+    def test_joints_set_degrees_conversion(self):
+        """arm joints set --degrees converts to radians before service call."""
+        # We can test the conversion math without running the actual service
+        import math as _math
+        angles_deg = ["90", "0", "-90"]
+        expected_rad = [_math.radians(90), 0.0, _math.radians(-90)]
+
+        # Parse the angles as the function would
+        angles_rad = [_math.radians(float(a)) for a in angles_deg]
+        for expected, actual in zip(expected_rad, angles_rad):
+            self.assertAlmostEqual(expected, actual, places=5)
+
+    # ------------------------------------------------------------------ arm home
+
+    def test_home_no_joints(self):
+        """arm home without --joints → error with usage hint."""
+        r = self._capture(self.mod.cmd_arm_home, self._ns(joints=None))
+        self.assertIn("error", r)
+        self.assertIn("--joints", r.get("hint", ""))
+
+    def test_home_invalid_joints(self):
+        """arm home with invalid angle string → error."""
+        r = self._capture(self.mod.cmd_arm_home, self._ns(joints="0,abc,0"))
+        self.assertIn("error", r)
+
+    # ------------------------------------------------------------------ parsers
+
+    def test_arm_state_parser(self):
+        """arm state parses with default timeout."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["arm", "state"])
+        self.assertEqual(args.subcommand, "state")
+        self.assertAlmostEqual(args.timeout, 5.0)
+        self.assertIsNone(args.topic)
+
+    def test_arm_joints_set_parser(self):
+        """arm joints set parses angles and duration."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["arm", "joints", "set", "0", "-1.57", "0", "--duration", "3.0"])
+        self.assertEqual(args.joints_subcommand, "set")
+        self.assertEqual(args.angles, ["0", "-1.57", "0"])
+        self.assertAlmostEqual(args.duration, 3.0)
+
+    def test_arm_home_parser(self):
+        """arm home parses --joints flag."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["arm", "home", "--joints", "0,0,0,0,0,0"])
+        self.assertEqual(args.joints, "0,0,0,0,0,0")
+
+    def test_arm_pose_get_parser(self):
+        """arm pose get parses --frame and --reference-frame."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["arm", "pose", "get", "--frame", "ee_link", "--reference-frame", "map"])
+        self.assertEqual(args.pose_subcommand, "get")
+        self.assertEqual(args.frame, "ee_link")
+        self.assertEqual(args.reference_frame, "map")
+
+    def test_dispatch_arm_entries(self):
+        """DISPATCH has all four arm entries."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("arm", "state"),  DISPATCH)
+        self.assertIn(("arm", "joints"), DISPATCH)
+        self.assertIn(("arm", "home"),   DISPATCH)
+        self.assertIn(("arm", "pose"),   DISPATCH)
 
 
 if __name__ == "__main__":

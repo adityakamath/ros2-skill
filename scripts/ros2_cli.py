@@ -117,6 +117,12 @@ from ros2_system import (
     cmd_system_shutdown,
     cmd_system_reboot,
 )
+from ros2_arm import (
+    cmd_arm_state,
+    cmd_arm_joints_set,
+    cmd_arm_home,
+    cmd_arm_pose_get,
+)
 from ros2_run import (
     cmd_run,
     cmd_run_list,
@@ -287,6 +293,22 @@ def cmd_context(args):
 # ---------------------------------------------------------------------------
 # Sub-subcommand routers (nav2 map / nav2 mode)
 # ---------------------------------------------------------------------------
+
+def cmd_arm_joints(args):
+    """Route ``arm joints`` to the correct handler (currently: set)."""
+    sub = getattr(args, "joints_subcommand", None)
+    if sub == "set":
+        return cmd_arm_joints_set(args)
+    output({"error": "Usage: arm joints set <angles...>"})
+
+
+def cmd_arm_pose(args):
+    """Route ``arm pose`` to the correct handler (currently: get)."""
+    sub = getattr(args, "pose_subcommand", None)
+    if sub == "get":
+        return cmd_arm_pose_get(args)
+    output({"error": "Usage: arm pose get [--frame EEF_FRAME]"})
+
 
 def cmd_nav2_map(args):
     """Route ``nav2 map`` to the correct map lifecycle handler."""
@@ -1574,6 +1596,59 @@ def build_parser():
     )
 
     # ------------------------------------------------------------------
+    # arm — arm and manipulation commands
+    # ------------------------------------------------------------------
+    arm = sub.add_parser("arm", help="Arm and manipulation commands")
+    armsub = arm.add_subparsers(dest="subcommand")
+
+    # arm state
+    p = armsub.add_parser("state", help="Snapshot of all joint positions, velocities, efforts")
+    p.add_argument("--topic", default=None, metavar="TOPIC",
+                   help="JointState topic (default: auto-discover, usually /joint_states)")
+    p.add_argument("--joints", default=None, metavar="NAMES",
+                   help="Comma-separated joint names to filter output (default: all)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Seconds to wait for a message (default: 5)")
+
+    # arm joints set
+    p = armsub.add_parser("joints", help="Joint-space arm commands")
+    armjointssub = p.add_subparsers(dest="joints_subcommand")
+    p2 = armjointssub.add_parser("set", help="Send joint-space goal angles to the arm")
+    p2.add_argument("angles", nargs="+", metavar="ANGLE",
+                    help="Joint angles in radians (or degrees with --degrees). One per joint.")
+    p2.add_argument("--duration", type=float, default=2.0,
+                    help="Motion duration in seconds (default: 2.0)")
+    p2.add_argument("--service", default=None, metavar="SERVICE",
+                    help="Service name for the goto_js-style call (default: /arm/goto_js)")
+    p2.add_argument("--degrees", action="store_true",
+                    help="Interpret angles as degrees (default: radians)")
+    p2.add_argument("--timeout", type=float, default=10.0,
+                    help="Service call timeout in seconds (default: 10)")
+
+    # arm home
+    p = armsub.add_parser("home", help="Move arm to safe home joint configuration")
+    p.add_argument("--joints", default=None, metavar="ANGLES",
+                   help="Comma-separated home angles in radians (e.g. '0,0,0,0,0,0')")
+    p.add_argument("--service", default=None, metavar="SERVICE",
+                   help="Service for joint-space goal (default: /arm/goto_js)")
+    p.add_argument("--duration", type=float, default=2.0,
+                   help="Motion duration in seconds (default: 2.0)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Service call timeout in seconds (default: 10)")
+
+    # arm pose get
+    p = armsub.add_parser("pose", help="End-effector pose commands")
+    armposesub = p.add_subparsers(dest="pose_subcommand")
+    p2 = armposesub.add_parser("get", help="Read end-effector pose via TF lookup")
+    p2.add_argument("--frame", default="tool0", metavar="EEF_FRAME",
+                    help="End-effector TF frame (default: tool0)")
+    p2.add_argument("--reference-frame", dest="reference_frame",
+                    default="base_link", metavar="REF_FRAME",
+                    help="Reference TF frame (default: base_link)")
+    p2.add_argument("--timeout", type=float, default=5.0,
+                    help="TF lookup timeout in seconds (default: 5)")
+
+    # ------------------------------------------------------------------
     # nav2 map sub-group
     # ------------------------------------------------------------------
     nav2map = nav2sub.add_parser("map", help="Map lifecycle: list / save / load / delete")
@@ -1834,6 +1909,11 @@ DISPATCH = {
     ("system", "battery"):  cmd_system_battery,
     ("system", "shutdown"): cmd_system_shutdown,
     ("system", "reboot"):   cmd_system_reboot,
+    # arm
+    ("arm", "state"):   cmd_arm_state,
+    ("arm", "joints"):  cmd_arm_joints,
+    ("arm", "home"):    cmd_arm_home,
+    ("arm", "pose"):    cmd_arm_pose,
     # nav2
     ("nav2", "go"):            cmd_nav2_go,
     ("nav2", "cancel"):        cmd_nav2_cancel,
