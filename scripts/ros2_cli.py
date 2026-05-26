@@ -117,13 +117,6 @@ from ros2_system import (
     cmd_system_shutdown,
     cmd_system_reboot,
 )
-from ros2_arm import (
-    cmd_arm_state,
-    cmd_arm_joints_set,
-    cmd_arm_home,
-    cmd_arm_pose_get,
-    cmd_arm_ik_check,
-)
 from ros2_run import (
     cmd_run,
     cmd_run_list,
@@ -222,9 +215,6 @@ from ros2_nav2 import (
     cmd_nav2_mode_set,
     cmd_nav2_localize,
 )
-from ros2_skills import (
-    cmd_skills_list,
-)
 
 # ---------------------------------------------------------------------------
 # Built-in commands that don't need rclpy
@@ -298,22 +288,6 @@ def cmd_context(args):
 # ---------------------------------------------------------------------------
 # Sub-subcommand routers (nav2 map / nav2 mode)
 # ---------------------------------------------------------------------------
-
-def cmd_arm_joints(args):
-    """Route ``arm joints`` to the correct handler (currently: set)."""
-    sub = getattr(args, "joints_subcommand", None)
-    if sub == "set":
-        return cmd_arm_joints_set(args)
-    output({"error": "Usage: arm joints set <angles...>"})
-
-
-def cmd_arm_pose(args):
-    """Route ``arm pose`` to the correct handler (currently: get)."""
-    sub = getattr(args, "pose_subcommand", None)
-    if sub == "get":
-        return cmd_arm_pose_get(args)
-    output({"error": "Usage: arm pose get [--frame EEF_FRAME]"})
-
 
 def cmd_nav2_map(args):
     """Route ``nav2 map`` to the correct map lifecycle handler."""
@@ -1601,59 +1575,6 @@ def build_parser():
     )
 
     # ------------------------------------------------------------------
-    # arm — arm and manipulation commands
-    # ------------------------------------------------------------------
-    arm = sub.add_parser("arm", help="Arm and manipulation commands")
-    armsub = arm.add_subparsers(dest="subcommand")
-
-    # arm state
-    p = armsub.add_parser("state", help="Snapshot of all joint positions, velocities, efforts")
-    p.add_argument("--topic", default=None, metavar="TOPIC",
-                   help="JointState topic (default: auto-discover, usually /joint_states)")
-    p.add_argument("--joints", default=None, metavar="NAMES",
-                   help="Comma-separated joint names to filter output (default: all)")
-    p.add_argument("--timeout", type=float, default=5.0,
-                   help="Seconds to wait for a message (default: 5)")
-
-    # arm joints set
-    p = armsub.add_parser("joints", help="Joint-space arm commands")
-    armjointssub = p.add_subparsers(dest="joints_subcommand")
-    p2 = armjointssub.add_parser("set", help="Send joint-space goal angles to the arm")
-    p2.add_argument("angles", nargs="+", metavar="ANGLE",
-                    help="Joint angles in radians (or degrees with --degrees). One per joint.")
-    p2.add_argument("--duration", type=float, default=2.0,
-                    help="Motion duration in seconds (default: 2.0)")
-    p2.add_argument("--service", default=None, metavar="SERVICE",
-                    help="Service name for the goto_js-style call (default: /arm/goto_js)")
-    p2.add_argument("--degrees", action="store_true",
-                    help="Interpret angles as degrees (default: radians)")
-    p2.add_argument("--timeout", type=float, default=10.0,
-                    help="Service call timeout in seconds (default: 10)")
-
-    # arm home
-    p = armsub.add_parser("home", help="Move arm to safe home joint configuration")
-    p.add_argument("--joints", default=None, metavar="ANGLES",
-                   help="Comma-separated home angles in radians (e.g. '0,0,0,0,0,0')")
-    p.add_argument("--service", default=None, metavar="SERVICE",
-                   help="Service for joint-space goal (default: /arm/goto_js)")
-    p.add_argument("--duration", type=float, default=2.0,
-                   help="Motion duration in seconds (default: 2.0)")
-    p.add_argument("--timeout", type=float, default=10.0,
-                   help="Service call timeout in seconds (default: 10)")
-
-    # arm pose get
-    p = armsub.add_parser("pose", help="End-effector pose commands")
-    armposesub = p.add_subparsers(dest="pose_subcommand")
-    p2 = armposesub.add_parser("get", help="Read end-effector pose via TF lookup")
-    p2.add_argument("--frame", default="tool0", metavar="EEF_FRAME",
-                    help="End-effector TF frame (default: tool0)")
-    p2.add_argument("--reference-frame", dest="reference_frame",
-                    default="base_link", metavar="REF_FRAME",
-                    help="Reference TF frame (default: base_link)")
-    p2.add_argument("--timeout", type=float, default=5.0,
-                    help="TF lookup timeout in seconds (default: 5)")
-
-    # ------------------------------------------------------------------
     # nav2 map sub-group
     # ------------------------------------------------------------------
     nav2map = nav2sub.add_parser("map", help="Map lifecycle: list / save / load / delete")
@@ -1725,47 +1646,6 @@ def build_parser():
                            help="Trigger AMCL global re-localisation (spreads particles across full map)")
     p.add_argument("--service", default=None, metavar="SERVICE",
                    help="Override service name (default: /reinitialize_global_localization)")
-    p.add_argument("--timeout", type=float, default=10.0,
-                   help="Service call timeout in seconds (default: 10)")
-
-    # ------------------------------------------------------------------
-    # arm ik-check
-    # ------------------------------------------------------------------
-    p = armsub.add_parser("ik-check",
-                           help="Check if a Cartesian pose is reachable via MoveIt2 IK")
-    p.add_argument("x", type=float, help="X position in metres")
-    p.add_argument("y", type=float, help="Y position in metres")
-    p.add_argument("z", type=float, help="Z position in metres")
-    p.add_argument("--rpy", nargs=3, type=float, default=[0.0, 0.0, 0.0],
-                   metavar=("ROLL", "PITCH", "YAW"),
-                   help="Roll/pitch/yaw in degrees (default: 0 0 0). Use --rad for radians.")
-    p.add_argument("--rad", action="store_true",
-                   help="Interpret RPY values as radians (default: degrees)")
-    p.add_argument("--group", default="arm", metavar="GROUP",
-                   help="MoveIt2 planning group name (default: arm)")
-    p.add_argument("--eef", default="tool0", metavar="EEF_LINK",
-                   help="End-effector link name for IK (default: tool0)")
-    p.add_argument("--frame", default="base_link", metavar="FRAME",
-                   help="Reference frame for the target pose (default: base_link)")
-    p.add_argument("--service", default=None, metavar="SERVICE",
-                   help="Override IK service name (default: /compute_ik)")
-    p.add_argument("--timeout", type=float, default=10.0,
-                   help="Service call timeout in seconds (default: 10)")
-
-    # ------------------------------------------------------------------
-    # skills
-    # ------------------------------------------------------------------
-    skills_parser = sub.add_parser("skills", help="Skills/behaviours introspection")
-    skillssub = skills_parser.add_subparsers(dest="subcommand")
-
-    p = skillssub.add_parser("list",
-                              help="List skills/behaviours registered on the running robot stack")
-    p.add_argument("--loaded", action="store_true",
-                   help="Show only skills that are currently loaded/active")
-    p.add_argument("--all", action="store_true", dest="show_all",
-                   help="Show all discovered skills including inactive ones (default)")
-    p.add_argument("--service", default=None, metavar="SERVICE",
-                   help="Override behaviour-server service name")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Service call timeout in seconds (default: 10)")
 
@@ -1963,12 +1843,6 @@ DISPATCH = {
     ("system", "battery"):  cmd_system_battery,
     ("system", "shutdown"): cmd_system_shutdown,
     ("system", "reboot"):   cmd_system_reboot,
-    # arm
-    ("arm", "state"):    cmd_arm_state,
-    ("arm", "joints"):   cmd_arm_joints,
-    ("arm", "home"):     cmd_arm_home,
-    ("arm", "pose"):     cmd_arm_pose,
-    ("arm", "ik-check"): cmd_arm_ik_check,
     # nav2
     ("nav2", "go"):            cmd_nav2_go,
     ("nav2", "cancel"):        cmd_nav2_cancel,
@@ -1978,8 +1852,6 @@ DISPATCH = {
     ("nav2", "map"):           cmd_nav2_map,
     ("nav2", "mode"):          cmd_nav2_mode,
     ("nav2", "localize"):      cmd_nav2_localize,
-    # skills
-    ("skills", "list"):   cmd_skills_list,
 }
 
 

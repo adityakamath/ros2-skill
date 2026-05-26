@@ -436,7 +436,6 @@ python3 {baseDir}/scripts/discord_tools.py send-image \
 | 25 | Proximity sensor discovery before motions > 5 s | `RULES-MOTION.md` |
 | 26 | Always use `discord_tools.py` to send files and images to Discord | `RULES-REFERENCE.md` |
 | T10 | Tag spatial observations with current robot pose (x, y, frame, timestamp) | `AGENTS.md` |
-| T11 | Move arm to safe home before any navigation goal when arm is present | `AGENTS.md` |
 
 **Note on the Rule 14 collision:** `RULES-CORE.md` Rule 14 and `RULES-PREFLIGHT.md` Rule 14 are distinct rules sharing a number. Both are in force.
 
@@ -530,18 +529,6 @@ When noting what the robot perceives (object seen, obstacle detected, anomaly ob
    ```
 
 This creates a spatial memory that persists across tasks within a session (and across sessions via `profile annotate`). Use the stored pose when the user asks "go back to where you saw X" or "revisit that location".
-
-#### Rule T11 — Move arm to safe home position before any navigation goal (if arm present)
-
-If the robot profile lists arm hardware interfaces (`summary.hardware_interfaces` contains an arm plugin) or joint states include arm joints, always ensure the arm is in its safe home configuration before commanding base navigation. An arm extended in an unknown pose during base motion risks collisions with the environment or the robot itself.
-
-**Pre-navigation arm check (run before every `nav2 go` or `nav2 go-waypoints`):**
-
-1. Confirm arm joint states — use `topics subscribe /joint_states --max-messages 1` and check that arm joints are in known, retracted positions.
-2. If arm is not in home position, call the arm home service or action before sending the navigation goal. The exact service or action name depends on the robot; check `profile show` for `hardware_interfaces` and `services list` for a home endpoint.
-3. Verify the arm reached home (re-read `/joint_states`) before issuing the navigation command.
-
-**Skip this rule** only when: (a) the profile confirms no arm hardware, or (b) the navigation goal is a zero-distance pose correction (< 0.05 m translation, < 5° rotation).
 
 ---
 
