@@ -112,6 +112,11 @@ from ros2_foxglove import (
     cmd_foxglove_stop,
     cmd_foxglove_status,
 )
+from ros2_system import (
+    cmd_system_battery,
+    cmd_system_shutdown,
+    cmd_system_reboot,
+)
 from ros2_run import (
     cmd_run,
     cmd_run_list,
@@ -1470,6 +1475,67 @@ def build_parser():
     )
 
     # ------------------------------------------------------------------
+    # system — system-level health and lifecycle
+    # ------------------------------------------------------------------
+    system = sub.add_parser("system", help="System health and power lifecycle commands")
+    syssub = system.add_subparsers(dest="subcommand")
+
+    # system battery
+    p = syssub.add_parser(
+        "battery",
+        help="Single-shot battery health snapshot with configurable critical/warning thresholds",
+    )
+    p.add_argument(
+        "--topic",
+        default=None,
+        metavar="TOPIC",
+        help="Read from a specific topic (default: auto-discover all BatteryState topics)",
+    )
+    p.add_argument(
+        "--threshold",
+        type=float,
+        default=20.0,
+        metavar="PCT",
+        help="Critical threshold in percent (default: 20). Below this → health=critical.",
+    )
+    p.add_argument(
+        "--warn",
+        type=float,
+        default=30.0,
+        metavar="PCT",
+        help="Warning threshold in percent (default: 30). Below this (but above --threshold) → health=warning.",
+    )
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=5.0,
+        metavar="SEC",
+        help="Seconds to wait for a BatteryState message (default: 5)",
+    )
+
+    # system shutdown
+    p = syssub.add_parser(
+        "shutdown",
+        help="Gracefully shut down the robot host (requires --confirm)",
+    )
+    p.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Safety interlock — must be set to actually shut down",
+    )
+
+    # system reboot
+    p = syssub.add_parser(
+        "reboot",
+        help="Reboot the robot host (requires --confirm)",
+    )
+    p.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Safety interlock — must be set to actually reboot",
+    )
+
+    # ------------------------------------------------------------------
     # initial-pose (nav2 continuation)
     # ------------------------------------------------------------------
     # initial-pose
@@ -1674,6 +1740,10 @@ DISPATCH = {
     ("foxglove", "start"):  cmd_foxglove_start,
     ("foxglove", "stop"):   cmd_foxglove_stop,
     ("foxglove", "status"): cmd_foxglove_status,
+    # system
+    ("system", "battery"):  cmd_system_battery,
+    ("system", "shutdown"): cmd_system_shutdown,
+    ("system", "reboot"):   cmd_system_reboot,
     # nav2
     ("nav2", "go"):            cmd_nav2_go,
     ("nav2", "cancel"):        cmd_nav2_cancel,

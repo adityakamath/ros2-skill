@@ -292,7 +292,21 @@ python3 {baseDir}/scripts/ros2_cli.py context
 ```
 Returns topics (capped at 50), services, actions, and nodes in one call. Store the result — reference it during task planning instead of re-running separate discovery commands. Use `--limit 0` for the full topic list.
 
+**Step 8 — Battery pre-flight (if battery topic present in profile or graph):**
+
+For any multi-step task or motion sequence, check battery health before starting:
+```bash
+python3 {baseDir}/scripts/ros2_cli.py system battery
+```
+Rules based on the response:
+- `"health": "critical"` — **abort the task immediately**. Report the battery level to the user and instruct them to charge before continuing. Do not move the robot or run any extended operation.
+- `"health": "warning"` — **warn the user** before proceeding. Complete short, reversible tasks only. Do not start long navigation goals, data collection, or sequences that take more than ~60 s.
+- `"health": "ok"` — proceed normally.
+
+Skip this step only when the graph has no `sensor_msgs/BatteryState` topics (confirmed by an empty `batteries` list or `"No battery topics found"` error). If battery state is unknown and the task is non-trivial, treat it as a warning.
+
 **Step 7 — Load robot profile (if available):**
+
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py profile show
 ```
@@ -421,6 +435,8 @@ python3 {baseDir}/scripts/discord_tools.py send-image \
 | 24 | Conditional and branching task sequences — fallbacks, retry limits, precise escalation | `RULES-MOTION.md` |
 | 25 | Proximity sensor discovery before motions > 5 s | `RULES-MOTION.md` |
 | 26 | Always use `discord_tools.py` to send files and images to Discord | `RULES-REFERENCE.md` |
+| T10 | Tag spatial observations with current robot pose (x, y, frame, timestamp) | `AGENTS.md` |
+| T11 | Move arm to safe home before any navigation goal when arm is present | `AGENTS.md` |
 
 **Note on the Rule 14 collision:** `RULES-CORE.md` Rule 14 and `RULES-PREFLIGHT.md` Rule 14 are distinct rules sharing a number. Both are in force.
 
@@ -493,6 +509,39 @@ After the operation: `control list-controllers` to confirm the controller reache
 #### Rule T9 — Critical-node and `/clock` monitoring during long timed commands
 
 For any command with timeout > 10 s: note the critical nodes (velocity controller, odom publisher) at pre-flight, then check `nodes list` every 10 s during execution. If either disappears: estop immediately and escalate. Before every timed command (`publish-until`, `publish-sequence`, any `--timeout`), if `/clock` was found at session start, re-verify it is actively publishing (`topics subscribe /clock --max-messages 1 --timeout 2`). If no message arrives: escalate *"Simulator clock not advancing"*; do not issue the timed command.
+
+#### Rule T10 — Tag spatial observations with the current robot pose
+
+When noting what the robot perceives (object seen, obstacle detected, anomaly observed), always append the robot's current pose so the observation can be acted on later.
+
+1. Read the current pose:
+   ```bash
+   python3 {baseDir}/scripts/ros2_cli.py nav2 status   # contains current_pose when Nav2 active
+   # or
+   python3 {baseDir}/scripts/ros2_cli.py tf lookup map base_link
+   ```
+2. Record the observation in this structured format:
+   ```
+   observed=<description>  x=<x>  y=<y>  yaw=<yaw_deg>  frame=map  ts=<ISO8601>
+   ```
+3. Append to the session's running observation log or to an annotation:
+   ```bash
+   python3 {baseDir}/scripts/ros2_cli.py profile annotate "observed=red ball  x=1.2  y=0.4  frame=map  ts=2026-05-26T10:32:00Z"
+   ```
+
+This creates a spatial memory that persists across tasks within a session (and across sessions via `profile annotate`). Use the stored pose when the user asks "go back to where you saw X" or "revisit that location".
+
+#### Rule T11 — Move arm to safe home position before any navigation goal (if arm present)
+
+If the robot profile lists arm hardware interfaces (`summary.hardware_interfaces` contains an arm plugin) or joint states include arm joints, always ensure the arm is in its safe home configuration before commanding base navigation. An arm extended in an unknown pose during base motion risks collisions with the environment or the robot itself.
+
+**Pre-navigation arm check (run before every `nav2 go` or `nav2 go-waypoints`):**
+
+1. Confirm arm joint states — use `topics subscribe /joint_states --max-messages 1` and check that arm joints are in known, retracted positions.
+2. If arm is not in home position, call the arm home service or action before sending the navigation goal. The exact service or action name depends on the robot; check `profile show` for `hardware_interfaces` and `services list` for a home endpoint.
+3. Verify the arm reached home (re-read `/joint_states`) before issuing the navigation command.
+
+**Skip this rule** only when: (a) the profile confirms no arm hardware, or (b) the navigation goal is a zero-distance pose correction (< 0.05 m translation, < 5° rotation).
 
 ---
 

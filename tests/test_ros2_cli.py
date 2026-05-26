@@ -258,6 +258,10 @@ MINIMAL_ARGS = [
     ("foxglove", "start",    ["foxglove", "start"]),
     ("foxglove", "stop",     ["foxglove", "stop"]),
     ("foxglove", "status",   ["foxglove", "status"]),
+    # system
+    ("system",   "battery",  ["system", "battery"]),
+    ("system",   "shutdown", ["system", "shutdown"]),
+    ("system",   "reboot",   ["system", "reboot"]),
 ]
 
 
@@ -5158,6 +5162,341 @@ class TestFoxglove(unittest.TestCase):
         self.assertIsNone(args_no_port.port)
         args_with_port = p.parse_args(["foxglove", "stop", "--port", "9090"])
         self.assertEqual(args_with_port.port, 9090)
+
+
+class TestSystem(unittest.TestCase):
+    """Unit tests for ros2_system: cmd_system_battery/shutdown/reboot."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ros2_system
+        cls.mod = ros2_system
+
+    # ---- helpers -----------------------------------------------------------
+
+    def _capture(self, fn, args):
+        import ros2_utils
+        buf = StringIO()
+        with patch.object(ros2_utils, "output", side_effect=lambda d: buf.write(json.dumps(d))):
+            fn(args)
+        return json.loads(buf.getvalue()) if buf.getvalue() else {}
+
+    def _ns(self, **kwargs):
+        defaults = dict(
+            topic=None,
+            threshold=20.0,
+            warn=30.0,
+            timeout=5.0,
+            confirm=False,
+        )
+        defaults.update(kwargs)
+        return argparse.Namespace(**defaults)
+
+    # ------------------------------------------------------------------ battery
+
+    def test_battery_no_topics_found(self):
+        """battery → error when no BatteryState topics on graph."""
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_discover_battery_topics", return_value=[]),
+        ):
+            r = self._capture(self.mod.cmd_system_battery, self._ns())
+        self.assertIn("error", r)
+
+    def test_battery_specific_topic_not_found(self):
+        """battery --topic /missing_topic → error when topic absent from graph."""
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = []
+
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=None)
+        ctx.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch.object(self.mod, "ros2_context", return_value=ctx),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+        ):
+            r = self._capture(self.mod.cmd_system_battery, self._ns(topic="/missing_topic"))
+        self.assertIn("error", r)
+
+    def test_battery_msg_class_unavailable(self):
+        """battery → error when sensor_msgs/BatteryState cannot be loaded."""
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_discover_battery_topics",
+                         return_value=[{"topic": "/battery_state", "type": "sensor_msgs/msg/BatteryState"}]),
+            patch.object(self.mod, "get_msg_type", return_value=None),
+        ):
+            r = self._capture(self.mod.cmd_system_battery, self._ns())
+        self.assertIn("error", r)
+
+    def test_battery_timeout_no_message(self):
+        """battery → error entry per topic when no message arrives within timeout."""
+        fake_sub = MagicMock()
+        fake_sub.messages = []
+        fake_sub.lock = __import__("threading").Lock()
+
+        executor = MagicMock()
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_discover_battery_topics",
+                         return_value=[{"topic": "/battery_state", "type": "sensor_msgs/msg/BatteryState"}]),
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "TopicSubscriber", return_value=fake_sub),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=executor),
+        ):
+            r = self._capture(self.mod.cmd_system_battery, self._ns(timeout=0.0))
+        # Should still return a response (health unknown) with timeout error per battery
+        self.assertIn("batteries", r)
+        self.assertIn("error", r["batteries"][0])
+
+    def test_battery_ok_health(self):
+        """battery → health=ok when percentage is above both thresholds."""
+        parsed_data = {
+            "percentage": 80.0,
+            "voltage": 12.5,
+            "current": -0.5,
+            "status_name": "DISCHARGING",
+            "health_name": "GOOD",
+            "present": True,
+            "location": "",
+        }
+        fake_sub = MagicMock()
+        fake_sub.messages = [{"raw": "data"}]
+        fake_sub.lock = __import__("threading").Lock()
+        executor = MagicMock()
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_discover_battery_topics",
+                         return_value=[{"topic": "/battery_state", "type": "sensor_msgs/msg/BatteryState"}]),
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "TopicSubscriber", return_value=fake_sub),
+            patch.object(self.mod, "_parse_battery_state", return_value=parsed_data),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=executor),
+        ):
+            r = self._capture(self.mod.cmd_system_battery, self._ns())
+
+        self.assertEqual(r.get("health"), "ok")
+        self.assertFalse(r["batteries"][0]["critical"])
+        self.assertFalse(r["batteries"][0]["warning"])
+        self.assertNotIn("action", r)
+
+    def test_battery_warning_health(self):
+        """battery → health=warning when percentage is between warn and critical thresholds."""
+        parsed_data = {
+            "percentage": 25.0,    # < 30 (warn) but >= 20 (critical)
+            "voltage": 11.0,
+            "current": -0.5,
+            "status_name": "DISCHARGING",
+            "health_name": "GOOD",
+            "present": True,
+            "location": "",
+        }
+        fake_sub = MagicMock()
+        fake_sub.messages = [{"raw": "data"}]
+        fake_sub.lock = __import__("threading").Lock()
+        executor = MagicMock()
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_discover_battery_topics",
+                         return_value=[{"topic": "/battery_state", "type": "sensor_msgs/msg/BatteryState"}]),
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "TopicSubscriber", return_value=fake_sub),
+            patch.object(self.mod, "_parse_battery_state", return_value=parsed_data),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=executor),
+        ):
+            r = self._capture(self.mod.cmd_system_battery, self._ns())
+
+        self.assertEqual(r.get("health"), "warning")
+        self.assertFalse(r["batteries"][0]["critical"])
+        self.assertTrue(r["batteries"][0]["warning"])
+        self.assertIn("action", r)
+
+    def test_battery_critical_health(self):
+        """battery → health=critical when percentage is below critical threshold."""
+        parsed_data = {
+            "percentage": 10.0,    # < 20 (critical)
+            "voltage": 9.5,
+            "current": -0.3,
+            "status_name": "DISCHARGING",
+            "health_name": "GOOD",
+            "present": True,
+            "location": "",
+        }
+        fake_sub = MagicMock()
+        fake_sub.messages = [{"raw": "data"}]
+        fake_sub.lock = __import__("threading").Lock()
+        executor = MagicMock()
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_discover_battery_topics",
+                         return_value=[{"topic": "/battery_state", "type": "sensor_msgs/msg/BatteryState"}]),
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "TopicSubscriber", return_value=fake_sub),
+            patch.object(self.mod, "_parse_battery_state", return_value=parsed_data),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=executor),
+        ):
+            r = self._capture(self.mod.cmd_system_battery, self._ns())
+
+        self.assertEqual(r.get("health"), "critical")
+        self.assertTrue(r["batteries"][0]["critical"])
+        self.assertFalse(r["batteries"][0]["warning"])
+        self.assertIn("STOP", r.get("action", ""))
+
+    def test_battery_custom_thresholds(self):
+        """battery --threshold 15 --warn 25 respects custom thresholds."""
+        parsed_data = {
+            "percentage": 20.0,   # < 25 (warn) but >= 15 (critical)
+            "voltage": 10.0,
+            "current": -0.2,
+            "status_name": "DISCHARGING",
+            "health_name": "GOOD",
+            "present": True,
+            "location": "",
+        }
+        fake_sub = MagicMock()
+        fake_sub.messages = [{"raw": "data"}]
+        fake_sub.lock = __import__("threading").Lock()
+        executor = MagicMock()
+
+        with (
+            patch.object(self.mod, "ros2_context"),
+            patch.object(self.mod, "ROS2CLI"),
+            patch.object(self.mod, "_discover_battery_topics",
+                         return_value=[{"topic": "/battery_state", "type": "sensor_msgs/msg/BatteryState"}]),
+            patch.object(self.mod, "get_msg_type", return_value=MagicMock()),
+            patch.object(self.mod, "TopicSubscriber", return_value=fake_sub),
+            patch.object(self.mod, "_parse_battery_state", return_value=parsed_data),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=executor),
+        ):
+            r = self._capture(self.mod.cmd_system_battery,
+                              self._ns(threshold=15.0, warn=25.0))
+
+        self.assertEqual(r.get("health"), "warning")
+
+    def test_battery_parser_defaults(self):
+        """Parser sets correct defaults for system battery."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["system", "battery"])
+        self.assertIsNone(args.topic)
+        self.assertAlmostEqual(args.threshold, 20.0)
+        self.assertAlmostEqual(args.warn, 30.0)
+        self.assertAlmostEqual(args.timeout, 5.0)
+
+    def test_battery_parser_custom(self):
+        """Parser accepts --topic, --threshold, --warn, --timeout."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args([
+            "system", "battery",
+            "--topic", "/my_battery",
+            "--threshold", "15",
+            "--warn", "25",
+            "--timeout", "10",
+        ])
+        self.assertEqual(args.topic, "/my_battery")
+        self.assertAlmostEqual(args.threshold, 15.0)
+        self.assertAlmostEqual(args.warn, 25.0)
+        self.assertAlmostEqual(args.timeout, 10.0)
+
+    # ------------------------------------------------------------------ shutdown
+
+    def test_shutdown_requires_confirm(self):
+        """shutdown without --confirm → safety interlock error."""
+        r = self._capture(self.mod.cmd_system_shutdown, self._ns(confirm=False))
+        self.assertIn("error", r)
+        self.assertIn("--confirm", r.get("hint", ""))
+
+    def test_shutdown_ros_service_success(self):
+        """shutdown --confirm → uses ROS service when available."""
+        with (
+            patch.object(self.mod, "_try_ros_service", return_value=True),
+            patch.object(self.mod, "run_cmd", return_value=("", "", 0)),
+        ):
+            r = self._capture(self.mod.cmd_system_shutdown, self._ns(confirm=True))
+        self.assertTrue(r.get("success"))
+        self.assertEqual(r.get("method"), "ros_service")
+
+    def test_shutdown_fallback_to_sudo(self):
+        """shutdown --confirm → falls back to sudo shutdown now when no ROS service."""
+        with (
+            patch.object(self.mod, "_try_ros_service", return_value=False),
+            patch.object(self.mod, "run_cmd", return_value=("", "", 0)),
+        ):
+            r = self._capture(self.mod.cmd_system_shutdown, self._ns(confirm=True))
+        self.assertTrue(r.get("success"))
+        self.assertEqual(r.get("method"), "sudo_shutdown")
+
+    def test_shutdown_failure(self):
+        """shutdown → error when both service and sudo fail."""
+        with (
+            patch.object(self.mod, "_try_ros_service", return_value=False),
+            patch.object(self.mod, "run_cmd", return_value=("", "permission denied", 1)),
+        ):
+            r = self._capture(self.mod.cmd_system_shutdown, self._ns(confirm=True))
+        self.assertIn("error", r)
+
+    # ------------------------------------------------------------------ reboot
+
+    def test_reboot_requires_confirm(self):
+        """reboot without --confirm → safety interlock error."""
+        r = self._capture(self.mod.cmd_system_reboot, self._ns(confirm=False))
+        self.assertIn("error", r)
+        self.assertIn("--confirm", r.get("hint", ""))
+
+    def test_reboot_ros_service_success(self):
+        """reboot --confirm → uses ROS service when available."""
+        with (
+            patch.object(self.mod, "_try_ros_service", return_value=True),
+            patch.object(self.mod, "run_cmd", return_value=("", "", 0)),
+        ):
+            r = self._capture(self.mod.cmd_system_reboot, self._ns(confirm=True))
+        self.assertTrue(r.get("success"))
+        self.assertEqual(r.get("method"), "ros_service")
+
+    def test_reboot_fallback_to_sudo(self):
+        """reboot --confirm → falls back to sudo reboot when no ROS service."""
+        with (
+            patch.object(self.mod, "_try_ros_service", return_value=False),
+            patch.object(self.mod, "run_cmd", return_value=("", "", 0)),
+        ):
+            r = self._capture(self.mod.cmd_system_reboot, self._ns(confirm=True))
+        self.assertTrue(r.get("success"))
+        self.assertEqual(r.get("method"), "sudo_reboot")
+
+    # ------------------------------------------------------------------ dispatch
+
+    def test_dispatch_system_entries(self):
+        """DISPATCH has all three system entries."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("system", "battery"),  DISPATCH)
+        self.assertIn(("system", "shutdown"), DISPATCH)
+        self.assertIn(("system", "reboot"),   DISPATCH)
+
+    def test_shutdown_parser_confirm_flag(self):
+        """system shutdown --confirm sets confirm=True."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        self.assertFalse(p.parse_args(["system", "shutdown"]).confirm)
+        self.assertTrue(p.parse_args(["system", "shutdown", "--confirm"]).confirm)
+
+    def test_reboot_parser_confirm_flag(self):
+        """system reboot --confirm sets confirm=True."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        self.assertFalse(p.parse_args(["system", "reboot"]).confirm)
+        self.assertTrue(p.parse_args(["system", "reboot", "--confirm"]).confirm)
 
 
 if __name__ == "__main__":
