@@ -107,6 +107,11 @@ from ros2_launch import (
     cmd_launch_restart,
     cmd_launch_foxglove,
 )
+from ros2_foxglove import (
+    cmd_foxglove_start,
+    cmd_foxglove_stop,
+    cmd_foxglove_status,
+)
 from ros2_run import (
     cmd_run,
     cmd_run_list,
@@ -1424,6 +1429,49 @@ def build_parser():
     p.add_argument("--action", default=_NAV2_ACTION_DEFAULT,
                    help=f"Action server name (default: {_NAV2_ACTION_DEFAULT})")
 
+    # ------------------------------------------------------------------
+    # foxglove — Foxglove Bridge management
+    # ------------------------------------------------------------------
+    foxglove = sub.add_parser(
+        "foxglove",
+        help="Manage the Foxglove Bridge WebSocket server",
+    )
+    fgsub = foxglove.add_subparsers(dest="subcommand")
+
+    # foxglove start [port]
+    p = fgsub.add_parser(
+        "start",
+        help="Launch foxglove_bridge on a given port (default: 8765)",
+    )
+    p.add_argument(
+        "port",
+        nargs="?",
+        type=int,
+        default=8765,
+        help="WebSocket port for Foxglove Studio to connect to (default: 8765)",
+    )
+
+    # foxglove stop [--port PORT]
+    p = fgsub.add_parser(
+        "stop",
+        help="Stop the running foxglove_bridge session",
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Stop only the session on this port (required when multiple bridges are running)",
+    )
+
+    # foxglove status
+    fgsub.add_parser(
+        "status",
+        help="Show status of all running foxglove_bridge sessions",
+    )
+
+    # ------------------------------------------------------------------
+    # initial-pose (nav2 continuation)
+    # ------------------------------------------------------------------
     # initial-pose
     p = nav2sub.add_parser("initial-pose",
                            help="Publish an initial pose estimate to /initialpose for AMCL localisation")
@@ -1622,6 +1670,10 @@ DISPATCH = {
     ("profile", "list"):     cmd_profile_list,
     ("profile", "ls"):       cmd_profile_list,
     ("profile", "annotate"): cmd_profile_annotate,
+    # foxglove
+    ("foxglove", "start"):  cmd_foxglove_start,
+    ("foxglove", "stop"):   cmd_foxglove_stop,
+    ("foxglove", "status"): cmd_foxglove_status,
     # nav2
     ("nav2", "go"):            cmd_nav2_go,
     ("nav2", "cancel"):        cmd_nav2_cancel,

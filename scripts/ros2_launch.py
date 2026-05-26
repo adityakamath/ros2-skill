@@ -26,6 +26,11 @@ from ros2_utils import (
     fuzzy_match,
 )
 
+# Foxglove bridge start is implemented in ros2_foxglove to keep that module
+# self-contained.  cmd_launch_foxglove delegates here so that
+# ``launch foxglove`` remains a supported alias.
+from ros2_foxglove import cmd_foxglove_start as cmd_launch_foxglove  # noqa: E402
+
 
 # Cache for launch arguments: {(package, launch_file): [args]}
 _launch_args_cache = {}
@@ -582,131 +587,6 @@ def cmd_launch_restart(args):
             "error": f"Unknown session type for '{session}'",
             "suggestion": "Use 'launch' to start a fresh session"
         })
-
-
-def cmd_launch_foxglove(args):
-    """Launch foxglove_bridge in a tmux session."""
-    if not check_tmux():
-        return output({
-            "error": "tmux is not installed. Install with: sudo apt install tmux"
-        })
-    
-    port = args.port
-    ros_distro = os.environ.get('ROS_DISTRO', 'unknown')
-    
-    # Validate port range
-    if port < 1 or port > 65535:
-        return output({
-            "error": "Invalid port: {port}",
-            "suggestion": "Port must be between 1 and 65535"
-        })
-    
-    # Check package exists (auto-refresh if not found)
-    if not package_exists("foxglove_bridge", force_refresh=False):
-        list_packages(force_refresh=True)
-    if not package_exists("foxglove_bridge", force_refresh=False):
-        return output({
-            "error": "Package 'foxglove_bridge' not found",
-            "suggestion": f"Install for your ROS 2 distro with:\n  sudo apt install ros-{ros_distro}-foxglove-bridge\n\nOr build from source:\n  git clone https://github.com/foxglove/ros2-foxglove-bridge.git",
-            "current_distro": ros_distro,
-            "available_packages": list(list_packages().keys())[:20]
-        })
-    
-    # Check if launch file exists (search multiple locations)
-    prefix = get_package_prefix("foxglove_bridge")
-    possible_launch_paths = [
-        os.path.join(prefix, "share", "foxglove_bridge", "launch", "foxglove_bridge_launch.xml"),
-        os.path.join(prefix, "lib", "foxglove_bridge", "launch", "foxglove_bridge_launch.xml"),
-        os.path.join(prefix, "share", "foxglove_bridge", "foxglove_bridge_launch.xml"),
-    ]
-    
-    launch_path = None
-    for p in possible_launch_paths:
-        if os.path.exists(p):
-            launch_path = p
-            break
-    
-    if not launch_path:
-        return output({
-            "error": "Launch file 'foxglove_bridge_launch.xml' not found in foxglove_bridge package",
-            "suggestion": f"The foxglove_bridge package is installed but may be for a different ROS distro.\nCurrent distro: {ros_distro}\n\nReinstall for your distro:\n  sudo apt install ros-{ros_distro}-foxglove-bridge\n\nOr check installed packages:\n  dpkg -l | grep foxglove",
-            "package_path": prefix,
-            "searched_paths": possible_launch_paths
-        })
-    
-    # Build launch command
-    launch_cmd = f"ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:={port}"
-    
-    # Generate session name
-    session_name = generate_session_name("launch", "foxglove_bridge", f"port{port}")
-    
-    # Get local workspace to source (auto-detected)
-    ws_path, ws_status = source_local_ws()
-    
-    warning = None
-    if ws_status == "invalid":
-        return output({
-            "error": "ROS2_LOCAL_WS is set but path does not exist",
-            "suggestion": "Unset ROS2_LOCAL_WS or set a valid path"
-        })
-    elif ws_status == "not_built":
-        warning = f"Warning: Local workspace found but not built. Build with 'colcon build' first."
-    elif ws_status == "not_found":
-        ws_path = None
-    
-    # Handle existing session with same name - require explicit kill or restart
-    if session_exists(session_name):
-        return output({
-            "error": f"Session '{session_name}' already exists",
-            "suggestion": f"Use 'launch restart {session_name}' to restart, or 'launch kill {session_name}' to kill first",
-            "session": session_name
-        })
-    
-    # Build tmux command
-    quoted_ws = quote_path(ws_path) if ws_path else None
-    if quoted_ws:
-        tmux_cmd = f"tmux new-session -d -s {session_name} 'bash -c \"source {quoted_ws} && {launch_cmd}\" 2>&1'"
-    else:
-        tmux_cmd = f"tmux new-session -d -s {session_name} '{launch_cmd} 2>&1'"
-    
-    stdout, stderr, rc = run_cmd(tmux_cmd, timeout=30)
-    
-    if rc != 0:
-        return output({
-            "error": f"Failed to start foxglove_bridge: {stderr}",
-            "command": launch_cmd,
-            "session": session_name
-        })
-    
-    # Check if session is actually alive (has running process)
-    is_alive = check_session_alive(session_name)
-    status = "running" if is_alive else "crashed"
-    
-    result = {
-        "success": True,
-        "session": session_name,
-        "command": launch_cmd,
-        "package": "foxglove_bridge",
-        "launch_file": "foxglove_bridge_launch.xml",
-        "port": port,
-        "status": status
-    }
-    
-    if ws_path:
-        result["workspace_sourced"] = ws_path
-    
-    if warning:
-        result["warning"] = warning
-    
-    # Save session metadata for restart
-    save_session(session_name, {
-        "type": "foxglove",
-        "port": port,
-        "command": launch_cmd
-    })
-    
-    output(result)
-    return result
 
 
 if __name__ == "__main__":

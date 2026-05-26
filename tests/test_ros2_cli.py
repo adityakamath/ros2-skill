@@ -254,6 +254,10 @@ MINIMAL_ARGS = [
     ("nav2", "status",       ["nav2", "status"]),
     ("nav2", "go-waypoints", ["nav2", "go-waypoints", "1.0,2.0", "3.0,4.0"]),
     ("nav2", "initial-pose", ["nav2", "initial-pose", "1.0", "2.0"]),
+    # foxglove
+    ("foxglove", "start",    ["foxglove", "start"]),
+    ("foxglove", "stop",     ["foxglove", "stop"]),
+    ("foxglove", "status",   ["foxglove", "status"]),
 ]
 
 
@@ -4848,6 +4852,312 @@ class TestRecentFeatureOutput(unittest.TestCase):
                            argparse.Namespace(action="/a", timeout=0.1))
         self.assertIsInstance(r2, dict)
         self.assertTrue("action" in r2 or "error" in r2)
+
+
+class TestFoxglove(unittest.TestCase):
+    """Unit tests for ros2_foxglove: cmd_foxglove_start/stop/status."""
+
+    def setUp(self):
+        _setup_ros_mocks()
+        import ros2_foxglove
+        self.mod = ros2_foxglove
+
+    # ------------------------------------------------------------------ helpers
+
+    def _ns(self, **kw):
+        import argparse
+        return argparse.Namespace(**kw)
+
+    def _capture(self, fn, ns):
+        import io
+        buf = io.StringIO()
+        with unittest.mock.patch("sys.stdout", buf):
+            fn(ns)
+        raw = buf.getvalue().strip()
+        return json.loads(raw) if raw else {}
+
+    # ------------------------------------------------------------------ start
+
+    def test_start_no_tmux(self):
+        """start → error when tmux is absent."""
+        with unittest.mock.patch.object(self.mod, "check_tmux", return_value=False):
+            r = self._capture(self.mod.cmd_foxglove_start, self._ns(port=8765))
+        self.assertIn("error", r)
+        self.assertIn("tmux", r["error"].lower())
+
+    def test_start_invalid_port_low(self):
+        """start → error for port 0."""
+        with unittest.mock.patch.object(self.mod, "check_tmux", return_value=True):
+            r = self._capture(self.mod.cmd_foxglove_start, self._ns(port=0))
+        self.assertIn("error", r)
+        self.assertIn("port", r["error"].lower())
+
+    def test_start_invalid_port_high(self):
+        """start → error for port 99999."""
+        with unittest.mock.patch.object(self.mod, "check_tmux", return_value=True):
+            r = self._capture(self.mod.cmd_foxglove_start, self._ns(port=99999))
+        self.assertIn("error", r)
+
+    def test_start_already_running(self):
+        """start → error with session info when bridge is already running."""
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "session_exists", return_value=True),
+            unittest.mock.patch.object(self.mod, "check_session_alive", return_value=True),
+            unittest.mock.patch.object(self.mod, "_is_port_bound", return_value=True),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_start, self._ns(port=8765))
+        self.assertIn("error", r)
+        self.assertIn("8765", r["error"])
+        self.assertIn("connect_url", r)
+        self.assertEqual(r["port_bound"], True)
+
+    def test_start_package_not_found_includes_distro_hint(self):
+        """start → error with distro-specific apt hint when package absent."""
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "session_exists", return_value=False),
+            unittest.mock.patch.object(self.mod, "package_exists", return_value=False),
+            unittest.mock.patch.object(self.mod, "list_packages", return_value={}),
+            unittest.mock.patch.object(self.mod, "get_ros_distro", return_value="kilted"),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_start, self._ns(port=8765))
+        self.assertIn("error", r)
+        self.assertIn("kilted", r.get("install", ""), msg="install hint must name the active distro")
+        self.assertEqual(r.get("current_distro"), "kilted")
+
+    def test_start_package_not_found_unknown_distro(self):
+        """start → error with generic hint when $ROS_DISTRO is unset."""
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "session_exists", return_value=False),
+            unittest.mock.patch.object(self.mod, "package_exists", return_value=False),
+            unittest.mock.patch.object(self.mod, "list_packages", return_value={}),
+            unittest.mock.patch.object(self.mod, "get_ros_distro", return_value="unknown"),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_start, self._ns(port=8765))
+        self.assertIn("error", r)
+        # Should not contain a specific distro name in the install command
+        self.assertNotIn("ros-unknown-", r.get("install", ""))
+
+    def test_start_success(self):
+        """start → success dict with port, connect_url, session, distro."""
+        fake_prefix = "/opt/ros/kilted"
+        fake_launch = fake_prefix + "/share/foxglove_bridge/launch/foxglove_bridge_launch.xml"
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "session_exists", return_value=False),
+            unittest.mock.patch.object(self.mod, "package_exists", return_value=True),
+            unittest.mock.patch.object(self.mod, "get_package_prefix", return_value=fake_prefix),
+            unittest.mock.patch.object(self.mod, "_find_launch_file", return_value=fake_launch),
+            unittest.mock.patch.object(self.mod, "source_local_ws", return_value=(None, "not_found")),
+            unittest.mock.patch.object(self.mod, "run_cmd", return_value=("", "", 0)),
+            unittest.mock.patch.object(self.mod, "check_session_alive", return_value=True),
+            unittest.mock.patch.object(self.mod, "save_session", return_value=None),
+            unittest.mock.patch.object(self.mod, "get_ros_distro", return_value="kilted"),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_start, self._ns(port=8765))
+        self.assertTrue(r.get("success"), r)
+        self.assertEqual(r["port"], 8765)
+        self.assertEqual(r["distro"], "kilted")
+        self.assertIn("connect_url", r)
+        self.assertIn("8765", r["connect_url"])
+        self.assertIn("session", r)
+        self.assertIn("foxglove_bridge", r["session"])
+
+    def test_start_default_port(self):
+        """start with no port arg defaults to 8765."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["foxglove", "start"])
+        self.assertEqual(args.port, 8765)
+
+    def test_start_custom_port(self):
+        """start accepts an explicit port."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["foxglove", "start", "9000"])
+        self.assertEqual(args.port, 9000)
+
+    # ------------------------------------------------------------------ stop
+
+    def test_stop_no_tmux(self):
+        """stop → error when tmux absent."""
+        with unittest.mock.patch.object(self.mod, "check_tmux", return_value=False):
+            r = self._capture(self.mod.cmd_foxglove_stop, self._ns(port=None))
+        self.assertIn("error", r)
+
+    def test_stop_no_sessions(self):
+        """stop → success message when nothing is running."""
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions", return_value=[]),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_stop, self._ns(port=None))
+        self.assertTrue(r.get("success"), r)
+        self.assertEqual(r.get("stopped"), [])
+        self.assertIn("message", r)
+
+    def test_stop_single_session_no_port(self):
+        """stop with one running session and no port filter kills it."""
+        sname = "launch_foxglove_bridge_port8765"
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions",
+                                       return_value=[sname]),
+            unittest.mock.patch.object(self.mod, "kill_session", return_value=True),
+            unittest.mock.patch.object(self.mod, "delete_session_metadata", return_value=None),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_stop, self._ns(port=None))
+        self.assertTrue(r.get("success"), r)
+        self.assertIn(sname, r.get("stopped", []))
+
+    def test_stop_multiple_sessions_no_port_returns_list(self):
+        """stop with multiple sessions and no port → error listing all sessions."""
+        sessions = [
+            "launch_foxglove_bridge_port8765",
+            "launch_foxglove_bridge_port9090",
+        ]
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions",
+                                       return_value=sessions),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_stop, self._ns(port=None))
+        self.assertIn("error", r)
+        self.assertIn("running_sessions", r)
+        # Each entry should expose port number
+        ports = [entry["port"] for entry in r["running_sessions"]]
+        self.assertIn(8765, ports)
+        self.assertIn(9090, ports)
+
+    def test_stop_port_filter_correct(self):
+        """stop --port kills only the targeted session."""
+        sname = "launch_foxglove_bridge_port9090"
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions",
+                                       return_value=["launch_foxglove_bridge_port8765", sname]),
+            unittest.mock.patch.object(self.mod, "kill_session", return_value=True),
+            unittest.mock.patch.object(self.mod, "delete_session_metadata", return_value=None),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_stop, self._ns(port=9090))
+        self.assertTrue(r.get("success"), r)
+        self.assertIn(sname, r.get("stopped", []))
+
+    def test_stop_port_not_found(self):
+        """stop --port N → error when no session on that port."""
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions",
+                                       return_value=["launch_foxglove_bridge_port8765"]),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_stop, self._ns(port=9999))
+        self.assertIn("error", r)
+        self.assertIn("running_sessions", r)
+
+    # ------------------------------------------------------------------ status
+
+    def test_status_no_tmux(self):
+        """status → error when tmux absent."""
+        with unittest.mock.patch.object(self.mod, "check_tmux", return_value=False):
+            r = self._capture(self.mod.cmd_foxglove_status, self._ns())
+        self.assertIn("error", r)
+
+    def test_status_no_sessions(self):
+        """status → running=False with install hint when nothing running."""
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions", return_value=[]),
+            unittest.mock.patch.object(self.mod, "get_ros_distro", return_value="kilted"),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_status, self._ns())
+        self.assertFalse(r.get("running"), r)
+        self.assertEqual(r.get("bridges"), [])
+        # Install hint must name the active distro
+        self.assertIn("kilted", r.get("install_hint", ""))
+
+    def test_status_ready_session(self):
+        """status shows ready when tmux alive and port bound."""
+        sname = "launch_foxglove_bridge_port8765"
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions",
+                                       return_value=[sname]),
+            unittest.mock.patch.object(self.mod, "check_session_alive", return_value=True),
+            unittest.mock.patch.object(self.mod, "_is_port_bound", return_value=True),
+            unittest.mock.patch.object(self.mod, "get_ros_distro", return_value="kilted"),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_status, self._ns())
+        self.assertTrue(r.get("running"), r)
+        self.assertEqual(r.get("count"), 1)
+        bridge = r["bridges"][0]
+        self.assertEqual(bridge["status"], "ready")
+        self.assertEqual(bridge["port"], 8765)
+        self.assertIn("connect_url", bridge)
+
+    def test_status_starting_session(self):
+        """status shows starting when tmux alive but port not yet bound."""
+        sname = "launch_foxglove_bridge_port8765"
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions",
+                                       return_value=[sname]),
+            unittest.mock.patch.object(self.mod, "check_session_alive", return_value=True),
+            unittest.mock.patch.object(self.mod, "_is_port_bound", return_value=False),
+            unittest.mock.patch.object(self.mod, "get_ros_distro", return_value="kilted"),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_status, self._ns())
+        bridge = r["bridges"][0]
+        self.assertEqual(bridge["status"], "starting")
+
+    def test_status_crashed_session(self):
+        """status shows crashed when tmux pane is dead."""
+        sname = "launch_foxglove_bridge_port8765"
+        with (
+            unittest.mock.patch.object(self.mod, "check_tmux", return_value=True),
+            unittest.mock.patch.object(self.mod, "_get_active_foxglove_sessions",
+                                       return_value=[sname]),
+            unittest.mock.patch.object(self.mod, "check_session_alive", return_value=False),
+            unittest.mock.patch.object(self.mod, "_is_port_bound", return_value=False),
+            unittest.mock.patch.object(self.mod, "get_ros_distro", return_value="kilted"),
+        ):
+            r = self._capture(self.mod.cmd_foxglove_status, self._ns())
+        bridge = r["bridges"][0]
+        self.assertEqual(bridge["status"], "crashed")
+        self.assertIn("hint", bridge)
+
+    # ------------------------------------------------------------------ helpers
+
+    def test_port_from_session_valid(self):
+        """_port_from_session parses standard session names."""
+        self.assertEqual(self.mod._port_from_session("launch_foxglove_bridge_port8765"), 8765)
+        self.assertEqual(self.mod._port_from_session("launch_foxglove_bridge_port1234"), 1234)
+
+    def test_port_from_session_invalid(self):
+        """_port_from_session returns None for unexpected formats."""
+        self.assertIsNone(self.mod._port_from_session("launch_foxglove_bridge_portABC"))
+        self.assertIsNone(self.mod._port_from_session("launch_foxglove_bridge_"))
+        self.assertIsNone(self.mod._port_from_session("something_else"))
+
+    def test_dispatch_foxglove_entries(self):
+        """DISPATCH has all three foxglove entries; launch foxglove aliases start."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("foxglove", "start"),  DISPATCH)
+        self.assertIn(("foxglove", "stop"),   DISPATCH)
+        self.assertIn(("foxglove", "status"), DISPATCH)
+        # backward compat
+        self.assertIn(("launch", "foxglove"), DISPATCH)
+        self.assertIs(DISPATCH[("launch", "foxglove")], DISPATCH[("foxglove", "start")])
+
+    def test_stop_parser_port_optional(self):
+        """foxglove stop accepts --port or no args."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args_no_port = p.parse_args(["foxglove", "stop"])
+        self.assertIsNone(args_no_port.port)
+        args_with_port = p.parse_args(["foxglove", "stop", "--port", "9090"])
+        self.assertEqual(args_with_port.port, 9090)
 
 
 if __name__ == "__main__":
