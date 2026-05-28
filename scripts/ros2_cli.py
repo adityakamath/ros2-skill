@@ -47,6 +47,7 @@ from ros2_topic import (
     cmd_topics_battery_list,
     cmd_topics_battery,
     cmd_topics_qos_check,
+    cmd_topics_classify,
 )
 
 from ros2_node import (
@@ -476,6 +477,8 @@ def build_parser():
                    help="Max messages per topic in --duration mode (default: 1)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Timeout waiting for messages (default: 10s)")
+    tsub.add_parser("classify",
+                    help="Classify all topics into semantic roles and report capabilities")
     for _pub_name in ("publish", "pub"):
         p = tsub.add_parser(_pub_name,
                             help="Publish a message" if _pub_name == "publish"
@@ -1689,6 +1692,7 @@ DISPATCH = {
     ("topics", "bw"): cmd_topics_bw,
     ("topics", "delay"): cmd_topics_delay,
     ("topics", "qos-check"): cmd_topics_qos_check,
+    ("topics", "classify"): cmd_topics_classify,
     # services — canonical
     ("services", "list"): cmd_services_list,
     ("services", "type"): cmd_services_type,

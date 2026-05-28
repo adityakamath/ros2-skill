@@ -2256,6 +2256,141 @@ def cmd_topics_qos_check(args):
         output({"error": str(e)})
 
 
+# ---------------------------------------------------------------------------
+# topics classify
+# ---------------------------------------------------------------------------
+
+# Message types that map to semantic roles.  Both the short form
+# (geometry_msgs/Twist) and the qualified form (geometry_msgs/msg/Twist) are
+# accepted because live ROS 2 graphs return the qualified form while some
+# test stubs use the short form.
+
+_MOTION_TYPES = {
+    f"geometry_msgs{q}{t}"
+    for q in ("/msg/", "/")
+    for t in ("Twist", "TwistStamped")
+} | {f"nav_msgs{q}Odometry" for q in ("/msg/", "/")}
+
+_SENSOR_TYPES = {
+    f"sensor_msgs{q}{t}"
+    for q in ("/msg/", "/")
+    for t in ("LaserScan", "Imu", "Range", "MagneticField",
+              "NavSatFix", "BatteryState", "JointState")
+}
+
+_CAMERA_TYPES = {
+    f"sensor_msgs{q}{t}"
+    for q in ("/msg/", "/")
+    for t in ("CompressedImage", "CameraInfo")
+}
+# Image is shared between camera and depth — name is the tiebreaker.
+_IMAGE_TYPE = {f"sensor_msgs{q}Image" for q in ("/msg/", "/")}
+
+_DEPTH_TYPES = {f"sensor_msgs{q}PointCloud2" for q in ("/msg/", "/")}
+
+_DIAG_TYPES_CLASSIFY = {
+    f"diagnostic_msgs{q}{t}"
+    for q in ("/msg/", "/")
+    for t in ("DiagnosticArray", "DiagnosticStatus")
+}
+
+_TF_TYPES = {f"tf2_msgs{q}TFMessage" for q in ("/msg/", "/")}
+
+_BATTERY_TYPES_CLASSIFY = {f"sensor_msgs{q}BatteryState" for q in ("/msg/", "/")}
+_JOINT_TYPES = {f"sensor_msgs{q}JointState" for q in ("/msg/", "/")}
+_ODOM_TYPES = {f"nav_msgs{q}Odometry" for q in ("/msg/", "/")}
+_LASER_TYPES = {f"sensor_msgs{q}LaserScan" for q in ("/msg/", "/")}
+_PC2_TYPES = {f"sensor_msgs{q}PointCloud2" for q in ("/msg/", "/")}
+_CAM_IMAGE_TYPES = {f"sensor_msgs{q}Image" for q in ("/msg/", "/")} | _CAMERA_TYPES
+
+
+def _classify_topics(topics_and_types):
+    """Classify a list of (topic_name, [type_str]) into semantic roles.
+
+    Returns a dict with:
+      - ``topics``: list of {topic, type, role}
+      - ``by_role``: {role: [topic_name, ...]} for all seven roles
+      - ``capabilities``: bool flags for common robot capability signals
+    """
+    roles = {r: [] for r in
+             ("motion", "sensors", "camera", "depth", "diagnostics", "tf", "other")}
+    entries = []
+
+    caps = {k: False for k in
+            ("can_move", "has_lidar", "has_camera", "has_depth",
+             "has_odom", "has_battery", "has_arm", "has_nav2")}
+
+    for name, types in topics_and_types:
+        t = types[0] if types else ""
+
+        # TF — match by name first (most reliable)
+        if name in ("/tf", "/tf_static") or t in _TF_TYPES:
+            role = "tf"
+
+        # Diagnostics
+        elif t in _DIAG_TYPES_CLASSIFY:
+            role = "diagnostics"
+
+        # Depth: PointCloud2 always; Image only when 'depth' appears in name
+        elif t in _DEPTH_TYPES or (t in _IMAGE_TYPE and "depth" in name.lower()):
+            role = "depth"
+
+        # Camera: CameraInfo, CompressedImage, or Image with 'camera'/'rgb'/'color' in name
+        elif t in _CAMERA_TYPES or (
+            t in _IMAGE_TYPE and any(kw in name.lower()
+                                     for kw in ("camera", "rgb", "color", "image"))
+        ):
+            role = "camera"
+
+        # Motion: Twist, TwistStamped, Odometry
+        elif t in _MOTION_TYPES:
+            role = "motion"
+
+        # Sensors: LaserScan, Imu, Range, MagneticField, NavSatFix,
+        #          BatteryState, JointState (and anything leftover in sensor_msgs)
+        elif t in _SENSOR_TYPES:
+            role = "sensors"
+
+        else:
+            role = "other"
+
+        entries.append({"topic": name, "type": t, "role": role})
+        roles[role].append(name)
+
+        # Capability signals
+        if t in _MOTION_TYPES and any(kw in name.lower()
+                                       for kw in ("cmd_vel", "velocity", "twist")):
+            caps["can_move"] = True
+        if t in _LASER_TYPES:
+            caps["has_lidar"] = True
+        if role == "camera":
+            caps["has_camera"] = True
+        if role == "depth":
+            caps["has_depth"] = True
+        if t in _ODOM_TYPES:
+            caps["has_odom"] = True
+        if t in _BATTERY_TYPES_CLASSIFY:
+            caps["has_battery"] = True
+        if t in _JOINT_TYPES or "arm" in name.lower():
+            caps["has_arm"] = True
+        if "navigate" in name.lower() or "nav2" in name.lower():
+            caps["has_nav2"] = True
+
+    return {"topics": entries, "by_role": roles, "capabilities": caps}
+
+
+def cmd_topics_classify(args):
+    """Classify all active topics into semantic roles and return capability summary."""
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            topics_and_types = node.get_topic_names_and_types()
+        result = _classify_topics(topics_and_types)
+        output(result)
+    except Exception as e:
+        output({"error": str(e)})
+
+
 if __name__ == "__main__":
     import sys
     import os

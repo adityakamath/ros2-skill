@@ -2,11 +2,29 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.8] - 2026-05-20
+## [1.0.8] - 2026-05-20 (updated 2026-05-27)
 
-Nav2 navigation command group and seven quality-of-life improvements from ros-mcp-server gap analysis.
+Nav2 navigation command group, seven quality-of-life improvements from ros-mcp-server gap analysis, and six new command groups from Innate Bot gap analysis. **Note:** the Innate Bot batch (foxglove, system, nav2 map/mode/localize) is implemented and unit-tested but not yet validated on real hardware — see `2026-05-27_v108-new-commands-untested.md` in the Obsidian vault.
 
 ### New Commands
+
+#### Innate Bot Gap Batch (2026-05-27) — untested on hardware
+
+- `foxglove start [--port PORT]` — launch `foxglove_bridge` in a tmux session (`foxglove_bridge`); checks for apt install; default port 8765; output: `{started, session, port, pid}`
+- `foxglove stop` — kill the `foxglove_bridge` tmux session; noop if not running; output: `{stopped, was_running}`
+- `foxglove status` — check if session alive and report port + PID; output: `{running, session, port, pid}`
+- `system battery [--topic T] [--threshold N] [--warn N] [--timeout 5]` — one-shot subscribe to any `sensor_msgs/BatteryState` topic (auto-detected or explicit); returns `{voltage, percentage, power_supply_status, health}` where health is `ok` / `warning` / `critical` (default thresholds 30% / 20%)
+- `system shutdown [--confirm] [--timeout 10]` — requires `--confirm`; attempts `/shutdown` ROS service first; falls back to `sudo shutdown now`; output includes `method` field
+- `system reboot [--confirm] [--timeout 10]` — same pattern as shutdown; falls back to `sudo reboot`
+- `nav2 map list [--maps-dir DIR]` — scan slam_toolbox maps directory for `.yaml` map files; output: `{maps: [{name, path, size_kb}], count, maps_dir}`
+- `nav2 map save [--name NAME] [--timeout 30]` — call slam_toolbox `SerializePoseGraph` service; name defaults to ISO timestamp; output: `{saved, name, path}`
+- `nav2 map load <name> [--timeout 15]` — call `map_server/load_map` (`LoadMap` service) with the named map's `.yaml` file; output: `{loaded, map_url, result_code}`
+- `nav2 map delete <name> [--maps-dir DIR] [--confirm]` — requires `--confirm`; removes `.yaml` + `.pgm`/`.png` files; output: `{deleted, name, files_removed}`
+- `nav2 mode get [--timeout 3]` — query slam_toolbox and amcl lifecycle states to infer mode: `mapping` / `navigation` / `mapfree` / `unknown`; output: `{mode, slam_toolbox_state, amcl_state}`
+- `nav2 mode set <mapfree|mapping|navigation> [--timeout 30]` — perform lifecycle transitions to activate / deactivate slam_toolbox and amcl as required; output: `{mode, transitions_performed}`
+- `nav2 localize [--service S] [--timeout 5]` — call `std_srvs/srv/Empty` on `/reinitialize_global_localization`; spreads AMCL particles over full map to trigger global re-localisation; output: `{localized, service_called, amcl_running}`
+
+#### ros-mcp-server Gap Batch (2026-05-20)
 
 - `nav2 go <x> <y> [--yaw DEG] [--frame map] [--timeout 120] [--feedback] [--action NAME]` — send a `NavigateToPose` goal and block until SUCCEEDED / ABORTED / timeout; `--feedback` attaches per-step feedback messages to the output; `--yaw` sets heading at the goal
 - `nav2 cancel [--action NAME] [--timeout 10]` — cancel all active `NavigateToPose` goals via the `/_action/cancel_goal` service, then publish three zero-velocity `Twist` messages to the first `cmd_vel` topic found; always call before issuing a new navigation goal
@@ -17,6 +35,11 @@ Nav2 navigation command group and seven quality-of-life improvements from ros-mc
 - `actions status <action> [--timeout 3]` — one-shot subscribe to `/<action>/_action/status` (`GoalStatusArray`) and return the current goal list with human-readable status names (`UNKNOWN`, `ACCEPTED`, `EXECUTING`, `CANCELING`, `SUCCEEDED`, `CANCELED`, `ABORTED`); output: `{action, goal_statuses: [{goal_id, status, status_name, active}], active_count}`
 
 ### Changes
+
+- **`AGENTS.md` — Step 8 (Battery Pre-flight):** added to Session Start checklist; if `battery_state` topic present in profile, call `system battery` before any multi-step task; block if critical (< 20%), warn if low (< 30%); thresholds configurable
+- **`AGENTS.md` — Rule T10 (Spatial Observation Memory):** new rule: when noting observed objects, append current robot pose from `nav2 initial-pose` / `tf monitor`; format: `observed=<object> x=N y=N frame=map ts=T`
+- **`ros2_system.py`:** new module for robot power lifecycle commands (battery, shutdown, reboot)
+- **`ros2_foxglove.py`:** new module for Foxglove Bridge tmux session management
 
 - **`topics subscribe` / `topics echo` — `--throttle-rate-ms N`:** drop messages arriving within N milliseconds of the previous accepted message; wall-clock tracking via `_last_received_ms` in `TopicSubscriber`; useful on high-rate topics (camera, IMU, lidar) where only trend data is needed
 - **`topics subscribe` / `topics echo` — capped output fields:** duration-mode output now includes `capped: bool` (true when the collection loop exited because the message cap was reached, not because time expired) and `messages_dropped: int` (total messages received minus messages kept); gives agents feedback on whether the sample is representative

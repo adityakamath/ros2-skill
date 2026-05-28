@@ -104,6 +104,7 @@ MINIMAL_ARGS = [
     ("topics",   "bw",               ["topics", "bw", "/t"]),
     ("topics",   "delay",            ["topics", "delay", "/t"]),
     ("topics",   "qos-check",        ["topics", "qos-check", "/t"]),
+    ("topics",   "classify",         ["topics", "classify"]),
     # topics — aliases
     ("topics",   "echo",             ["topics", "echo", "/t"]),
     ("topics",   "pub",              ["topics", "pub", "/t", "{}"]),
@@ -5802,6 +5803,233 @@ class TestNav2Localize(unittest.TestCase):
         """DISPATCH has nav2 localize entry."""
         from ros2_cli import DISPATCH
         self.assertIn(("nav2", "localize"), DISPATCH)
+
+
+class TestTopicsClassify(unittest.TestCase):
+    """Pure-logic tests for _classify_topics and the topics classify command.
+
+    _classify_topics is a pure Python function (no rclpy calls), so these
+    tests run without a live ROS 2 environment — the rclpy guard is only
+    needed to import ros2_topic safely.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_topic
+        cls.mod = ros2_topic
+
+    def _classify(self, topics_and_types):
+        return self.mod._classify_topics(topics_and_types)
+
+    # ------------------------------------------------------------------
+    # Role classification by type
+    # ------------------------------------------------------------------
+
+    def test_motion_twist_by_type(self):
+        """Topics with Twist type are classified as motion."""
+        result = self._classify([("/cmd_vel", ["geometry_msgs/msg/Twist"])])
+        self.assertEqual(result["topics"][0]["role"], "motion")
+
+    def test_motion_twist_stamped_by_type(self):
+        """Topics with TwistStamped type are classified as motion."""
+        result = self._classify([("/cmd_vel_stamped", ["geometry_msgs/msg/TwistStamped"])])
+        self.assertEqual(result["topics"][0]["role"], "motion")
+
+    def test_motion_odometry_by_type(self):
+        """Topics with Odometry type are classified as motion."""
+        result = self._classify([("/odom", ["nav_msgs/msg/Odometry"])])
+        self.assertEqual(result["topics"][0]["role"], "motion")
+
+    def test_sensors_laser_scan_by_type(self):
+        """Topics with LaserScan type are classified as sensors."""
+        result = self._classify([("/scan", ["sensor_msgs/msg/LaserScan"])])
+        self.assertEqual(result["topics"][0]["role"], "sensors")
+
+    def test_sensors_imu_by_type(self):
+        """Topics with Imu type are classified as sensors."""
+        result = self._classify([("/imu/data", ["sensor_msgs/msg/Imu"])])
+        self.assertEqual(result["topics"][0]["role"], "sensors")
+
+    def test_sensors_battery_by_type(self):
+        """Battery topics (BatteryState) are classified as sensors."""
+        result = self._classify([("/battery_state", ["sensor_msgs/msg/BatteryState"])])
+        self.assertEqual(result["topics"][0]["role"], "sensors")
+
+    def test_camera_image_by_type_and_name(self):
+        """Topics with Image type and camera-like name are classified as camera."""
+        result = self._classify([("/camera/image_raw", ["sensor_msgs/msg/Image"])])
+        self.assertEqual(result["topics"][0]["role"], "camera")
+
+    def test_camera_info_by_type(self):
+        """Topics with CameraInfo type are classified as camera."""
+        result = self._classify([("/camera/camera_info", ["sensor_msgs/msg/CameraInfo"])])
+        self.assertEqual(result["topics"][0]["role"], "camera")
+
+    def test_depth_pointcloud_by_type(self):
+        """Topics with PointCloud2 type are classified as depth."""
+        result = self._classify([("/points", ["sensor_msgs/msg/PointCloud2"])])
+        self.assertEqual(result["topics"][0]["role"], "depth")
+
+    def test_depth_image_by_name_and_type(self):
+        """Topics with 'depth' in the name and Image type are classified as depth."""
+        result = self._classify([("/camera/depth/image_raw", ["sensor_msgs/msg/Image"])])
+        self.assertEqual(result["topics"][0]["role"], "depth")
+
+    def test_tf_topic_by_name(self):
+        """/tf is classified as tf regardless of type."""
+        result = self._classify([("/tf", ["tf2_msgs/msg/TFMessage"])])
+        self.assertEqual(result["topics"][0]["role"], "tf")
+
+    def test_tf_static_topic_by_name(self):
+        """/tf_static is classified as tf."""
+        result = self._classify([("/tf_static", ["tf2_msgs/msg/TFMessage"])])
+        self.assertEqual(result["topics"][0]["role"], "tf")
+
+    def test_diagnostics_by_type(self):
+        """Topics with DiagnosticArray type are classified as diagnostics."""
+        result = self._classify([("/diagnostics", ["diagnostic_msgs/msg/DiagnosticArray"])])
+        self.assertEqual(result["topics"][0]["role"], "diagnostics")
+
+    def test_other_unrecognised_type(self):
+        """Unrecognised type with unrecognised name falls into other."""
+        result = self._classify([("/custom_topic", ["my_pkg/msg/Custom"])])
+        self.assertEqual(result["topics"][0]["role"], "other")
+
+    # ------------------------------------------------------------------
+    # by_role grouping
+    # ------------------------------------------------------------------
+
+    def test_by_role_groups_multiple_topics(self):
+        """by_role groups topic names correctly across multiple roles."""
+        topics = [
+            ("/cmd_vel", ["geometry_msgs/msg/Twist"]),
+            ("/scan", ["sensor_msgs/msg/LaserScan"]),
+            ("/odom", ["nav_msgs/msg/Odometry"]),
+        ]
+        result = self._classify(topics)
+        self.assertIn("/cmd_vel", result["by_role"]["motion"])
+        self.assertIn("/odom", result["by_role"]["motion"])
+        self.assertIn("/scan", result["by_role"]["sensors"])
+
+    def test_by_role_empty_roles_present(self):
+        """by_role always contains all seven role keys, even if empty."""
+        result = self._classify([("/cmd_vel", ["geometry_msgs/msg/Twist"])])
+        for role in ("motion", "sensors", "camera", "depth", "diagnostics", "tf", "other"):
+            self.assertIn(role, result["by_role"])
+
+    # ------------------------------------------------------------------
+    # Capability flags
+    # ------------------------------------------------------------------
+
+    def test_capability_can_move_true(self):
+        """can_move is True when a Twist (cmd_vel) topic exists."""
+        result = self._classify([("/cmd_vel", ["geometry_msgs/msg/Twist"])])
+        self.assertTrue(result["capabilities"]["can_move"])
+
+    def test_capability_has_lidar_true(self):
+        """has_lidar is True when a LaserScan topic exists."""
+        result = self._classify([("/scan", ["sensor_msgs/msg/LaserScan"])])
+        self.assertTrue(result["capabilities"]["has_lidar"])
+
+    def test_capability_has_camera_true(self):
+        """has_camera is True when a camera Image topic exists."""
+        result = self._classify([("/camera/image_raw", ["sensor_msgs/msg/Image"])])
+        self.assertTrue(result["capabilities"]["has_camera"])
+
+    def test_capability_has_depth_true(self):
+        """has_depth is True when a PointCloud2 topic exists."""
+        result = self._classify([("/points", ["sensor_msgs/msg/PointCloud2"])])
+        self.assertTrue(result["capabilities"]["has_depth"])
+
+    def test_capability_has_odom_true(self):
+        """has_odom is True when an Odometry topic exists."""
+        result = self._classify([("/odom", ["nav_msgs/msg/Odometry"])])
+        self.assertTrue(result["capabilities"]["has_odom"])
+
+    def test_capability_has_battery_true(self):
+        """has_battery is True when a BatteryState topic exists."""
+        result = self._classify([("/battery_state", ["sensor_msgs/msg/BatteryState"])])
+        self.assertTrue(result["capabilities"]["has_battery"])
+
+    def test_capability_has_nav2_true(self):
+        """has_nav2 is True when a navigate_to_pose action topic exists."""
+        result = self._classify([
+            ("/navigate_to_pose/_action/status", ["action_msgs/msg/GoalStatusArray"])
+        ])
+        self.assertTrue(result["capabilities"]["has_nav2"])
+
+    def test_capability_has_arm_true(self):
+        """has_arm is True when a JointState topic exists."""
+        result = self._classify([("/joint_states", ["sensor_msgs/msg/JointState"])])
+        self.assertTrue(result["capabilities"]["has_arm"])
+
+    def test_capabilities_all_false_on_empty(self):
+        """All capability flags are False when no topics are provided."""
+        result = self._classify([])
+        for key in ("can_move", "has_lidar", "has_camera", "has_depth",
+                    "has_odom", "has_battery", "has_arm", "has_nav2"):
+            self.assertFalse(result["capabilities"][key],
+                             f"Expected {key}=False for empty input")
+
+    def test_capabilities_false_for_unrelated_topics(self):
+        """Capability flags stay False for unrelated topics."""
+        result = self._classify([("/custom", ["my_pkg/msg/Custom"])])
+        self.assertFalse(result["capabilities"]["can_move"])
+        self.assertFalse(result["capabilities"]["has_lidar"])
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_empty_type_list_does_not_crash(self):
+        """Topics with an empty type list are classified as other without error."""
+        result = self._classify([("/unknown_topic", [])])
+        self.assertEqual(result["topics"][0]["role"], "other")
+
+    def test_result_has_required_keys(self):
+        """Result always has topics, by_role, and capabilities keys."""
+        result = self._classify([])
+        self.assertIn("topics", result)
+        self.assertIn("by_role", result)
+        self.assertIn("capabilities", result)
+
+    def test_each_topic_entry_has_topic_type_role(self):
+        """Each entry in result['topics'] has topic, type, and role keys."""
+        result = self._classify([("/cmd_vel", ["geometry_msgs/msg/Twist"])])
+        entry = result["topics"][0]
+        self.assertIn("topic", entry)
+        self.assertIn("type", entry)
+        self.assertIn("role", entry)
+
+    def test_topic_type_is_first_type_or_empty(self):
+        """Each entry's 'type' field is the first element of the type list, or ''."""
+        result = self._classify([("/cmd_vel", ["geometry_msgs/msg/Twist", "other/Type"])])
+        self.assertEqual(result["topics"][0]["type"], "geometry_msgs/msg/Twist")
+
+    def test_empty_input_returns_empty_lists(self):
+        """Empty input returns empty topics list and empty by_role lists."""
+        result = self._classify([])
+        self.assertEqual(result["topics"], [])
+        for role_list in result["by_role"].values():
+            self.assertEqual(role_list, [])
+
+    # ------------------------------------------------------------------
+    # Parser and dispatch
+    # ------------------------------------------------------------------
+
+    def test_parser_topics_classify(self):
+        """'topics classify' parses without error."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["topics", "classify"])
+        self.assertEqual(args.subcommand, "classify")
+
+    def test_dispatch_topics_classify(self):
+        """DISPATCH has a ('topics', 'classify') entry."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("topics", "classify"), DISPATCH)
 
 
 if __name__ == "__main__":
