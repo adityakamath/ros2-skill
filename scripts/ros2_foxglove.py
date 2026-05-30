@@ -16,6 +16,7 @@ alphabetical-fallback logic handles future releases automatically.
 """
 
 import os
+from typing import Optional
 
 from ros2_utils import (
     output,
@@ -57,7 +58,7 @@ def _get_active_foxglove_sessions() -> list[str]:
             if s.startswith(_FOXGLOVE_SESSION_PREFIX)]
 
 
-def _port_from_session(session_name: str) -> int | None:
+def _port_from_session(session_name: str) -> Optional[int]:
     """Extract port number from a session name, or ``None`` if unparseable."""
     suffix = session_name.removeprefix(_FOXGLOVE_SESSION_PREFIX)
     if suffix.startswith("port"):
@@ -86,7 +87,7 @@ def _is_port_bound(port: int) -> bool:
     return rc2 == 0
 
 
-def _find_launch_file(prefix: str) -> str | None:
+def _find_launch_file(prefix: str) -> Optional[str]:
     """Search common install locations for ``foxglove_bridge_launch.xml``."""
     candidates = [
         os.path.join(prefix, "share", "foxglove_bridge", "launch", "foxglove_bridge_launch.xml"),

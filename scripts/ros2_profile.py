@@ -27,6 +27,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from typing import Optional
 
 from ros2_utils import output
 
@@ -1707,9 +1708,9 @@ def _extract_teleop_limits(yaml_files):
     Returns None when no teleop scales are found.
     """
     sources = []
-    best_lx: float | None = None
-    best_ly: float | None = None
-    best_az: float | None = None
+    best_lx: Optional[float] = None
+    best_ly: Optional[float] = None
+    best_az: Optional[float] = None
 
     def _upd(cur, val):
         if val is None:

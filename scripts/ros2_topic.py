@@ -244,8 +244,15 @@ def _node_name(prefix, topic):
 # Subscriber node
 # ---------------------------------------------------------------------------
 
+def _count_msg_bytes(d):
+    """Return the byte size of a message dict as serialised JSON."""
+    import json
+    return len(json.dumps(d))
+
+
 class TopicSubscriber(Node):
-    def __init__(self, topic, msg_type, msg_class=None, qos=None, throttle_rate_ms=None):
+    def __init__(self, topic, msg_type, msg_class=None, qos=None,
+                 throttle_rate_ms=None, max_bytes=None):
         super().__init__(_node_name('sub', topic))
         self.msg_type = msg_type
         self.messages = []
@@ -253,6 +260,8 @@ class TopicSubscriber(Node):
         self.sub = None
         self._throttle_rate_ms = throttle_rate_ms
         self._last_received_ms = None   # wall-clock ms of last kept message
+        self._max_bytes = max_bytes
+        self._bytes_seen = 0
 
         resolved_class = msg_class if msg_class is not None else get_msg_type(msg_type)
         resolved_qos = qos if qos is not None else qos_profile_system_default
@@ -270,6 +279,7 @@ class TopicSubscriber(Node):
                     return          # drop — within throttle window
             self._last_received_ms = now_ms
             self.messages.append(msg_to_dict(msg))
+            self._bytes_seen += _count_msg_bytes(self.messages[-1])
 
 
 def cmd_topics_subscribe(args):
@@ -277,6 +287,7 @@ def cmd_topics_subscribe(args):
         return output({"error": "topic argument is required"})
 
     throttle_rate_ms = getattr(args, "throttle_rate_ms", None)
+    max_bytes = getattr(args, "max_bytes", None)
 
     try:
         with ros2_context():
@@ -288,7 +299,8 @@ def cmd_topics_subscribe(args):
                 return output({"error": f"Could not detect message type for topic: {args.topic}"})
 
             subscriber = TopicSubscriber(args.topic, msg_type,
-                                         throttle_rate_ms=throttle_rate_ms)
+                                         throttle_rate_ms=throttle_rate_ms,
+                                         max_bytes=max_bytes)
 
             if subscriber.sub is None:
                 return output({"error": f"Could not load message type: {msg_type}"})
@@ -299,20 +311,26 @@ def cmd_topics_subscribe(args):
             if args.duration:
                 cap = args.max_messages or 100
                 end_time = time.time() + args.duration
-                while time.time() < end_time and len(subscriber.messages) < cap:
+                while (time.time() < end_time
+                       and len(subscriber.messages) < cap
+                       and (max_bytes is None or subscriber._bytes_seen < max_bytes)):
                     executor.spin_once(timeout_sec=0.1)
 
                 with subscriber.lock:
                     all_received = len(subscriber.messages)
                     messages = subscriber.messages[:cap]
+                    bytes_collected = subscriber._bytes_seen
 
                 capped = all_received >= cap
+                capped_bytes = max_bytes is not None and bytes_collected >= max_bytes
                 messages_dropped = max(0, all_received - len(messages))
                 out = {
                     "topic": args.topic,
                     "collected_count": len(messages),
                     "capped": capped,
                     "messages_dropped": messages_dropped,
+                    "bytes_collected": bytes_collected,
+                    "capped_bytes": capped_bytes,
                     "messages": messages,
                 }
                 if throttle_rate_ms is not None:

@@ -42,15 +42,51 @@ def cmd_interface_list(args):
         output({"error": str(e)})
 
 
+def _expand_fields(fields_dict, depth, visited=None):
+    """Recursively expand message field types up to ``depth`` levels.
+
+    At depth 0 the dict is returned unchanged (same flat behaviour as the
+    default ``interface show`` output).  At depth N > 0 any field whose type
+    string looks like a composite message type (contains ``/``) is resolved
+    via :func:`get_msg_type` and replaced with its own expanded field dict.
+    Unknown types and primitive types (no ``/``) remain as strings.
+    Cycle prevention is enforced via the ``visited`` set.
+    """
+    if visited is None:
+        visited = set()
+    if not fields_dict or depth <= 0:
+        return dict(fields_dict)
+    result = {}
+    for field_name, type_str in fields_dict.items():
+        # Primitive types (no slash) or already-visited types → leave as-is
+        if "/" not in type_str or type_str in visited:
+            result[field_name] = type_str
+            continue
+        try:
+            cls = get_msg_type(type_str)
+            if cls is None:
+                result[field_name] = type_str
+                continue
+            sub_fields = dict(cls.get_fields_and_field_types())
+            result[field_name] = _expand_fields(
+                sub_fields, depth - 1, visited | {type_str}
+            )
+        except Exception:
+            result[field_name] = type_str
+    return result
+
+
 def cmd_interface_show(args):
     """Show the field structure of a message, service, or action type.
 
     Accepts canonical formats (pkg/msg/Name, pkg/srv/Name, pkg/action/Name)
     and shorthand (pkg/Name — tries message first, then service, then action).
     Kind is detected from class attributes, not string parsing.
+    Use ``--depth N`` to recursively expand composite field types N levels deep.
     """
     try:
         type_str = args.type_str
+        depth = getattr(args, "depth", 0)
 
         # get_msg_type handles /msg/, /srv/, /action/ prefixed strings internally.
         # For shorthand (pkg/Name) it only tries .msg; fallback to srv/action below.
@@ -60,26 +96,29 @@ def cmd_interface_show(args):
             return
 
         if hasattr(cls, "Goal") and hasattr(cls, "Result") and hasattr(cls, "Feedback"):
-            output({
+            out = {
                 "type": type_str,
                 "kind": "action",
-                "goal":     dict(cls.Goal.get_fields_and_field_types()),
-                "result":   dict(cls.Result.get_fields_and_field_types()),
-                "feedback": dict(cls.Feedback.get_fields_and_field_types()),
-            })
+                "goal":     _expand_fields(dict(cls.Goal.get_fields_and_field_types()), depth),
+                "result":   _expand_fields(dict(cls.Result.get_fields_and_field_types()), depth),
+                "feedback": _expand_fields(dict(cls.Feedback.get_fields_and_field_types()), depth),
+            }
         elif hasattr(cls, "Request") and hasattr(cls, "Response"):
-            output({
+            out = {
                 "type": type_str,
                 "kind": "service",
-                "request":  dict(cls.Request.get_fields_and_field_types()),
-                "response": dict(cls.Response.get_fields_and_field_types()),
-            })
+                "request":  _expand_fields(dict(cls.Request.get_fields_and_field_types()), depth),
+                "response": _expand_fields(dict(cls.Response.get_fields_and_field_types()), depth),
+            }
         else:
-            output({
+            out = {
                 "type":   type_str,
                 "kind":   "message",
-                "fields": dict(cls.get_fields_and_field_types()),
-            })
+                "fields": _expand_fields(dict(cls.get_fields_and_field_types()), depth),
+            }
+        if depth >= 1:
+            out["depth"] = depth
+        output(out)
     except Exception as e:
         output({"error": str(e)})
 

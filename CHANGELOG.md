@@ -2,7 +2,7 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.8] - 2026-05-20 (updated 2026-05-27)
+## [1.0.8] - 2026-05-20 (updated 2026-05-29)
 
 Nav2 navigation command group, seven quality-of-life improvements from ros-mcp-server gap analysis, and six new command groups from Innate Bot gap analysis. **Note:** the Innate Bot batch (foxglove, system, nav2 map/mode/localize) is implemented and unit-tested but not yet validated on real hardware — see `2026-05-27_v108-new-commands-untested.md` in the Obsidian vault.
 
@@ -41,11 +41,15 @@ Nav2 navigation command group, seven quality-of-life improvements from ros-mcp-s
 - **`ros2_system.py`:** new module for robot power lifecycle commands (battery, shutdown, reboot)
 - **`ros2_foxglove.py`:** new module for Foxglove Bridge tmux session management
 
+- **`topics classify`:** new subcommand — queries all topic names and types from the live graph then classifies each into one of seven semantic roles (`motion`, `sensor`, `camera`, `diagnostics`, `tf`, `battery`, `other`) using type-string pattern matching (no rclpy subscription); output includes `by_role` grouping dict and a `capabilities` flags object (`has_camera`, `has_depth`, `has_laser`, `has_pointcloud`, `has_odom`, `has_imu`, `has_joint_states`, `has_battery`); useful as a concise environment audit at session start
+- **`topics subscribe` / `topics echo` — `--max-bytes N`:** stop the duration-mode collection loop when the total JSON-serialised output reaches N bytes; output gains two new fields: `bytes_collected` (running total) and `capped_bytes` (true when the budget was the reason collection stopped); prevents runaway token usage on high-rate topics without needing to guess `--max-messages`
+- **`interface show --depth N`:** recursively expand composite field types up to N levels deep (default 0 = existing flat behaviour); uses `_expand_fields(fields_dict, depth, visited)` helper with cycle prevention via a `visited` type-string set; unknown and primitive types (no `/`) remain as strings; output includes `"depth": N` key when N ≥ 1
 - **`topics subscribe` / `topics echo` — `--throttle-rate-ms N`:** drop messages arriving within N milliseconds of the previous accepted message; wall-clock tracking via `_last_received_ms` in `TopicSubscriber`; useful on high-rate topics (camera, IMU, lidar) where only trend data is needed
 - **`topics subscribe` / `topics echo` — capped output fields:** duration-mode output now includes `capped: bool` (true when the collection loop exited because the message cap was reached, not because time expired) and `messages_dropped: int` (total messages received minus messages kept); gives agents feedback on whether the sample is representative
 - **`topics capture-image --inline`:** encode the saved image via `cv2.imencode` + `base64.b64encode` and add `image_base64` (ASCII string) and `image_encoding` (`jpeg` or `png`) to the JSON output; allows VLM pipelines to consume the image directly without a filesystem read
 - **`actions cancel --goal-id UUID`:** extend cancel from "all goals" (all-zeros UUID sentinel) to a specific goal by UUID; `_parse_goal_id_uuid()` converts standard UUID string to 16-byte list via `uuid.UUID(goal_id_str).bytes`; without `--goal-id` the all-goals behaviour is unchanged
 - **`actions list` — `has_active_goals` field:** each entry in the `has_active_goals` dict is `None` when the `/_action/status` topic is present (server running, state indeterminate without subscribing) or `False` when the topic is absent (no server / no goals ever published); agents can skip `actions status` calls when the value is `False`
+- **Python 3.9 compatibility:** replaced `X | None` union type-hint syntax (Python 3.10+) with `Optional[X]` from `typing` in `ros2_foxglove.py`, `ros2_nav2.py`, and `ros2_profile.py`; was causing `TypeError` at import time on Python 3.9 systems, breaking all parser-level tests
 - **`SKILL.md`:** bumped to v1.0.8; description now mentions Nav2 navigation; new "Nav2 Navigation" section with quickstart examples and key flag summary
 - **`AGENTS.md`:** profile navigation note expanded — `nav2_config` fields described, canonical EKF odom topic noted, full nav2 command group workflow documented; mandatory pre-goal `nav2 cancel` rule added; `nav2 status` + `nav2 cancel` promoted to preferred preemption path in `RULES-MOTION.md` SG-9
 

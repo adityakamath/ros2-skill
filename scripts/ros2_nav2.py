@@ -21,6 +21,7 @@ import json
 import math
 import threading
 import time
+from typing import Optional
 
 import rclpy
 
@@ -540,7 +541,7 @@ _LC_ACTIVATE    = 3
 _LC_DEACTIVATE  = 4
 
 
-def _get_managed_node_state(node, node_name: str, timeout: float = 3.0) -> dict | None:
+def _get_managed_node_state(node, node_name: str, timeout: float = 3.0) -> Optional[dict]:
     """Return ``{"state_id": N, "state": label}`` for a lifecycle node, or None."""
     from lifecycle_msgs.srv import GetState  # noqa: PLC0415
     svc = f"{node_name}/get_state"
@@ -975,7 +976,7 @@ def cmd_nav2_mode_set(args):
             actions: list[dict] = []
             errors:  list[str]  = []
 
-            def _ensure_state(lc_node: str | None, currently_active: bool,
+            def _ensure_state(lc_node: Optional[str], currently_active: bool,
                                want_active: bool, label: str) -> None:
                 if lc_node is None:
                     actions.append({"node": label, "skipped": "not detected as a lifecycle node"})

@@ -5805,6 +5805,326 @@ class TestNav2Localize(unittest.TestCase):
         self.assertIn(("nav2", "localize"), DISPATCH)
 
 
+class TestMaxBytesSubscribe(unittest.TestCase):
+    """Tests for --max-bytes support in TopicSubscriber and cmd_topics_subscribe."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_topic
+        cls.mod = ros2_topic
+
+    # ------------------------------------------------------------------
+    # Unit: _bytes_seen via _count_msg_bytes helper
+    # ------------------------------------------------------------------
+
+    def test_count_msg_bytes_returns_json_length(self):
+        """_count_msg_bytes(d) returns len(json.dumps(d))."""
+        import json
+        msg_dict = {"x": 1.0, "y": 2.0, "z": 3.0}
+        expected = len(json.dumps(msg_dict))
+        self.assertEqual(self.mod._count_msg_bytes(msg_dict), expected)
+
+    def test_count_msg_bytes_empty_dict(self):
+        """_count_msg_bytes({}) returns len('{}') == 2."""
+        self.assertEqual(self.mod._count_msg_bytes({}), 2)
+
+    def test_count_msg_bytes_nested(self):
+        """_count_msg_bytes handles nested dicts without error."""
+        import json
+        d = {"header": {"seq": 1, "frame_id": "base_link"}}
+        self.assertEqual(self.mod._count_msg_bytes(d), len(json.dumps(d)))
+
+    # ------------------------------------------------------------------
+    # Parser
+    # ------------------------------------------------------------------
+
+    def test_parser_max_bytes_default_none(self):
+        """'topics subscribe' has --max-bytes defaulting to None."""
+        from ros2_cli import build_parser
+        args = build_parser().parse_args(["topics", "subscribe", "/t"])
+        self.assertIsNone(args.max_bytes)
+
+    def test_parser_max_bytes_set(self):
+        """'topics subscribe --max-bytes 512' parses to max_bytes=512."""
+        from ros2_cli import build_parser
+        args = build_parser().parse_args(["topics", "subscribe", "/t", "--max-bytes", "512"])
+        self.assertEqual(args.max_bytes, 512)
+
+    def test_parser_echo_alias_also_has_max_bytes(self):
+        """'topics echo' alias also accepts --max-bytes."""
+        from ros2_cli import build_parser
+        args = build_parser().parse_args(["topics", "echo", "/t", "--max-bytes", "256"])
+        self.assertEqual(args.max_bytes, 256)
+
+    # ------------------------------------------------------------------
+    # Output structure (mock the subscribe loop)
+    # ------------------------------------------------------------------
+
+    def _run_subscribe_with_mock_messages(self, messages, max_bytes=None, duration=1.0):
+        """Run cmd_topics_subscribe with mock subscriber that returns pre-canned msgs."""
+        import json, threading
+        import ros2_utils
+
+        captured = []
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = [("/t", ["std_msgs/msg/String"])]
+
+        # Build a real-enough mock subscriber
+        mock_sub = MagicMock()
+        mock_sub.sub = MagicMock()  # non-None → subscription created
+        msg_bytes = sum(len(json.dumps(m)) for m in messages)
+        mock_sub._bytes_seen = msg_bytes
+        mock_sub.messages = messages
+        mock_sub.lock = threading.Lock()
+
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=None)
+        ctx.__exit__ = MagicMock(return_value=False)
+
+        mock_executor = MagicMock()
+
+        args = argparse.Namespace(
+            topic="/t",
+            msg_type=None,
+            duration=duration,
+            max_messages=len(messages) + 10,
+            max_bytes=max_bytes,
+            timeout=5.0,
+            throttle_rate_ms=None,
+        )
+
+        with (
+            patch.object(self.mod, "ros2_context", return_value=ctx),
+            patch.object(self.mod, "ROS2CLI", return_value=mock_node),
+            patch.object(self.mod, "resolve_topic_type", return_value="std_msgs/msg/String"),
+            patch.object(self.mod, "TopicSubscriber", return_value=mock_sub),
+            patch("rclpy.executors.SingleThreadedExecutor", return_value=mock_executor),
+            patch.object(ros2_utils, "output", side_effect=captured.append),
+            patch.object(self.mod, "output", side_effect=captured.append),
+            patch("time.time", side_effect=[0.0, 0.0, 10.0]),  # immediate timeout
+        ):
+            self.mod.cmd_topics_subscribe(args)
+
+        return captured[0] if captured else {}
+
+    def test_output_includes_bytes_collected_key(self):
+        """Duration-mode output includes 'bytes_collected' key."""
+        result = self._run_subscribe_with_mock_messages([{"data": "hello"}])
+        self.assertIn("bytes_collected", result)
+
+    def test_output_bytes_collected_matches_bytes_seen(self):
+        """bytes_collected reflects the total bytes accumulated by the subscriber."""
+        import json
+        msgs = [{"data": "hello"}, {"data": "world"}]
+        result = self._run_subscribe_with_mock_messages(msgs)
+        expected = sum(len(json.dumps(m)) for m in msgs)
+        self.assertEqual(result.get("bytes_collected"), expected)
+
+    def test_output_capped_bytes_false_when_not_exceeded(self):
+        """capped_bytes is False when byte limit was not reached."""
+        result = self._run_subscribe_with_mock_messages(
+            [{"data": "hi"}], max_bytes=10000
+        )
+        self.assertFalse(result.get("capped_bytes", True))
+
+    def test_output_capped_bytes_true_when_exceeded(self):
+        """capped_bytes is True when bytes_collected >= max_bytes."""
+        import json
+        msgs = [{"data": "x" * 100}]
+        byte_count = sum(len(json.dumps(m)) for m in msgs)
+        result = self._run_subscribe_with_mock_messages(
+            msgs, max_bytes=byte_count - 1
+        )
+        self.assertTrue(result.get("capped_bytes", False))
+
+
+class TestInterfaceShowDepth(unittest.TestCase):
+    """Tests for _expand_fields helper and --depth N in interface show."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_interface
+        cls.mod = ros2_interface
+
+    def _expand(self, fields, depth, visited=None):
+        return self.mod._expand_fields(fields, depth, visited or set())
+
+    def _capture(self, fn, args):
+        import ros2_utils
+        captured = []
+        with (
+            patch.object(ros2_utils, "output", side_effect=captured.append),
+            patch.object(self.mod,     "output", side_effect=captured.append),
+        ):
+            fn(args)
+        return captured[0] if captured else {}
+
+    # ------------------------------------------------------------------
+    # Unit: _expand_fields pure logic
+    # ------------------------------------------------------------------
+
+    def test_expand_empty_dict(self):
+        """_expand_fields on empty dict returns empty dict."""
+        self.assertEqual(self._expand({}, 1), {})
+
+    def test_expand_depth_zero_returns_type_strings_unchanged(self):
+        """At depth 0, type strings are returned as-is (existing flat behavior)."""
+        fields = {"x": "float64", "y": "float64"}
+        result = self._expand(fields, 0)
+        self.assertEqual(result, fields)
+
+    def test_expand_depth_one_expands_known_message_type(self):
+        """At depth 1, a field whose type resolves to a message class is expanded."""
+        sub_fields = {"sec": "int32", "nanosec": "uint32"}
+        mock_cls = MagicMock()
+        mock_cls.get_fields_and_field_types.return_value = sub_fields
+        with patch.object(self.mod, "get_msg_type", return_value=mock_cls):
+            result = self._expand({"stamp": "builtin_interfaces/msg/Time"}, 1)
+        self.assertIsInstance(result["stamp"], dict)
+        self.assertIn("sec", result["stamp"])
+
+    def test_expand_unknown_type_stays_as_string(self):
+        """If get_msg_type returns None, the field type is left as a string."""
+        with patch.object(self.mod, "get_msg_type", return_value=None):
+            result = self._expand({"mystery": "some/Unknown/Type"}, 1)
+        self.assertEqual(result["mystery"], "some/Unknown/Type")
+
+    def test_expand_primitive_type_stays_as_string(self):
+        """Primitive types like 'float64' and 'string' are never expanded."""
+        result = self._expand({"val": "float64", "name": "string"}, 1)
+        self.assertEqual(result["val"], "float64")
+        self.assertEqual(result["name"], "string")
+
+    def test_expand_depth_two_recurses(self):
+        """At depth 2, nested message types are expanded two levels deep."""
+        inner_fields = {"sec": "int32", "nanosec": "uint32"}
+        header_fields = {"stamp": "builtin_interfaces/msg/Time", "frame_id": "string"}
+
+        def mock_get_msg_type(type_str):
+            if "Time" in type_str:
+                m = MagicMock()
+                m.get_fields_and_field_types.return_value = inner_fields
+                return m
+            if "Header" in type_str:
+                m = MagicMock()
+                m.get_fields_and_field_types.return_value = header_fields
+                return m
+            return None
+
+        with patch.object(self.mod, "get_msg_type", side_effect=mock_get_msg_type):
+            result = self._expand({"header": "std_msgs/msg/Header"}, 2)
+
+        self.assertIsInstance(result["header"], dict)
+        self.assertIsInstance(result["header"].get("stamp"), dict)
+        self.assertIn("sec", result["header"]["stamp"])
+
+    def test_expand_cycle_prevention(self):
+        """A type already in visited is left as a string to prevent infinite recursion."""
+        already_visited = {"builtin_interfaces/msg/Time"}
+        sub_fields = {"sec": "int32"}
+        mock_cls = MagicMock()
+        mock_cls.get_fields_and_field_types.return_value = sub_fields
+        with patch.object(self.mod, "get_msg_type", return_value=mock_cls):
+            result = self._expand(
+                {"stamp": "builtin_interfaces/msg/Time"}, 1, already_visited
+            )
+        # Type is in visited → should NOT expand
+        self.assertEqual(result["stamp"], "builtin_interfaces/msg/Time")
+
+    def test_expand_exception_in_class_falls_back_to_string(self):
+        """If get_fields_and_field_types raises, the field stays as a type string."""
+        mock_cls = MagicMock()
+        mock_cls.get_fields_and_field_types.side_effect = RuntimeError("oops")
+        with patch.object(self.mod, "get_msg_type", return_value=mock_cls):
+            result = self._expand({"header": "std_msgs/msg/Header"}, 1)
+        self.assertEqual(result["header"], "std_msgs/msg/Header")
+
+    # ------------------------------------------------------------------
+    # Parser
+    # ------------------------------------------------------------------
+
+    def test_parser_interface_show_depth_default_zero(self):
+        """'interface show' --depth defaults to 0."""
+        from ros2_cli import build_parser
+        args = build_parser().parse_args(["interface", "show", "std_msgs/String"])
+        self.assertEqual(args.depth, 0)
+
+    def test_parser_interface_show_depth_set(self):
+        """'interface show --depth 2' parses to depth=2."""
+        from ros2_cli import build_parser
+        args = build_parser().parse_args(["interface", "show", "std_msgs/String", "--depth", "2"])
+        self.assertEqual(args.depth, 2)
+
+    # ------------------------------------------------------------------
+    # cmd_interface_show integration
+    # ------------------------------------------------------------------
+
+    def test_interface_show_depth_zero_no_depth_key_in_output(self):
+        """At depth 0 (default), output does not contain a 'depth' key."""
+        mock_cls = MagicMock()
+        mock_cls.get_fields_and_field_types.return_value = {"x": "float64"}
+        del mock_cls.Goal  # not an action
+        del mock_cls.Request  # not a service
+        with patch.object(self.mod, "_resolve_interface_type", return_value=mock_cls):
+            result = self._capture(
+                self.mod.cmd_interface_show,
+                argparse.Namespace(type_str="geometry_msgs/msg/Point", depth=0)
+            )
+        self.assertNotIn("depth", result)
+
+    def test_interface_show_depth_one_includes_depth_key(self):
+        """At depth >= 1, output contains a 'depth' key matching the request."""
+        sub_fields = {"sec": "int32", "nanosec": "uint32"}
+        sub_cls = MagicMock()
+        sub_cls.get_fields_and_field_types.return_value = sub_fields
+
+        outer_cls = MagicMock()
+        outer_cls.get_fields_and_field_types.return_value = {"stamp": "builtin_interfaces/msg/Time"}
+        del outer_cls.Goal
+        del outer_cls.Request
+
+        with (
+            patch.object(self.mod, "_resolve_interface_type", return_value=outer_cls),
+            patch.object(self.mod, "get_msg_type", return_value=sub_cls),
+        ):
+            result = self._capture(
+                self.mod.cmd_interface_show,
+                argparse.Namespace(type_str="some/Type", depth=1)
+            )
+        self.assertIn("depth", result)
+        self.assertEqual(result["depth"], 1)
+
+    def test_interface_show_depth_one_expands_fields(self):
+        """At depth 1, complex field types become nested dicts in the output."""
+        sub_cls = MagicMock()
+        sub_cls.get_fields_and_field_types.return_value = {"sec": "int32", "nanosec": "uint32"}
+
+        outer_cls = MagicMock()
+        outer_cls.get_fields_and_field_types.return_value = {
+            "stamp": "builtin_interfaces/msg/Time",
+            "frame_id": "string",
+        }
+        del outer_cls.Goal
+        del outer_cls.Request
+
+        with (
+            patch.object(self.mod, "_resolve_interface_type", return_value=outer_cls),
+            patch.object(self.mod, "get_msg_type", return_value=sub_cls),
+        ):
+            result = self._capture(
+                self.mod.cmd_interface_show,
+                argparse.Namespace(type_str="std_msgs/msg/Header", depth=1)
+            )
+        # stamp should be a dict now, not a string
+        self.assertIsInstance(result["fields"]["stamp"], dict)
+        # frame_id is a primitive → stays string
+        self.assertEqual(result["fields"]["frame_id"], "string")
+
+
 class TestTopicsClassify(unittest.TestCase):
     """Pure-logic tests for _classify_topics and the topics classify command.
 

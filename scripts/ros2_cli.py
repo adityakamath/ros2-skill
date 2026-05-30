@@ -336,6 +336,8 @@ def _add_subscribe_args(p):
     p.add_argument("--throttle-rate-ms", dest="throttle_rate_ms", type=int, default=None,
                    help="Skip messages arriving faster than N ms (e.g. 100 for 10 Hz on a "
                         "100 Hz topic). Useful to reduce output size on high-frequency topics.")
+    p.add_argument("--max-bytes", dest="max_bytes", type=int, default=None,
+                   help="Stop collecting when total JSON-serialised output exceeds N bytes")
 
 
 def build_parser():
@@ -1123,6 +1125,8 @@ def build_parser():
     p.add_argument("type_str", metavar="type",
                    help="Interface type, e.g. std_msgs/msg/String, std_srvs/srv/SetBool, "
                         "nav2_msgs/action/NavigateToPose, or shorthand std_msgs/String")
+    p.add_argument("--depth", type=int, default=0,
+                   help="Recursively expand composite field types N levels deep (default: 0 = flat)")
 
     p = ifsub.add_parser("proto", help="Show default-value prototype of a message, service, or action")
     p.add_argument("type_str", metavar="type",
