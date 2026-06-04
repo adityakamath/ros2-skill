@@ -151,6 +151,8 @@ from ros2_interface import (
     cmd_interface_proto,
     cmd_interface_packages,
     cmd_interface_package,
+    _expand_fields,
+    get_msg_type,
 )
 from ros2_bag import (
     cmd_bag_info,
@@ -281,6 +283,19 @@ def cmd_context(args):
         if truncated:
             result["topics_truncated"] = True
             result["topics_shown"] = limit
+        if getattr(args, "include_schemas", False):
+            schemas = {}
+            for _, types in all_topic_types:
+                for type_str in types:
+                    if type_str and type_str not in schemas:
+                        try:
+                            cls = get_msg_type(type_str)
+                            if cls is not None:
+                                fields = dict(cls.get_fields_and_field_types())
+                                schemas[type_str] = _expand_fields(fields, depth=1)
+                        except Exception:
+                            schemas[type_str] = {}
+            result["schemas"] = schemas
         output(result)
     except Exception as e:
         output({"error": str(e)})
@@ -363,6 +378,8 @@ def build_parser():
     p = sub.add_parser("context", help="Compact session-start summary: topics, services, actions, nodes")
     p.add_argument("--limit", type=int, default=50,
                    help="Max topics to return (default: 50; 0 = unlimited)")
+    p.add_argument("--include-schemas", dest="include_schemas", action="store_true", default=False,
+                   help="Expand topic type schemas into the output")
 
     estop = sub.add_parser("estop", help="Emergency stop for mobile robots (publishes zero velocity)")
     estop.add_argument("--topic", dest="topic", default=None,

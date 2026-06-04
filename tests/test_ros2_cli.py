@@ -6351,6 +6351,98 @@ class TestTopicsClassify(unittest.TestCase):
         from ros2_cli import DISPATCH
         self.assertIn(("topics", "classify"), DISPATCH)
 
+    # ------------------------------------------------------------------
+    # context --include-schemas
+    # ------------------------------------------------------------------
+
+    def test_parser_context_include_schemas_flag(self):
+        """'context --include-schemas' parses without error."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["context", "--include-schemas"])
+        self.assertTrue(args.include_schemas)
+
+    def test_parser_context_include_schemas_default_false(self):
+        """'context' without --include-schemas has include_schemas=False."""
+        from ros2_cli import build_parser
+        p = build_parser()
+        args = p.parse_args(["context"])
+        self.assertFalse(args.include_schemas)
+
+    def test_cmd_context_include_schemas_adds_schemas_key(self):
+        """cmd_context with include_schemas=True adds 'schemas' dict to output."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_cli import cmd_context
+
+        topic_types = [
+            ("/chatter", ["std_msgs/msg/String"]),
+            ("/cmd_vel", ["geometry_msgs/msg/Twist"]),
+        ]
+        mock_node = MagicMock()
+        mock_node.get_topic_names.return_value = [("/chatter", []), ("/cmd_vel", [])]
+        mock_node.get_service_names.return_value = []
+        mock_node.get_topic_names_and_types.return_value = topic_types
+        mock_node.get_node_names_and_namespaces.return_value = []
+
+        args = argparse.Namespace(limit=50, include_schemas=True)
+        captured = {}
+        with patch("ros2_cli.ros2_context"), \
+             patch("ros2_cli.ROS2CLI", return_value=mock_node), \
+             patch("ros2_cli.output", side_effect=lambda d: captured.update(d)):
+            cmd_context(args)
+
+        self.assertIn("schemas", captured)
+        self.assertIsInstance(captured["schemas"], dict)
+
+    def test_cmd_context_without_include_schemas_omits_schemas_key(self):
+        """cmd_context without include_schemas does NOT add 'schemas' key."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_cli import cmd_context
+
+        mock_node = MagicMock()
+        mock_node.get_topic_names.return_value = []
+        mock_node.get_service_names.return_value = []
+        mock_node.get_topic_names_and_types.return_value = []
+        mock_node.get_node_names_and_namespaces.return_value = []
+
+        args = argparse.Namespace(limit=50, include_schemas=False)
+        captured = {}
+        with patch("ros2_cli.ros2_context"), \
+             patch("ros2_cli.ROS2CLI", return_value=mock_node), \
+             patch("ros2_cli.output", side_effect=lambda d: captured.update(d)):
+            cmd_context(args)
+
+        self.assertNotIn("schemas", captured)
+
+    def test_cmd_context_schemas_keyed_by_type_string(self):
+        """schemas dict is keyed by the ROS type string (e.g. 'std_msgs/msg/String')."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_cli import cmd_context
+
+        topic_types = [("/chatter", ["std_msgs/msg/String"])]
+        mock_node = MagicMock()
+        mock_node.get_topic_names.return_value = [("/chatter", [])]
+        mock_node.get_service_names.return_value = []
+        mock_node.get_topic_names_and_types.return_value = topic_types
+        mock_node.get_node_names_and_namespaces.return_value = []
+
+        args = argparse.Namespace(limit=50, include_schemas=True)
+        captured = {}
+
+        def fake_expand(fields_dict, depth, visited=None):
+            return {"data": "string"}
+
+        with patch("ros2_cli.ros2_context"), \
+             patch("ros2_cli.ROS2CLI", return_value=mock_node), \
+             patch("ros2_cli.output", side_effect=lambda d: captured.update(d)), \
+             patch("ros2_cli._expand_fields", side_effect=fake_expand):
+            cmd_context(args)
+
+        self.assertIn("std_msgs/msg/String", captured.get("schemas", {}))
+
 
 if __name__ == "__main__":
     unittest.main()
