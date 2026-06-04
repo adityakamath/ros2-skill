@@ -2582,6 +2582,66 @@ class TestClampVelocity(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# RH-6 — parser flag tests for --max-vel / --max-ang
+# ---------------------------------------------------------------------------
+
+class TestMaxVelParserFlags(unittest.TestCase):
+    """Parser-level tests for --max-vel / --max-ang on publish commands."""
+
+    def _parser(self):
+        from ros2_cli import build_parser
+        return build_parser()
+
+    def test_publish_max_vel_default_none(self):
+        """'topics publish' defaults max_vel=None when flag omitted."""
+        args = self._parser().parse_args(["topics", "publish", "/t", "{}"])
+        self.assertIsNone(args.max_vel)
+
+    def test_publish_max_ang_default_none(self):
+        """'topics publish' defaults max_ang=None when flag omitted."""
+        args = self._parser().parse_args(["topics", "publish", "/t", "{}"])
+        self.assertIsNone(args.max_ang)
+
+    def test_publish_max_vel_parsed(self):
+        """'topics publish --max-vel 0.5' parses to max_vel=0.5."""
+        args = self._parser().parse_args(["topics", "publish", "/t", "{}", "--max-vel", "0.5"])
+        self.assertAlmostEqual(args.max_vel, 0.5)
+
+    def test_publish_max_ang_parsed(self):
+        """'topics publish --max-ang 1.2' parses to max_ang=1.2."""
+        args = self._parser().parse_args(["topics", "publish", "/t", "{}", "--max-ang", "1.2"])
+        self.assertAlmostEqual(args.max_ang, 1.2)
+
+    def test_publish_sequence_max_vel_parsed(self):
+        """'topics publish-sequence --max-vel 0.3' parses correctly."""
+        args = self._parser().parse_args([
+            "topics", "publish-sequence", "/t", "[{}]", "[1.0]", "--max-vel", "0.3"
+        ])
+        self.assertAlmostEqual(args.max_vel, 0.3)
+
+    def test_publish_sequence_max_ang_default_none(self):
+        """'topics publish-sequence' defaults max_ang=None."""
+        args = self._parser().parse_args(["topics", "publish-sequence", "/t", "[{}]", "[1.0]"])
+        self.assertIsNone(args.max_ang)
+
+    def test_publish_until_max_vel_parsed(self):
+        """'topics publish-until --max-vel 0.4' parses correctly."""
+        args = self._parser().parse_args([
+            "topics", "publish-until", "/t", "{}", "--monitor", "/odom",
+            "--field", "pose.pose.position.x", "--delta", "1.0", "--max-vel", "0.4"
+        ])
+        self.assertAlmostEqual(args.max_vel, 0.4)
+
+    def test_publish_until_max_ang_parsed(self):
+        """'topics publish-until --max-ang 0.8' parses correctly."""
+        args = self._parser().parse_args([
+            "topics", "publish-until", "/t", "{}", "--monitor", "/odom",
+            "--field", "pose.pose.position.x", "--delta", "1.0", "--max-ang", "0.8"
+        ])
+        self.assertAlmostEqual(args.max_ang, 0.8)
+
+
+# ---------------------------------------------------------------------------
 # H1 — Pure-arithmetic decel zone formula tests (no rclpy required)
 # ---------------------------------------------------------------------------
 
