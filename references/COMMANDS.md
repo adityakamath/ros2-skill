@@ -278,6 +278,8 @@ Publish a sequence of messages in order. Each message is repeated at `--rate` Hz
 |--------|---------|-------------|
 | `--msg-type TYPE` | auto-detect | Override message type |
 | `--rate HZ` | `10` | Publish rate in Hz for each step |
+| `--max-vel LIN` | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before publishing (Twist / TwistStamped only) |
+| `--max-ang ANG` | _(none)_ | Clamp `angular.z` to ±ANG rad/s before publishing (Twist / TwistStamped only) |
 
 **⚠️ WARNING — `publish-sequence` is open-loop and time-based. It has no sensor feedback and cannot guarantee distance or angle accuracy.**
 
@@ -348,6 +350,8 @@ Publish a message at a fixed rate while simultaneously monitoring a second topic
 | `--monitor-msg-type TYPE` | No | auto-detect | Override monitor topic message type |
 | `--slow-last N` | No | **auto** | Override the auto-computed deceleration zone (see below). Units: metres for `--field`/`--euclidean`; degrees if `--degrees` set, radians otherwise for `--rotate`. |
 | `--slow-factor F` | No | **auto** | Override the auto-computed fine-control floor (0–1 fraction of commanded speed). |
+| `--max-vel LIN` | No | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before the first publish (Twist / TwistStamped only) |
+| `--max-ang ANG` | No | _(none)_ | Clamp `angular.z` to ±ANG rad/s before the first publish (Twist / TwistStamped only) |
 
 **Note:** Either `--field` OR `--rotate` must be specified, but not both. `--slow-last` works with `--delta`, `--euclidean --delta`, and `--rotate`; ignored for `--above`/`--below`/`--equals`.
 
@@ -1000,6 +1004,8 @@ Publish a message to a topic. Without `--duration`/`--timeout`, sends once (sing
 | `--duration SECONDS` | _(none)_ | Publish repeatedly for this many seconds; identical to `--timeout` |
 | `--timeout SECONDS` | _(none)_ | Alias for `--duration`; interchangeable |
 | `--rate HZ` | `10` | Publish rate in Hz |
+| `--max-vel LIN` | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before publishing (Twist / TwistStamped only) |
+| `--max-ang ANG` | _(none)_ | Clamp `angular.z` to ±ANG rad/s before publishing (Twist / TwistStamped only) |
 
 **Single-shot (one message):**
 ```bash
@@ -1011,6 +1017,18 @@ python3 {baseDir}/scripts/ros2_cli.py topics pub /turtle1/cmd_vel \
 Output (single-shot):
 ```json
 {"success": true, "topic": "/turtle1/cmd_vel", "msg_type": "geometry_msgs/Twist"}
+```
+
+**With velocity ceiling (catches over-limit values before they reach the wire):**
+```bash
+python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
+  '{"linear":{"x":1.5},"angular":{"z":0}}' --max-vel 0.5 --max-ang 1.0
+```
+
+Output (clamped):
+```json
+{"success": true, "topic": "/cmd_vel", "msg_type": "geometry_msgs/msg/Twist",
+ "velocity_clamped": ["linear.x: 1.5 → 0.5 (clamped to ±0.5)"]}
 ```
 
 **Publish for a duration (recommended for velocity commands):**

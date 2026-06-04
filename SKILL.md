@@ -203,6 +203,7 @@ Read the domain-specific rule files from `references/` before the first action. 
 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py context                             # session-start graph snapshot
+python3 {baseDir}/scripts/ros2_cli.py context --include-schemas           # + schemas for all discovered topic types (opt-in; adds token cost)
 python3 {baseDir}/scripts/ros2_cli.py topics list [--limit N]             # list topics (cap at N)
 # Velocity topic — profile fast-path: use summary.cmd_vel_topic + summary.velocity_topics[].type
 # Odom topic — profile fast-path: use summary.localization_config.fused_sources values

@@ -290,7 +290,7 @@ ROS 2 node logs for this session reside in: `$ROS_LOG_DIR` → `$ROS_HOME/log/` 
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py context
 ```
-Returns topics (capped at 50), services, actions, and nodes in one call. Store the result — reference it during task planning instead of re-running separate discovery commands. Use `--limit 0` for the full topic list.
+Returns topics (capped at 50), services, actions, and nodes in one call. Store the result — reference it during task planning instead of re-running separate discovery commands. Use `--limit 0` for the full topic list. Add `--include-schemas` to also receive `schemas: {type_str: fields_dict}` for every discovered topic type — useful when the agent will need to publish and wants to skip follow-up `interface show` calls, but adds significant token cost; omit by default.
 
 **Step 8 — Battery pre-flight (if battery topic present in profile or graph):**
 

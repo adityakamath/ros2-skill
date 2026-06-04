@@ -2,6 +2,13 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [Unreleased] - 2026-06-04
+
+### Changes
+
+- **`context --include-schemas`** (MCP-11): new opt-in flag; appends a `schemas: {type_str: fields_dict}` key to the context output for every unique topic message type discovered. Uses `_expand_fields` at depth=1 to resolve composite types. Without the flag, output is unchanged (token-safe default). Useful when the agent knows it will need to publish and wants to avoid follow-up `interface show` calls.
+- **`topics publish --max-vel LIN` / `--max-ang ANG`** (RH-6): velocity ceiling flags now documented in `references/COMMANDS.md` option tables for `publish`, `publish-sequence`, and `publish-until`. Implementation (parser flags + `_clamp_velocity` integration) was already present; this release adds the missing parser-level tests and the COMMANDS.md documentation. Clamped values are reported via `velocity_clamped` list in the output.
+
 ## [1.0.8] - 2026-05-20 (updated 2026-05-29)
 
 Nav2 navigation command group, seven quality-of-life improvements from ros-mcp-server gap analysis, and six new command groups from Innate Bot gap analysis. **Note:** the Innate Bot batch (foxglove, system, nav2 map/mode/localize) is implemented and unit-tested but not yet validated on real hardware — see `2026-05-27_v108-new-commands-untested.md` in the Obsidian vault.
