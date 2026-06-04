@@ -268,6 +268,7 @@ MINIMAL_ARGS = [
     ("nav2",     "mode",     ["nav2", "mode", "get"]),
     # arm
     ("nav2",     "localize", ["nav2", "localize"]),
+    ("nav2",     "diagnose", ["nav2", "diagnose"]),
 ]
 
 
@@ -6502,6 +6503,165 @@ class TestTopicsClassify(unittest.TestCase):
             cmd_context(args)
 
         self.assertIn("std_msgs/msg/String", captured.get("schemas", {}))
+
+
+# ---------------------------------------------------------------------------
+# nav2 diagnose
+# ---------------------------------------------------------------------------
+
+class TestNav2Diagnose(unittest.TestCase):
+    """Parser and dispatch tests for nav2 diagnose (no rclpy required)."""
+
+    def test_parser_nav2_diagnose_exists(self):
+        """'nav2 diagnose' parses without error."""
+        from ros2_cli import build_parser
+        args = build_parser().parse_args(["nav2", "diagnose"])
+        self.assertEqual(args.subcommand, "diagnose")
+
+    def test_parser_nav2_diagnose_timeout_default(self):
+        """'nav2 diagnose' has a --timeout flag defaulting to 5.0."""
+        from ros2_cli import build_parser
+        args = build_parser().parse_args(["nav2", "diagnose"])
+        self.assertAlmostEqual(args.timeout, 5.0)
+
+    def test_parser_nav2_diagnose_timeout_override(self):
+        """'nav2 diagnose --timeout 10' parses to timeout=10.0."""
+        from ros2_cli import build_parser
+        args = build_parser().parse_args(["nav2", "diagnose", "--timeout", "10"])
+        self.assertAlmostEqual(args.timeout, 10.0)
+
+    def test_dispatch_nav2_diagnose(self):
+        """DISPATCH has a ('nav2', 'diagnose') entry."""
+        from ros2_cli import DISPATCH
+        self.assertIn(("nav2", "diagnose"), DISPATCH)
+
+    def test_cmd_nav2_diagnose_output_keys(self):
+        """cmd_nav2_diagnose output contains nav2_ready, localized, costmaps_ok, active_goals."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_nav2 import cmd_nav2_diagnose
+
+        args = argparse.Namespace(timeout=5.0)
+        captured = {}
+
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = []
+        mock_node.get_node_names_and_namespaces.return_value = []
+
+        with patch("ros2_nav2.ros2_context"), \
+             patch("ros2_nav2.ROS2CLI", return_value=mock_node), \
+             patch("ros2_nav2.output", side_effect=lambda d: captured.update(d)):
+            cmd_nav2_diagnose(args)
+
+        for key in ("nav2_ready", "localized", "costmaps_ok", "active_goals"):
+            self.assertIn(key, captured)
+
+    def test_cmd_nav2_diagnose_nav2_not_ready_when_no_action_topic(self):
+        """nav2_ready is False when the NavigateToPose feedback topic is absent."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_nav2 import cmd_nav2_diagnose
+
+        args = argparse.Namespace(timeout=5.0)
+        captured = {}
+
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = []
+        mock_node.get_node_names_and_namespaces.return_value = []
+
+        with patch("ros2_nav2.ros2_context"), \
+             patch("ros2_nav2.ROS2CLI", return_value=mock_node), \
+             patch("ros2_nav2.output", side_effect=lambda d: captured.update(d)):
+            cmd_nav2_diagnose(args)
+
+        self.assertFalse(captured["nav2_ready"])
+
+    def test_cmd_nav2_diagnose_nav2_ready_when_action_topic_present(self):
+        """nav2_ready is True when /_action/feedback topic is present."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_nav2 import cmd_nav2_diagnose
+
+        args = argparse.Namespace(timeout=5.0)
+        captured = {}
+
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = [
+            ("/navigate_to_pose/_action/feedback", ["nav2_msgs/action/NavigateToPose_FeedbackMessage"])
+        ]
+        mock_node.get_node_names_and_namespaces.return_value = []
+
+        with patch("ros2_nav2.ros2_context"), \
+             patch("ros2_nav2.ROS2CLI", return_value=mock_node), \
+             patch("ros2_nav2.output", side_effect=lambda d: captured.update(d)):
+            cmd_nav2_diagnose(args)
+
+        self.assertTrue(captured["nav2_ready"])
+
+    def test_cmd_nav2_diagnose_costmaps_ok_when_costmap_nodes_present(self):
+        """costmaps_ok is True when costmap nodes appear in the node list."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_nav2 import cmd_nav2_diagnose
+
+        args = argparse.Namespace(timeout=5.0)
+        captured = {}
+
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = []
+        mock_node.get_node_names_and_namespaces.return_value = [
+            ("local_costmap", "/local_costmap"),
+            ("global_costmap", "/global_costmap"),
+        ]
+
+        with patch("ros2_nav2.ros2_context"), \
+             patch("ros2_nav2.ROS2CLI", return_value=mock_node), \
+             patch("ros2_nav2.output", side_effect=lambda d: captured.update(d)):
+            cmd_nav2_diagnose(args)
+
+        self.assertTrue(captured["costmaps_ok"])
+
+    def test_cmd_nav2_diagnose_costmaps_not_ok_when_no_costmap_nodes(self):
+        """costmaps_ok is False when no costmap nodes are running."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_nav2 import cmd_nav2_diagnose
+
+        args = argparse.Namespace(timeout=5.0)
+        captured = {}
+
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = []
+        mock_node.get_node_names_and_namespaces.return_value = [
+            ("bt_navigator", "/bt_navigator"),
+        ]
+
+        with patch("ros2_nav2.ros2_context"), \
+             patch("ros2_nav2.ROS2CLI", return_value=mock_node), \
+             patch("ros2_nav2.output", side_effect=lambda d: captured.update(d)):
+            cmd_nav2_diagnose(args)
+
+        self.assertFalse(captured["costmaps_ok"])
+
+    def test_cmd_nav2_diagnose_active_goals_zero_when_no_status_topic(self):
+        """active_goals is 0 when no action status topic exists."""
+        import argparse
+        from unittest.mock import patch, MagicMock
+        from ros2_nav2 import cmd_nav2_diagnose
+
+        args = argparse.Namespace(timeout=5.0)
+        captured = {}
+
+        mock_node = MagicMock()
+        mock_node.get_topic_names_and_types.return_value = []
+        mock_node.get_node_names_and_namespaces.return_value = []
+
+        with patch("ros2_nav2.ros2_context"), \
+             patch("ros2_nav2.ROS2CLI", return_value=mock_node), \
+             patch("ros2_nav2.output", side_effect=lambda d: captured.update(d)):
+            cmd_nav2_diagnose(args)
+
+        self.assertEqual(captured["active_goals"], 0)
 
 
 if __name__ == "__main__":

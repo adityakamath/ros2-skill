@@ -217,6 +217,7 @@ from ros2_nav2 import (
     cmd_nav2_mode_get,
     cmd_nav2_mode_set,
     cmd_nav2_localize,
+    cmd_nav2_diagnose,
 )
 
 # ---------------------------------------------------------------------------
@@ -1673,6 +1674,12 @@ def build_parser():
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Service call timeout in seconds (default: 10)")
 
+    # nav2 diagnose
+    p = nav2sub.add_parser("diagnose",
+                           help="Aggregate Nav2 health: action server, localization, costmaps, goal queue")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Timeout for graph queries (default: 5)")
+
     return parser
 
 
@@ -1877,6 +1884,7 @@ DISPATCH = {
     ("nav2", "map"):           cmd_nav2_map,
     ("nav2", "mode"):          cmd_nav2_mode,
     ("nav2", "localize"):      cmd_nav2_localize,
+    ("nav2", "diagnose"):      cmd_nav2_diagnose,
 }
 
 

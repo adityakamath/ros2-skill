@@ -1114,3 +1114,46 @@ def cmd_nav2_localize(args):
 
     except Exception as e:
         return output({"error": str(e)})
+
+
+def cmd_nav2_diagnose(args):
+    """Aggregate Nav2 health: action server, localization, costmaps, goal queue."""
+    timeout = getattr(args, "timeout", 5.0)  # noqa: F841 — reserved for future subscription use
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            topic_types = node.get_topic_names_and_types()
+            node_names = node.get_node_names_and_namespaces()
+
+        topic_set = {name for name, _ in topic_types}
+        node_name_set = {name for name, _ in node_names}
+
+        # 1. Nav2 action server alive — feedback topic published when BT navigator running
+        nav2_ready = (_NAV2_ACTION + "/_action/feedback") in topic_set
+
+        # 2. Localization — amcl node or amcl-related topic present
+        localized = (
+            any("amcl" in n for n in node_name_set)
+            or any("amcl" in t for t in topic_set)
+        )
+
+        # 3. Costmaps — both local and global costmap nodes must be running
+        has_local = any("local_costmap" in n for n in node_name_set)
+        has_global = any("global_costmap" in n for n in node_name_set)
+        costmaps_ok = has_local and has_global
+
+        # 4. Active goals — 0 when status topic absent; None (unknown) when present
+        #    (subscribing requires a live spin loop; deferred for now)
+        status_topic = _NAV2_ACTION + "/_action/status"
+        active_goals = None if status_topic in topic_set else 0
+
+        output({
+            "nav2_ready": nav2_ready,
+            "localized": localized,
+            "costmaps_ok": costmaps_ok,
+            "active_goals": active_goals,
+        })
+
+    except Exception as e:
+        output({"error": str(e)})
