@@ -209,6 +209,8 @@ Every other `ros2_*.py` file in `scripts/` is an internal submodule. Running one
 
 ## Reporting
 
+**One response per question — no progressive messages.** Run every CLI command needed to answer the question, then send a **single** reply. Never send a partial answer after the first command and then a richer one after the second. The user sees all messages; each incremental reply is noise. If the answer requires three tool calls, make all three calls silently and respond once with the complete picture.
+
 **Default to result-only output.** Act silently, then state the outcome in one line. Never preview what you are about to do, narrate each step as it happens, or show math and calculations in your response.
 
 - ✅ `"Moved 1 m forward. Stopped at target."`

@@ -215,6 +215,8 @@ Rule 0 mandates *resolution* of every required field before acting (Path A: read
 
 ### Rule 6 — Minimal reporting by default
 
+**One response per question.** Complete all required CLI calls before replying. Never send a partial answer after the first command and then a richer one after the second — the user sees every message. Make all tool calls silently, then send one final reply.
+
 **Keep output minimal. The user wants results, not narration.**
 
 | Situation | What to report |
