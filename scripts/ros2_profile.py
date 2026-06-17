@@ -990,6 +990,56 @@ def _extract_safety_velocity_from_urdf(urdf_path):
 
 
 # ---------------------------------------------------------------------------
+# URDF / xacro velocity param extraction
+# ---------------------------------------------------------------------------
+
+def _extract_limits_from_urdf_params(urdf_path):
+    """Return ``(linear_x, linear_y, angular_z)`` from ``<param>`` elements in a URDF/xacro.
+
+    Scans every ``<param name="KEY">VALUE</param>`` element whose name matches
+    ``_VEL_KEYS``.  Values containing ``${`` are skipped — unresolved xacro
+    substitutions that cannot be evaluated without running xacro.  The smallest
+    positive value per axis wins (same "most restrictive" logic as YAML).
+
+    Works on plain ``.urdf`` files and on ``.xacro`` / ``.urdf.xacro`` files
+    whose ``<param>`` values are numeric literals (compiled output or concrete values).
+    """
+    lin_x, lin_y, ang_z = None, None, None
+
+    def _upd(cur, val):
+        if val is None or val <= 0:
+            return cur
+        return float(val) if cur is None else min(cur, float(val))
+
+    try:
+        tree = ET.parse(str(urdf_path))
+        root = tree.getroot()
+        for param in root.iter("param"):
+            name = (param.get("name") or "").lower().strip()
+            if name not in _VEL_KEYS:
+                continue
+            text = (param.text or "").strip()
+            if not text or "${" in text:
+                continue
+            try:
+                v = float(text)
+            except ValueError:
+                continue
+            if any(k in name for k in ("vel_x", "vel_lin", "linear", "translational", "max_vel_x", "max_speed")):
+                lin_x = _upd(lin_x, v)
+            elif any(k in name for k in ("vel_y", "vel_lat")):
+                lin_y = _upd(lin_y, v)
+            elif any(k in name for k in ("vel_theta", "vel_ang", "angular", "rotational", "max_vel_theta")):
+                ang_z = _upd(ang_z, v)
+            elif name in ("max_velocity", "max_vel"):
+                lin_x = _upd(lin_x, v)
+    except Exception:
+        pass
+
+    return lin_x, lin_y, ang_z
+
+
+# ---------------------------------------------------------------------------
 # URDF robot name helper
 # ---------------------------------------------------------------------------
 
@@ -2729,9 +2779,22 @@ def _run_static_scan(ws_path, distro, allow_live=False,
             model_name = _get_urdf_robot_name(uf)
             joint_limits_by_model.setdefault(model_name, {}).update(jl)
             _flat_joint_limits.update(jl)
-        # Also try safety_controller velocity (linear x only from wheel joints).
+        # safety_controller velocity (linear x from wheel joints).
         lin, _ang = _extract_safety_velocity_from_urdf(uf)
         best_lin_x = _upd_best(best_lin_x, lin)
+        # <param name="max_vel_*"> / <param name="max_velocity"> in ros2_control blocks.
+        plx, ply, paz = _extract_limits_from_urdf_params(uf)
+        if any(v is not None for v in (plx, ply, paz)):
+            limit_sources.append({
+                "file": pathlib.Path(uf).name,
+                "path": uf,
+                "linear_x": plx,
+                "linear_y": ply,
+                "angular_z": paz,
+            })
+            best_lin_x = _upd_best(best_lin_x, plx)
+            best_lin_y = _upd_best(best_lin_y, ply)
+            best_ang_z = _upd_best(best_ang_z, paz)
         # Sensor / actuator mount poses — deduplicated by child link name.
         # Skip entries whose link/joint names contain unresolved xacro substitutions.
         for mount in _extract_sensor_mounts_from_urdf(uf):
