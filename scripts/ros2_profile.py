@@ -1086,6 +1086,46 @@ def _extract_safety_velocity_from_urdf(urdf_path):
     return linear, angular
 
 
+def _resolve_joint_limits(joint_limits_by_model: dict) -> dict:
+    """Return a flat {joint_name: {fields}} dict from per-model joint data.
+
+    Merges all URDF-sourced models into one entry per joint, then overlays the
+    YAML joint_limits block (stored under ``"_yaml"``).  YAML values override
+    URDF ``<limit>`` attributes for any field present in both; hardware
+    parameters that only appear in URDF (``position_center_steps``,
+    ``homing_offset``, etc.) are always kept.  Joint names that still contain
+    unresolved xacro substitutions (``${…}``) are dropped.
+    """
+    yaml_joints: dict = joint_limits_by_model.get("_yaml", {})
+    merged: dict = {}
+
+    for model, joints in joint_limits_by_model.items():
+        if model == "_yaml":
+            continue
+        for jname, fields in joints.items():
+            if "${" in jname:
+                continue
+            merged.setdefault(jname, {}).update(fields)
+
+    for jname, fields in yaml_joints.items():
+        if "${" in jname:
+            continue
+        entry = merged.setdefault(jname, {})
+        entry.update(fields)
+        if "min_position" in fields:
+            entry["lower"] = fields["min_position"]
+        if "max_position" in fields:
+            entry["upper"] = fields["max_position"]
+
+    for fields in merged.values():
+        if "min_position" not in fields and fields.get("lower") is not None:
+            fields["min_position"] = fields["lower"]
+        if "max_position" not in fields and fields.get("upper") is not None:
+            fields["max_position"] = fields["upper"]
+
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # URDF / xacro velocity param extraction
 # ---------------------------------------------------------------------------
@@ -3178,7 +3218,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "robot_features": robot_features,
         "robot_type_evidence": robot_type_evidence,
         "safety_limits": safety_limits,
-        "joint_limits": joint_limits_by_model,
+        "joint_limits": _resolve_joint_limits(joint_limits_by_model),
         "sensor_mounts": sensor_mounts,
         "live_topics": live_topics,
         # New fields
