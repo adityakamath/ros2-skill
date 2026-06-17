@@ -938,11 +938,62 @@ def _extract_limits_from_yaml_regex(yaml_path):
 
 
 # ---------------------------------------------------------------------------
+# YAML joint position limit extraction (ros2_control format)
+# ---------------------------------------------------------------------------
+
+def _extract_joint_limits_from_yaml(yaml_path):
+    """Return {joint_name: {min_position, max_position, has_position_limits}} from YAML.
+
+    Parses the standard ros2_control joint_limits block::
+
+        joint_limits:
+          pan_joint:
+            has_position_limits: true
+            min_position: -1.5708
+            max_position:  1.5708
+    """
+    result = {}
+    try:
+        import yaml
+        with open(yaml_path, encoding="utf-8", errors="replace") as fh:
+            data = yaml.safe_load(fh)
+        if not isinstance(data, dict):
+            return result
+        # joint_limits may be at top level or nested under ros__parameters
+        def _find_joint_limits(d, depth=0):
+            if depth > 4 or not isinstance(d, dict):
+                return None
+            if "joint_limits" in d and isinstance(d["joint_limits"], dict):
+                return d["joint_limits"]
+            for v in d.values():
+                found = _find_joint_limits(v, depth + 1)
+                if found is not None:
+                    return found
+            return None
+        jl_block = _find_joint_limits(data)
+        if not jl_block:
+            return result
+        for jname, jdata in jl_block.items():
+            if not isinstance(jdata, dict):
+                continue
+            entry = {}
+            for key in ("min_position", "max_position", "has_position_limits",
+                        "home_position", "initial_position"):
+                if key in jdata:
+                    entry[key] = jdata[key]
+            if entry:
+                result[jname] = entry
+    except Exception:
+        pass
+    return result
+
+
+# ---------------------------------------------------------------------------
 # URDF joint limit extraction
 # ---------------------------------------------------------------------------
 
 def _extract_joint_limits_from_urdf(urdf_path):
-    """Parse a URDF file and return a dict of {joint_name: {velocity, effort}}."""
+    """Parse a URDF file and return {joint_name: {velocity, effort, lower, upper, type}}."""
     limits = {}
     try:
         tree = ET.parse(str(urdf_path))
@@ -954,16 +1005,62 @@ def _extract_joint_limits_from_urdf(urdf_path):
                 continue
             limit_el = joint.find("limit")
             if limit_el is not None:
-                vel = limit_el.get("velocity")
-                eff = limit_el.get("effort")
+                def _f(attr):
+                    v = limit_el.get(attr)
+                    try:
+                        return float(v) if v is not None else None
+                    except ValueError:
+                        return None
                 limits[name] = {
-                    "velocity": float(vel) if vel else None,
-                    "effort": float(eff) if eff else None,
-                    "type": j_type,
+                    "velocity": _f("velocity"),
+                    "effort":   _f("effort"),
+                    "lower":    _f("lower"),
+                    "upper":    _f("upper"),
+                    "type":     j_type,
                 }
     except Exception:
         pass
     return limits
+
+
+def _extract_joint_params_from_urdf(urdf_path):
+    """Return {joint_name: {param_key: value}} from <ros2_control><joint><param> blocks.
+
+    Extracts hardware-level per-joint parameters — position limits, homing offsets,
+    center steps, and similar driver-specific values — from the ``<ros2_control>``
+    section of a URDF or compiled xacro.  Values containing ``${`` are skipped.
+    """
+    _JOINT_PARAM_KEYS = {
+        "min_position", "max_position",
+        "position_center_steps", "home_position", "homing_offset",
+        "min_position_steps", "max_position_steps",
+        "center_steps", "offset_steps", "initial_position",
+        "zero_position", "neutral_position",
+    }
+    result = {}
+    try:
+        tree = ET.parse(str(urdf_path))
+        root = tree.getroot()
+        for rc in root.iter("ros2_control"):
+            for joint_el in rc.findall("joint"):
+                jname = joint_el.get("name", "").strip()
+                if not jname:
+                    continue
+                for param in joint_el.findall("param"):
+                    key = (param.get("name") or "").lower().strip()
+                    if key not in _JOINT_PARAM_KEYS:
+                        continue
+                    text = (param.text or "").strip()
+                    if not text or "${" in text:
+                        continue
+                    try:
+                        val = float(text)
+                    except ValueError:
+                        val = text
+                    result.setdefault(jname, {})[key] = val
+    except Exception:
+        pass
+    return result
 
 
 def _extract_safety_velocity_from_urdf(urdf_path):
@@ -2744,6 +2841,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     scan_steps.append("yaml_limits")
     limit_sources: list = []   # [{file, path, linear_x, linear_y, angular_z}]
     best_lin_x, best_lin_y, best_ang_z = None, None, None
+    joint_limits_by_model: dict = {}   # shared by YAML (step 3) and URDF (step 4)
 
     def _upd_best(current, candidate):
         if candidate is None or candidate <= 0:
@@ -2763,13 +2861,18 @@ def _run_static_scan(ws_path, distro, allow_live=False,
             best_lin_x = _upd_best(best_lin_x, lx)
             best_lin_y = _upd_best(best_lin_y, ly)
             best_ang_z = _upd_best(best_ang_z, az)
+        # ros2_control joint_limits block: per-joint position limits and homing values.
+        jl_yaml = _extract_joint_limits_from_yaml(yf)
+        for jname, jdata in jl_yaml.items():
+            joint_limits_by_model.setdefault("_yaml", {}).setdefault(jname, {}).update(jdata)
 
     # --- 4. Joint limits and sensor mounts from URDF ---
-    # joint_limits_by_model: {model_name: {joint_name: {velocity, effort, type}}}
+    # joint_limits_by_model: {model_name: {joint_name: {velocity, effort, lower, upper, ...}}}
+    # Initialised before step 3 (YAML joint limits) so both loops share the same dict.
     # Each URDF file is stored under its own <robot name="…"> so that test or
     # example URDFs in the workspace cannot pollute the main robot's joint list.
+    # YAML-sourced joint limits are stored under the "_yaml" key.
     scan_steps.append("urdf_limits")
-    joint_limits_by_model: dict = {}   # nested — stored in profile output
     _flat_joint_limits: dict = {}      # flat — used only for type detection
     sensor_mounts: list = []
     seen_sensor_links: set = set()
@@ -2779,6 +2882,12 @@ def _run_static_scan(ws_path, distro, allow_live=False,
             model_name = _get_urdf_robot_name(uf)
             joint_limits_by_model.setdefault(model_name, {}).update(jl)
             _flat_joint_limits.update(jl)
+        # Per-joint ros2_control params: position_center_steps, min/max_position, etc.
+        jp = _extract_joint_params_from_urdf(uf)
+        if jp:
+            model_name = _get_urdf_robot_name(uf)
+            for jname, params in jp.items():
+                joint_limits_by_model.setdefault(model_name, {}).setdefault(jname, {}).update(params)
         # safety_controller velocity (linear x from wheel joints).
         lin, _ang = _extract_safety_velocity_from_urdf(uf)
         best_lin_x = _upd_best(best_lin_x, lin)
