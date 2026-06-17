@@ -1383,7 +1383,7 @@ def build_parser():
                         help="Scan workspace and write a robot profile JSON")
     p.add_argument("--workspace", default=None, metavar="PATH",
                    help="Path to ROS 2 workspace (auto-detected if omitted)")
-    p.add_argument("--name", default="robot", metavar="NAME",
+    p.add_argument("--name", default=None, metavar="NAME",
                    help="Robot name (default: first --packages pattern, or workspace folder name)")
     p.add_argument("--packages", default=None, metavar="PATTERNS",
                    help="Comma-separated fuzzy patterns to scope the scan to one robot's "
