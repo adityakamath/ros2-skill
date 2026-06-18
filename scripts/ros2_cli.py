@@ -96,6 +96,7 @@ from ros2_action import (
 from ros2_doctor import (
     cmd_doctor_check,
     cmd_doctor_hello,
+    cmd_doctor_diagnostics,
 )
 from ros2_multicast import (
     cmd_multicast_send,
@@ -206,6 +207,7 @@ from ros2_control import (
 )
 from ros2_nav2 import (
     cmd_nav2_go,
+    cmd_nav2_rotate,
     cmd_nav2_cancel,
     cmd_nav2_status,
     cmd_nav2_go_waypoints,
@@ -519,6 +521,8 @@ def build_parser():
         p.add_argument("--max-ang", dest="max_ang", type=float, default=None,
                        help="Clamp angular.z to ±N rad/s before publishing "
                             "(Twist / TwistStamped only; other message types unaffected)")
+        p.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
+                       help="Validate topic type and payload without publishing")
     p = tsub.add_parser("publish-sequence", help="Publish message sequence with delays")
     p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
     p.add_argument("messages", nargs="?", help="JSON array of messages")
@@ -534,6 +538,8 @@ def build_parser():
     p.add_argument("--max-ang", dest="max_ang", type=float, default=None,
                    help="Clamp angular.z to ±N rad/s before publishing "
                         "(Twist / TwistStamped only; other message types unaffected)")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
+                   help="Validate topic type and payload without publishing")
     p = tsub.add_parser("publish-until",
                         help="Publish until a monitor-topic condition is met")
     p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
@@ -591,6 +597,8 @@ def build_parser():
     p.add_argument("--max-ang", dest="max_ang", type=float, default=None,
                    help="Clamp angular.z to ±N rad/s before publishing "
                         "(Twist / TwistStamped only; other message types unaffected)")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
+                   help="Validate topic type and payload without publishing")
     # ------------------------------------------------------------------
     # services
     # ------------------------------------------------------------------
@@ -934,6 +942,14 @@ def build_parser():
                            help="Topic to publish/subscribe on (default: /canyouhearme)")
         hello.add_argument("--timeout", "-to", dest="timeout", type=float, default=10.0,
                            help="How long to listen for responses in seconds (default: 10.0)")
+        diag = dsub.add_parser("diagnostics",
+                               help="Report per-component hardware health from /diagnostics_agg")
+        diag.add_argument("--level", default=None, metavar="LEVEL",
+                          help="Minimum level to show: ok | warn | error | stale (default: ok = show all)")
+        diag.add_argument("--topic", default="/diagnostics_agg",
+                          help="Diagnostics topic (default: /diagnostics_agg)")
+        diag.add_argument("--timeout", dest="timeout", type=float, default=5.0,
+                          help="Seconds to wait for a message (default: 5.0)")
 
     doctor = sub.add_parser("doctor", help="Check ROS 2 system health")
     _add_doctor_args(doctor)
@@ -1498,6 +1514,14 @@ def build_parser():
     p.add_argument("--action", default=_NAV2_ACTION_DEFAULT,
                    help=f"Action server name (default: {_NAV2_ACTION_DEFAULT})")
 
+    # rotate
+    p = nav2sub.add_parser("rotate",
+                           help="Rotate in place via Nav2 Spin action (obstacle-aware)")
+    p.add_argument("degrees", type=float,
+                   help="Angle to rotate in degrees (positive = counter-clockwise)")
+    p.add_argument("--timeout", type=float, default=30.0,
+                   help="Seconds to wait for the spin to complete (default: 30)")
+
     # ------------------------------------------------------------------
     # foxglove — Foxglove Bridge management
     # ------------------------------------------------------------------
@@ -1790,11 +1814,13 @@ DISPATCH = {
     ("actions", "info"): cmd_actions_details,
     ("actions", "ls"): cmd_actions_list,
     # doctor — canonical
-    ("doctor", None):    cmd_doctor_check,
-    ("doctor", "hello"): cmd_doctor_hello,
+    ("doctor", None):            cmd_doctor_check,
+    ("doctor", "hello"):         cmd_doctor_hello,
+    ("doctor", "diagnostics"):   cmd_doctor_diagnostics,
     # wtf — alias for doctor
-    ("wtf",    None):    cmd_doctor_check,
-    ("wtf",    "hello"): cmd_doctor_hello,
+    ("wtf",    None):            cmd_doctor_check,
+    ("wtf",    "hello"):         cmd_doctor_hello,
+    ("wtf",    "diagnostics"):   cmd_doctor_diagnostics,
     # multicast
     ("multicast", "send"):    cmd_multicast_send,
     ("multicast", "receive"): cmd_multicast_receive,
@@ -1877,6 +1903,7 @@ DISPATCH = {
     ("system", "reboot"):   cmd_system_reboot,
     # nav2
     ("nav2", "go"):            cmd_nav2_go,
+    ("nav2", "rotate"):        cmd_nav2_rotate,
     ("nav2", "cancel"):        cmd_nav2_cancel,
     ("nav2", "status"):        cmd_nav2_status,
     ("nav2", "go-waypoints"):  cmd_nav2_go_waypoints,

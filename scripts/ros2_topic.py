@@ -940,6 +940,7 @@ def cmd_topics_publish(args):
     max_vel = getattr(args, 'max_vel', None)
     max_ang = getattr(args, 'max_ang', None)
     msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
+    dry_run = getattr(args, 'dry_run', False)
 
     try:
         with ros2_context():
@@ -954,6 +955,12 @@ def cmd_topics_publish(args):
             msg_class = get_msg_type(msg_type)
             if not msg_class:
                 return output(get_msg_error(msg_type))
+
+            if dry_run:
+                result = {"dry_run": True, "topic": topic, "msg_type": msg_type, "payload": msg_data}
+                if clamp_notices:
+                    result["velocity_clamped"] = clamp_notices
+                return output(result)
 
             publisher = TopicPublisher(topic, msg_type)
 
@@ -1014,6 +1021,8 @@ def cmd_topics_publish_sequence(args):
     if len(messages) != len(durations):
         return output({"error": "messages and durations must have same length"})
 
+    dry_run = getattr(args, 'dry_run', False)
+
     try:
         with ros2_context():
             topic = args.topic
@@ -1027,6 +1036,13 @@ def cmd_topics_publish_sequence(args):
             msg_class = get_msg_type(msg_type)
             if not msg_class:
                 return output(get_msg_error(msg_type))
+
+            if dry_run:
+                max_vel = getattr(args, 'max_vel', None)
+                max_ang = getattr(args, 'max_ang', None)
+                clamped = [_clamp_velocity(m, max_vel, max_ang)[0] for m in messages]
+                return output({"dry_run": True, "topic": topic, "msg_type": msg_type,
+                               "steps": [{"payload": m, "duration": d} for m, d in zip(clamped, durations)]})
 
             publisher = TopicPublisher(topic, msg_type)
 
@@ -1147,6 +1163,7 @@ def cmd_topics_publish_until(args):
     max_vel = getattr(args, 'max_vel', None)
     max_ang = getattr(args, 'max_ang', None)
     msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
+    dry_run = getattr(args, 'dry_run', False)
 
     try:
         with ros2_context():
@@ -1159,6 +1176,13 @@ def cmd_topics_publish_until(args):
                 return output({"error": f"Could not detect message type for topic: {args.topic}. Use --msg-type."})
             if not mon_msg_type:
                 return output({"error": f"Could not detect message type for monitor topic: {args.monitor}. Use --monitor-msg-type."})
+
+            if dry_run:
+                result = {"dry_run": True, "topic": args.topic, "msg_type": pub_msg_type,
+                          "payload": msg_data, "monitor": args.monitor, "monitor_msg_type": mon_msg_type}
+                if clamp_notices:
+                    result["velocity_clamped"] = clamp_notices
+                return output(result)
 
             pub_msg_class = get_msg_type(pub_msg_type)
             if not pub_msg_class:

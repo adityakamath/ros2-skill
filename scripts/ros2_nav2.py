@@ -250,6 +250,79 @@ def cmd_nav2_go(args):
         output({"error": str(e)})
 
 
+def cmd_nav2_rotate(args):
+    """Rotate in place by sending a nav2_msgs/Spin goal to Nav2.
+
+    Unlike publish-until with angular velocity, Nav2 handles the spin as a
+    full action: it monitors for obstacles and aborts if the path is blocked.
+    """
+    _SPIN_ACTION = "/spin"
+
+    action_class = get_action_type("nav2_msgs/action/Spin")
+    if not action_class:
+        return output({
+            "error": "Cannot load nav2_msgs/action/Spin — is nav2_msgs installed and sourced?",
+        })
+
+    target_yaw = math.radians(args.degrees)
+    goal_dict = {"target_yaw": target_yaw}
+
+    try:
+        with ros2_context():
+            from rclpy.action import ActionClient  # noqa: PLC0415
+
+            node = ROS2CLI()
+            client = ActionClient(node, action_class, _SPIN_ACTION)
+            if not client.wait_for_server(timeout_sec=args.timeout):
+                return output({
+                    "error": f"Spin action server not available (waited {args.timeout}s) — is Nav2 running?",
+                })
+
+            goal_msg = dict_to_msg(action_class.Goal, goal_dict)
+            future = client.send_goal_async(goal_msg)
+
+            end = time.time() + args.timeout
+            while time.time() < end and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if not future.done():
+                future.cancel()
+                return output({"error": f"Timeout waiting for goal acceptance ({args.timeout}s)"})
+
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                return output({"success": False, "status": "ABORTED",
+                               "error": "Spin goal rejected by Nav2"})
+
+            result_future = goal_handle.get_result_async()
+            end = time.time() + args.timeout
+            while time.time() < end and not result_future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if not result_future.done():
+                result_future.cancel()
+                return output({
+                    "error": f"Spin timeout after {args.timeout}s — goal still active. "
+                             "Call 'nav2 cancel' to stop.",
+                })
+
+            wrapped = result_future.result()
+            status = int(wrapped.status)
+            success = (status == 4)  # GoalStatus.SUCCEEDED
+            out = {
+                "success": success,
+                "status": _status_name(status),
+                "degrees": args.degrees,
+                "target_yaw_rad": round(target_yaw, 6),
+            }
+            if not success:
+                out["error"] = f"Spin {_status_name(status).lower()} (status {status})"
+            output(out)
+
+    except Exception as e:
+        output({"error": str(e)})
+
+
 def cmd_nav2_cancel(args):
     """Cancel all active NavigateToPose goals and send a zero-velocity burst."""
     action_name = getattr(args, "action", _NAV2_ACTION)

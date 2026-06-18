@@ -246,6 +246,71 @@ def cmd_doctor_hello(args):
         output({"error": str(exc)})
 
 
+def cmd_doctor_diagnostics(args):
+    """Subscribe to /diagnostics_agg and report per-component hardware health.
+
+    Returns a list of components with their status (OK / WARN / ERROR / STALE),
+    optionally filtered by minimum level.  This covers hardware health that
+    ros2doctor does not: motor temperatures, battery voltage, sensor faults, etc.
+    """
+    _LEVEL_MAP = {0: "OK", 1: "WARN", 2: "ERROR", 3: "STALE"}
+    _MIN_LEVEL = {"ok": 0, "warn": 1, "warning": 1, "error": 2, "stale": 3}
+
+    min_level = _MIN_LEVEL.get((getattr(args, "level", None) or "ok").lower(), 0)
+    timeout = getattr(args, "timeout", 5.0)
+    topic = getattr(args, "topic", "/diagnostics_agg")
+
+    components = {}
+    lock = threading.Lock()
+
+    def _on_msg(msg):
+        with lock:
+            for status in msg.status:
+                components[status.name] = {
+                    "level": _LEVEL_MAP.get(status.level, f"LEVEL_{status.level}"),
+                    "level_int": int(status.level),
+                    "message": status.message,
+                    "hardware_id": status.hardware_id,
+                }
+
+    try:
+        from diagnostic_msgs.msg import DiagnosticArray  # noqa: PLC0415
+    except ImportError:
+        return output({"error": "diagnostic_msgs not available — source ROS 2 setup.bash"})
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            node.create_subscription(DiagnosticArray, topic, _on_msg, 10)
+            end = time.time() + timeout
+            while time.time() < end:
+                rclpy.spin_once(node, timeout_sec=0.1)
+                with lock:
+                    if components:
+                        break
+
+        with lock:
+            filtered = {
+                name: info for name, info in components.items()
+                if info["level_int"] >= min_level
+            }
+
+        counts = {"ok": 0, "warn": 0, "error": 0, "stale": 0}
+        for info in filtered.values():
+            counts[info["level"].lower()] = counts.get(info["level"].lower(), 0) + 1
+
+        output({
+            "topic": topic,
+            "components_total": len(components),
+            "components_shown": len(filtered),
+            "filter_level": _LEVEL_MAP.get(min_level, "OK"),
+            "summary": counts,
+            "components": filtered,
+        })
+    except Exception as e:
+        output({"error": str(e)})
+
+
 if __name__ == "__main__":
     import sys
     import os

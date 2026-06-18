@@ -175,8 +175,10 @@ MINIMAL_ARGS = [
     # doctor / wtf
     ("doctor",   None,               ["doctor"]),
     ("doctor",   "hello",            ["doctor", "hello"]),
+    ("doctor",   "diagnostics",      ["doctor", "diagnostics"]),
     ("wtf",      None,               ["wtf"]),
     ("wtf",      "hello",            ["wtf", "hello"]),
+    ("wtf",      "diagnostics",      ["wtf", "diagnostics"]),
     # multicast
     ("multicast","send",             ["multicast", "send"]),
     ("multicast","receive",          ["multicast", "receive"]),
@@ -251,6 +253,7 @@ MINIMAL_ARGS = [
     ("profile",  "annotate", ["profile", "annotate", "test annotation"]),
     # nav2
     ("nav2", "go",           ["nav2", "go", "1.0", "2.0"]),
+    ("nav2", "rotate",       ["nav2", "rotate", "90"]),
     ("nav2", "cancel",       ["nav2", "cancel"]),
     ("nav2", "status",       ["nav2", "status"]),
     ("nav2", "go-waypoints", ["nav2", "go-waypoints", "1.0,2.0", "3.0,4.0"]),
