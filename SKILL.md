@@ -261,6 +261,8 @@ python3 {baseDir}/scripts/ros2_cli.py topics subscribe <topic> --max-messages 1 
 python3 {baseDir}/scripts/ros2_cli.py topics echo-once <topic> [--timeout 5]
 ```
 
+**`--dry-run`**: resolve topic type and validate the JSON payload without publishing anything. Returns `{dry_run: true, topic, msg_type, payload}`. Use to verify payload shape and topic availability before a real publish. Works on `publish`, `publish-sequence`, and `publish-until`.
+
 **`--max-vel N` / `--max-ang N`** (Twist / TwistStamped only): clamp linear x/y/z to ±N m/s and angular.z to ±N rad/s inside the CLI before the message is sent. Pass `summary.safety_limits.binding.linear_x` / `.angular_z` from the profile (Path A) or the Rule 28 limit-scan result (Path B). Clamped axes are reported in `velocity_clamped` in the JSON output. Other message types pass through unchanged.
 
 ### Services and Actions
@@ -320,6 +322,8 @@ python3 {baseDir}/scripts/ros2_cli.py topics depth-point --topic <depth_topic> -
 ```bash
 python3 {baseDir}/scripts/ros2_cli.py doctor                              # full DDS/graph health check
 python3 {baseDir}/scripts/ros2_cli.py doctor hello                        # DDS multicast test
+python3 {baseDir}/scripts/ros2_cli.py doctor diagnostics                  # hardware health from /diagnostics_agg
+python3 {baseDir}/scripts/ros2_cli.py doctor diagnostics --level warn     # show only WARN/ERROR/STALE
 python3 {baseDir}/scripts/ros2_cli.py topics diag                         # subscribe /diagnostics
 python3 {baseDir}/scripts/ros2_cli.py topics battery                      # battery state
 ```
@@ -627,6 +631,16 @@ python3 {baseDir}/scripts/ros2_cli.py nav2 initial-pose 1.0 2.0 --yaw 45
 **Output fields (`nav2 go`):** `success` (bool), `status` (int, 4=SUCCEEDED), `status_name`, `goal {x,y,frame}`, `error?`
 
 **Before `nav2 go`:** always run `nav2 cancel` first if a previous goal may still be active (Rule 9 pre-motion check). Use `nav2 status` to confirm no active goal is present.
+
+```bash
+# Rotate in place 90° CCW (obstacle-aware via Nav2 Spin action)
+python3 {baseDir}/scripts/ros2_cli.py nav2 rotate 90
+
+# Rotate CW 45°
+python3 {baseDir}/scripts/ros2_cli.py nav2 rotate -- -45
+```
+
+**`nav2 rotate` vs `publish-until` for rotation:** use `nav2 rotate` when Nav2 is active — it is obstacle-aware (Nav2 aborts if path is blocked). Fall back to `publish-until` only when Nav2 is not running.
 
 ---
 

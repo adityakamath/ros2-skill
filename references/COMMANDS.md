@@ -280,6 +280,7 @@ Publish a sequence of messages in order. Each message is repeated at `--rate` Hz
 | `--rate HZ` | `10` | Publish rate in Hz for each step |
 | `--max-vel LIN` | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before publishing (Twist / TwistStamped only) |
 | `--max-ang ANG` | _(none)_ | Clamp `angular.z` to ±ANG rad/s before publishing (Twist / TwistStamped only) |
+| `--dry-run` | _(off)_ | Resolve type and validate payload without publishing; returns `dry_run: true` |
 
 **⚠️ WARNING — `publish-sequence` is open-loop and time-based. It has no sensor feedback and cannot guarantee distance or angle accuracy.**
 
@@ -352,6 +353,7 @@ Publish a message at a fixed rate while simultaneously monitoring a second topic
 | `--slow-factor F` | No | **auto** | Override the auto-computed fine-control floor (0–1 fraction of commanded speed). |
 | `--max-vel LIN` | No | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before the first publish (Twist / TwistStamped only) |
 | `--max-ang ANG` | No | _(none)_ | Clamp `angular.z` to ±ANG rad/s before the first publish (Twist / TwistStamped only) |
+| `--dry-run` | No | _(off)_ | Resolve both topic types and validate payload without publishing; returns `dry_run: true` |
 
 **Note:** Either `--field` OR `--rotate` must be specified, but not both. `--slow-last` works with `--delta`, `--euclidean --delta`, and `--rotate`; ignored for `--above`/`--below`/`--equals`.
 
@@ -1006,6 +1008,7 @@ Publish a message to a topic. Without `--duration`/`--timeout`, sends once (sing
 | `--rate HZ` | `10` | Publish rate in Hz |
 | `--max-vel LIN` | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before publishing (Twist / TwistStamped only) |
 | `--max-ang ANG` | _(none)_ | Clamp `angular.z` to ±ANG rad/s before publishing (Twist / TwistStamped only) |
+| `--dry-run` | _(off)_ | Resolve type and validate payload without publishing; returns `dry_run: true` |
 
 **Single-shot (one message):**
 ```bash
@@ -2834,6 +2837,97 @@ Output (error):
 
 ---
 
+## nav2
+
+High-level Nav2 navigation commands. These wrap Nav2 actions and require Nav2 to be running.
+
+### nav2 go `<x>` `<y>` [options]
+
+Send a NavigateToPose goal to Nav2. The robot navigates autonomously, avoiding obstacles.
+
+**ROS 2 CLI equivalent:** `ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `x` | Yes | Target X in map frame (metres) |
+| `y` | Yes | Target Y in map frame (metres) |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--yaw YAW` | `0.0` | Target heading at goal (radians) |
+| `--frame FRAME` | `map` | Reference frame for the goal pose |
+| `--timeout SECS` | `60.0` | Abort if not reached within this time |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.0 2.0
+python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.0 2.0 --yaw 1.57 --timeout 90
+```
+
+---
+
+### nav2 rotate `<degrees>` [options]
+
+Rotate in-place by the given angle using Nav2's Spin action. Unlike `topics publish-until --rotate`, this is **obstacle-aware**: Nav2 will abort and return an error if rotation is blocked.
+
+**Use `nav2 rotate` (not `publish-until --rotate`) when Nav2 is running and obstacle avoidance during rotation is required.**
+
+**ROS 2 CLI equivalent:** `ros2 action send_goal /spin nav2_msgs/action/Spin`
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `degrees` | Yes | Angle to rotate (positive = counter-clockwise) |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout SECS` | `30.0` | Abort if not completed within this time |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py nav2 rotate 90
+python3 {baseDir}/scripts/ros2_cli.py nav2 rotate -45 --timeout 15
+```
+
+Output (success):
+```json
+{"success": true, "status": "SUCCEEDED", "degrees": 90.0, "target_yaw_rad": 1.5707963267948966}
+```
+
+Output (obstacle blocked):
+```json
+{"success": false, "status": "ABORTED", "degrees": 90.0, "target_yaw_rad": 1.5707963267948966}
+```
+
+---
+
+### nav2 cancel
+
+Cancel the active Nav2 goal.
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py nav2 cancel
+```
+
+---
+
+### nav2 initial-pose `<x>` `<y>` `<yaw>` [options]
+
+Set the robot's initial pose estimate for AMCL localization.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `x` | Yes | X position in map frame (metres) |
+| `y` | Yes | Y position in map frame (metres) |
+| `yaw` | Yes | Heading (radians) |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--frame FRAME` | `map` | Reference frame |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py nav2 initial-pose 0.0 0.0 0.0
+```
+
+---
+
 ## doctor / wtf
 
 Run ROS 2 system health checks. `wtf` is an exact alias for `doctor` (same flags, same subcommands, same output).
@@ -2954,6 +3048,41 @@ Output (no other hosts):
   "multicast_heard_from": [],
   "total_ros_hosts": 0,
   "total_multicast_hosts": 0
+}
+```
+
+---
+
+### doctor diagnostics
+
+Read hardware health from `/diagnostics_agg` (aggregated `DiagnosticArray`). Subscribes for `--timeout` seconds and returns the most recent snapshot, filtered by minimum severity level.
+
+**ROS 2 CLI equivalent:** `ros2 topic echo /diagnostics_agg` (but structured and filtered)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--level LEVEL` | `ok` | Minimum severity to include: `ok`, `warn`, `error`, or `stale` |
+| `--topic TOPIC` | `/diagnostics_agg` | Diagnostics topic to subscribe to |
+| `--timeout SECS` | `5.0` | How long to wait for a message (seconds) |
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py doctor diagnostics
+python3 {baseDir}/scripts/ros2_cli.py doctor diagnostics --level warn
+python3 {baseDir}/scripts/ros2_cli.py wtf diagnostics --level error --timeout 10
+```
+
+Output:
+```json
+{
+  "topic": "/diagnostics_agg",
+  "filter_level": "warn",
+  "components_total": 5,
+  "components_shown": 2,
+  "summary": "2 WARN, 0 ERROR, 0 STALE",
+  "components": [
+    {"name": "motor_driver", "level": "WARN", "message": "temperature high", "values": {}},
+    {"name": "imu", "level": "WARN", "message": "calibration drift", "values": {}}
+  ]
 }
 ```
 

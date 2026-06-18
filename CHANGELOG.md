@@ -56,6 +56,19 @@ Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map
 - **`AGENTS.md` — Rule T10 (Spatial Observation Memory):** tag observed objects with current pose; format: `observed=<object> x=N y=N frame=map ts=T`
 - **`AGENTS.md` + `COMMANDS.md`:** Nav2 command group workflow, pre-goal `nav2 cancel` rule, `topics bw` multi-topic syntax, `params set` multi-pair / `--type`, `params get-all-nodes` section, Lyrical launch substitution and env var notes
 
+### New Commands (2026-06-18)
+
+- `nav2 rotate <degrees> [--timeout 30]` — rotate in place via `nav2_msgs/action/Spin`; obstacle-aware (Nav2 aborts if path is blocked); positive = CCW; output: `{success, status, degrees, target_yaw_rad}`
+- `doctor diagnostics [--level ok|warn|error|stale] [--topic T] [--timeout 5]` — subscribe to `/diagnostics_agg`, report per-component hardware health (OK/WARN/ERROR/STALE) with optional level filter; output: `{components_total, components_shown, filter_level, summary, components}`
+
+### Changes (2026-06-18)
+
+- **`topics publish` / `publish-sequence` / `publish-until` — `--dry-run`:** resolve topic type and validate JSON payload without publishing; `publish-until` also resolves monitor topic type; output: `{dry_run: true, topic, msg_type, payload}`
+- **`profile scan` — `--name` default fixed:** changed from `"robot"` to `None`; prevented spurious `pkg_filter="robot"` that matched zero packages and returned empty safety limits
+- **`profile scan` — URDF `<param>` velocity extraction:** scans `<ros2_control><joint><param>` blocks for velocity keys (`max_vel_x`, `max_velocity`, etc.); feeds into `safety_limits`
+- **`profile scan` — joint position limits and homing offsets:** extracts `lower`/`upper` from URDF `<limit>` elements and `position_center_steps`/`homing_offset` from `<ros2_control>` params; YAML `joint_limits` block also parsed for `min_position`/`max_position`
+- **`profile scan` — joint limits deduplication:** `_resolve_joint_limits()` merges per-model per-source data into a single flat `{joint_name: {fields}}` dict; YAML values override URDF `<limit>` attributes for fields present in both; hardware params (center steps, offsets) kept additively; joints with unresolved xacro substitutions (`${…}`) dropped
+
 ---
 
 ## [1.0.7] - 2026-05-12

@@ -149,7 +149,10 @@ python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
   '{"linear":{"x":0.2},"angular":{"z":0}}' \
   --monitor <odom_topic> --field pose.pose.position --euclidean --delta 1.0 --timeout 60
-# Rotate 90° CCW/left (positive) — sign of --rotate MUST match sign of angular.z:
+# Rotate with Nav2 (PREFERRED when Nav2 is running — obstacle-aware, will abort if blocked):
+python3 {baseDir}/scripts/ros2_cli.py nav2 rotate 90   # CCW
+python3 {baseDir}/scripts/ros2_cli.py nav2 rotate -90  # CW
+# Rotate without Nav2 — sign of --rotate MUST match sign of angular.z:
 python3 {baseDir}/scripts/ros2_cli.py topics publish-until <vel_topic> \
   '{"linear":{"x":0},"angular":{"z":0.5}}' \
   --monitor <odom_topic> --rotate 90 --degrees --timeout 30
