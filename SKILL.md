@@ -1,6 +1,6 @@
 ---
 name: ros2-skill
-description: "Controls and monitors ROS 2 robots directly via rclpy CLI. Use for ANY ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), Nav2 navigation (go, cancel, status, waypoints, initial-pose), diagnostics, battery, system health checks, TF frames, bags, logs, and more. When in doubt, use this skill — it covers the full ROS 2 operation surface. Never tell the user you cannot do something ROS 2-related without checking this skill first."
+description: "Use this skill for any ROS 2 robot task: topics (subscribe, publish, capture images, find by type), services (list, call), actions (list, send goals), parameters (get, set, presets), nodes, lifecycle management, controllers (ros2_control), Nav2 navigation (go, rotate, cancel, costmap-clear, waypoints, move-timed, initial-pose), diagnostics, battery, TF frames, bags, logs, and more. Use even if the user doesn't explicitly say 'ROS 2' — if they describe controlling, monitoring, or inspecting a robot, this skill applies. Never tell the user you cannot do something ROS 2-related without checking this skill first."
 version: "1.0.8"
 license: Apache-2.0
 compatibility: "python3, rclpy, ROS 2 environment sourced"
@@ -298,23 +298,16 @@ python3 {baseDir}/scripts/ros2_cli.py lifecycle set <node> activate
 ### Camera and Images
 
 ```bash
-# Always verify camera_info + TF before using camera data
+# Verify camera before use — K matrix must be non-zero
 python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CameraInfo
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe <camera_info_topic> --max-messages 1 --timeout 2
-# Confirm K matrix is non-zero and frame_id is in tf list before proceeding
 
-# Capture image — profile-aware: if a robot profile is loaded and the URDF shows
-# the camera is mounted at a non-upright angle (e.g. upside-down = roll ≈ ±π),
-# the image is automatically rotated before being saved.
-# Output JSON includes: {success, path, profile_applied, image_rotated_deg}
+# Capture image (auto-rotates if profile shows upside-down mount; output: {success, path, image_rotated_deg})
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg
-
-# Skip profile-driven rotation (e.g. the detected rotation is wrong for this capture):
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg --no-profile
 
-# Read depth at a specific pixel from a depth image topic (16UC1 or 32FC1; no numpy/cv2 needed)
+# Depth point (16UC1 or 32FC1; returns depth_m, encoding, width, height)
 python3 {baseDir}/scripts/ros2_cli.py topics depth-point --topic <depth_topic> --u <col> --v <row>
-# Returns: {depth_m, invalid, encoding, width, height}
 ```
 
 ### Diagnostics and Health
@@ -331,246 +324,67 @@ python3 {baseDir}/scripts/ros2_cli.py topics battery                      # batt
 ### Launch
 
 ```bash
-# Find a launch file by keyword
-python3 {baseDir}/scripts/ros2_cli.py launch list <keyword>
-
-# Start a launch file (duplicate detection runs automatically)
-python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file>
-
-# With launch arguments (name:=value — passed directly to the launch file, highest priority)
-# This is the correct form for any launch argument: use_sim_time:=true, robot_name:=my_bot, etc.
-python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> use_sim_time:=true
-python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> use_sim_time:=true robot_name:=my_bot
-
-# With comma-separated launch arguments via --param (same as positional args but lower priority)
-# Use this when the arg list is long or dynamic — positional args always win over --param on conflict
+python3 {baseDir}/scripts/ros2_cli.py launch list <keyword>               # find launch files
+python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> use_sim_time:=true  # positional args (highest priority)
 python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> --param use_sim_time:=true,robot_name:=my_bot
-
-# ⚠️  --config-path is for YAML node-parameter files only (forwarded via --ros-args --params-file)
-# Do NOT use --config-path for launch arguments like config:=k2 — use positional args instead
-python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> --config-path /path/to/config.yaml
-
-# With a saved parameter preset (lowest priority — positional and --param override)
-python3 {baseDir}/scripts/ros2_cli.py launch new <package> <launch_file> --preset my_preset
-
-# Manage sessions
-python3 {baseDir}/scripts/ros2_cli.py launch list                         # running launch sessions
-python3 {baseDir}/scripts/ros2_cli.py launch kill <session>               # stop a session
-python3 {baseDir}/scripts/ros2_cli.py launch restart <session>            # restart with same args
+python3 {baseDir}/scripts/ros2_cli.py launch list                         # running sessions
+python3 {baseDir}/scripts/ros2_cli.py launch kill <session>
+python3 {baseDir}/scripts/ros2_cli.py launch restart <session>
 ```
 
-**Priority order** (ROS 2 last-wins): positional args > `--param` > `--preset`. Positional args always win on conflict.
-**`--config-path`** is independent of the priority stack — it adds `--ros-args --params-file <file>` to launched nodes; it does not set launch arguments.
-**Duplicate detection**: if the same package + launch file is already running, a warning with `existing_session` is returned instead of launching again.
+**Priority:** positional args > `--param` > `--preset`. `--config-path` adds `--ros-args --params-file` for YAML node-parameter files only — do not use it for launch args. Duplicate detection: returns `existing_session` warning if already running.
 
 ### Log Introspection
 
-Works without a live ROS 2 graph — reads `~/.ros/log/` (or `$ROS_LOG_DIR`).
+Works without a live graph — reads `~/.ros/log/` (or `$ROS_LOG_DIR`).
 
 ```bash
-# Discover available runs (newest first)
 python3 {baseDir}/scripts/ros2_cli.py logs list-runs [--limit 20]
-
-# Query entries with filters (default: latest run, all severities)
-python3 {baseDir}/scripts/ros2_cli.py logs query [--run <id>] [--severity WARN] \
-  [--node <name>] [--after -30s] [--before -5m] [--text <substr>] [--regex <pat>] \
-  [--max 200]
-
-# Incremental tail — only entries since the last call (persists offsets)
-python3 {baseDir}/scripts/ros2_cli.py logs tail [--run <id>] [--initial-lines 50] \
-  [--reset]
-
-# Per-node statistics: totals, severity breakdown, top recurring messages
+python3 {baseDir}/scripts/ros2_cli.py logs query [--run <id>] [--severity WARN] [--node <name>] [--after -30s] [--text <substr>] [--max 200]
+python3 {baseDir}/scripts/ros2_cli.py logs tail [--run <id>] [--initial-lines 50] [--reset]   # incremental; call again for new entries only
 python3 {baseDir}/scripts/ros2_cli.py logs node-summary [--run <id>] [--top 5]
 ```
 
-**Time filter formats for `--after` / `--before`:** `-30s`, `-5m`, `-2h` (relative to now), epoch float, or ISO datetime (`2026-04-30T10:00:00`).
-
-**`logs tail` workflow:** Call once to seed offsets (returns last ~50 lines); call again during the run to get only new entries. Use `--reset` to re-seed when switching to a new run.
+`--after`/`--before` formats: `-30s`, `-5m`, `-2h`, epoch float, ISO datetime.
 
 ### Packages, Bags, and TF
 
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py pkg list                            # installed packages (no graph)
-python3 {baseDir}/scripts/ros2_cli.py pkg prefix <package>                # install prefix
-python3 {baseDir}/scripts/ros2_cli.py pkg executables <package>           # launchable executables
-python3 {baseDir}/scripts/ros2_cli.py pkg xml <package>                   # package.xml contents
-python3 {baseDir}/scripts/ros2_cli.py pkg create <name> [--build-type ament_cmake|ament_python|cmake] \
-    [--dependencies rclcpp std_msgs] [--node-name my_node] [--library-name my_lib] \
-    [--destination-directory /path]                                        # scaffold new package (no graph)
-python3 {baseDir}/scripts/ros2_cli.py bag info <bag_path>                 # bag metadata (no graph)
-python3 {baseDir}/scripts/ros2_cli.py tf list                             # all TF frames
+python3 {baseDir}/scripts/ros2_cli.py pkg list|prefix|executables|xml <package>
+python3 {baseDir}/scripts/ros2_cli.py pkg create <name> [--build-type ament_cmake] [--dependencies rclcpp std_msgs] [--node-name my_node]
+python3 {baseDir}/scripts/ros2_cli.py bag info <bag_path>
+python3 {baseDir}/scripts/ros2_cli.py tf list
 python3 {baseDir}/scripts/ros2_cli.py tf echo <source_frame> <target_frame>
 ```
 
 ### Robot Profile (no live graph required)
 
-Build once; load every session. The profile captures robot type, packages, launch files (as filenames from the workspace), velocity topics, safety limits, and sensor flags — eliminating per-session re-discovery.
+Build once; load every session. Captures robot type, packages, launch files, velocity topics, safety limits, and sensor flags — eliminating per-session re-discovery.
 
 ```bash
-# Scan the entire workspace and write .profiles/<robot>_profile.json
-# Omit --packages to include every package in <ws>/src/ (full workspace profile).
-python3 {baseDir}/scripts/ros2_cli.py profile scan [--workspace /path/to/ros2_ws] [--name my_robot]
+# Build
+python3 {baseDir}/scripts/ros2_cli.py profile scan --packages lekiwi [--name robot] [--workspace /path/to/ws]
+python3 {baseDir}/scripts/ros2_cli.py profile scan                      # full workspace, no filter
+python3 {baseDir}/scripts/ros2_cli.py profile scan --allow-live         # also query live graph
+python3 {baseDir}/scripts/ros2_cli.py profile scan --robot-type mobile_base  # override detected type
 
-# Scope the scan to one robot's packages using fuzzy pattern matching.
-# --packages accepts a comma-separated list of substrings; any package whose
-# name OR path contains a pattern is included.  Unrelated workspace deps are
-# excluded automatically.  Robot name defaults to the first pattern.
-python3 {baseDir}/scripts/ros2_cli.py profile scan --packages lekiwi
-python3 {baseDir}/scripts/ros2_cli.py profile scan --packages lekiwi --name lekiwi
-python3 {baseDir}/scripts/ros2_cli.py profile scan --packages lekiwi,soarm --name my_robot
+# Read
+python3 {baseDir}/scripts/ros2_cli.py profile show                      # full summary + annotations
+python3 {baseDir}/scripts/ros2_cli.py profile show --section summary|detail|<launch-filename>
 
-# Add --allow-live to also query the live graph for topics static analysis missed
-python3 {baseDir}/scripts/ros2_cli.py profile scan --allow-live
+# Update
+python3 {baseDir}/scripts/ros2_cli.py profile rescan [--workspace PATH] [--packages PATTERNS] [--name NAME]
+python3 {baseDir}/scripts/ros2_cli.py profile rescan --launch-file <file>  # partial rescan (fast)
+python3 {baseDir}/scripts/ros2_cli.py profile rescan --packages ''      # widen to full workspace
 
-# Override auto-detected robot type (e.g. if detection mis-classifies)
-python3 {baseDir}/scripts/ros2_cli.py profile scan --robot-type mobile_base
-
-# Load summary (robot_type, packages, launch_files, velocity_topics, safety_limits)
-python3 {baseDir}/scripts/ros2_cli.py profile show
-
-# Load a specific section
-python3 {baseDir}/scripts/ros2_cli.py profile show --section summary
-python3 {baseDir}/scripts/ros2_cli.py profile show --section detail
-python3 {baseDir}/scripts/ros2_cli.py profile show --section <launch-filename>   # e.g. bringup.launch.py
-
-# Full rescan (workspace changed):
-#   ONE robot named  → pass --name <robot_name>  (pkg filter auto-derived; overrides stored empty filter)
-#     python3 {baseDir}/scripts/ros2_cli.py profile rescan --name lekiwi
-#
-#   MULTIPLE robots named  → pass --packages <r1>,<r2> --name <combined_label>
-#     python3 {baseDir}/scripts/ros2_cli.py profile rescan --packages lekiwi,quest_teleop --name lekiwi_quest
-#
-#   NO robot name given  → omit --name; stored pkg_filter is reused automatically
-python3 {baseDir}/scripts/ros2_cli.py profile rescan [--workspace PATH]
-
-# Override the package filter on rescan (e.g. widen or change scope)
-python3 {baseDir}/scripts/ros2_cli.py profile rescan --packages lekiwi,quest_teleop
-
-# Remove the filter and scan the full workspace on rescan
-python3 {baseDir}/scripts/ros2_cli.py profile rescan --packages ''
-
-# Partial rescan — only refresh launch args for one file (fast)
-python3 {baseDir}/scripts/ros2_cli.py profile rescan --launch-file <launch-filename>
-
-# List all saved profiles
+# Manage
 python3 {baseDir}/scripts/ros2_cli.py profile list
-
-# Append a free-text annotation (shown every session; agent MUST read and apply)
-python3 {baseDir}/scripts/ros2_cli.py profile annotate "Left encoder drifts right — apply 5% left correction to cmd_vel."
-python3 {baseDir}/scripts/ros2_cli.py profile annotate "Camera faces a mirror — image is horizontally flipped."
+python3 {baseDir}/scripts/ros2_cli.py profile annotate "Left encoder drifts right — apply 5% correction."
 ```
 
-**Profile JSON shape:**
-```
-{
-  "summary": {                          ← always load; compact
-    ← Fields with no detected value are ABSENT (never null/[]/{}). Missing key = not detected.
-    "robot_type": "mobile_base",        ← primary type (see types below)
-    "robot_features": ["pantilt"],      ← supplementary features alongside primary type
-    "robot_type_evidence": {            ← signals that drove the detected type
-      "mobile_base": ["topic:/cmd_vel", "ament:nav2"],
-      "pantilt": ["pkg:my_pantilt_driver"]
-    },
-    "packages": ["my_bringup", "my_nav"],
-    "launch_files": ["bringup.launch.py", "nav2_bringup.launch.py"],  ← filenames from workspace; keys into detail
-    "urdf_files": ["/path/to/robot.urdf.xacro"],  ← primary packages only; deduplicated
-    "velocity_topics": [{"topic": "/cmd_vel", "type": "geometry_msgs/msg/Twist"}],  ← topic+type objects
-    "safety_limits": {
-      "sources": [                        ← one entry per YAML config that had a velocity limit
-        {"file": "teleop_joy.yaml", "path": "...", "linear_x": 0.5, "linear_y": 0.3, "angular_z": 1.0},
-        {"file": "nav2_params.yaml", "path": "...", "linear_x": 0.3, "angular_z": 0.8}
-        ← axes with no limit are absent from each source entry
-      ],
-      "binding": {                        ← most restrictive per axis across all sources + URDF
-        "linear_x": 0.3, "angular_z": 0.8
-        ← linear_y only present for holonomic robots
-      }
-    },
-    "has_lidar": true, "has_camera": true, "has_imu": true, "has_nav2": false,
-    "sensor_mounts": [          ← sensor/actuator links from URDF; unresolved xacro variables excluded
-      {                         ← sensor_type: camera|depth_camera|lidar|imu|sonar|gps|gripper
-        "joint": "camera_joint", "link": "camera_link",
-        "sensor_type": "camera",
-        "xyz": [0.1, 0.0, 0.5],        ← position relative to parent link
-        "rpy": [3.14159, 0.0, 0.0],    ← orientation; roll ≈ π → upside-down
-        "image_rotation_deg": 180       ← visual sensors only; capture-image applies this
-      }
-    ],
-    ← Drive / kinematics (present when ros2_control YAML was found)
-    "drive_type": "differential",        ← differential|holonomic_omni|mecanum|ackermann|bicycle|tricycle
-    "kinematics": {"wheel_radius": 0.05, "wheel_separation": 0.2},
-    "controller_update_rate_hz": 100,
-    "cmd_vel_topic": "/base_controller/cmd_vel",
-    "odom_frame_ids": {"odom_frame_id": "odom", "base_frame_id": "base_link"},
-    "active_controllers": ["base_controller", "joint_state_broadcaster"],
-    "controller_plugins": ["diff_drive_controller/DiffDriveController", "joint_state_broadcaster/JointStateBroadcaster"],
-    ← Hardware
-    "hardware_interfaces": [{"name": "...", "plugin": "...", "joints": [...], "command_interfaces": [...], "state_interfaces": [...], "hardware_params": {...}}],
-    "mock_hardware_available": false,    ← true when enable_mock_mode=true or a "mock"/"fake" launch arg exists
-    "imu_config": {"plugin": "...", "state_interfaces": [...], "hardware_params": {...}, "broadcaster": {"frame_id": "imu_link", "publish_rate": 100}},
-    ← Sensors
-    "lidar_config": {"topic": "/scan", "frame_id": "lidar_link"},
-    "camera_configs": [...],
-    "sensor_filter_pipeline": [{"name": "range_filter", "type": "laser_filters/LaserScanRangeFilter", "source_file": "...", "params": {...}}],
-    ← Navigation
-    "localization_config": {"method": "ekf", "frequency_hz": 50, "fused_sources": {"odom0": "/base_controller/odom"}},
-    "nav2_config": {"planner_plugins": [...], "controller_plugins": [...], "behavior_plugins": [...]},
-    "maps": [{"name": "map", "type": "occupancy", "resolution": 0.05, "image": "map.pgm", "file": "map.yaml", "path": "..."}],
-    ← Teleop / e-stop
-    "teleop_config": {"cmd_vel_topic": "/cmd_vel", "joy_topic": "/joy", "scales": {"scale_linear_x": 0.5, "scale_angular_z": 1.0}},
-    "estop_config": {"topic": "/e_stop", "service_type": "std_srvs/srv/SetBool", "activate_buttons": [0], "deactivate_buttons": [1]},
-    ← TF / launch
-    "tf_frames": {"urdf_links": ["base_link", "imu_link", ...], "map_frame": "map", "odom_frame": "odom", "base_frame": "base_link"},
-    "launch_configurations": {"config": {"default": "base", "choices": ["base", "pantilt"], "description": "..."}},
-    ← Package metadata
-    "package_dependencies": {"my_robot_bringup": ["rclpy", "nav2_bringup", ...]}
-  },
-  "annotations": [              ← user-added free-text notes; ALWAYS read at session start
-    {
-      "added_at": "2026-05-12T...",
-      "note": "Left motor encoder is worn — odometry drifts right."
-    }
-  ],
-  "detail": {                           ← load on demand per launch file; null-stripped like summary
-    "bringup.launch.py": {
-      "path": "...", "package": "...",
-      "launch_args": {
-        ← unified: AST defaults + live-resolved values merged; no null values
-        "config":       {"default": "base", "choices": ["base", "k2"], "description": "hw config"},
-        "use_sim_time": {"default": "false"},
-        "serial_port":  {"default": "/dev/ttySERVO", "description": "Serial port for motors"}
-      },
-      "includes": [                      ← sub-launch files included by this file
-        {
-          "source": "pkg:nav2_bringup/launch/bringup_launch.py",
-          "package": "nav2_bringup", "file": "bringup_launch.py",
-          "args_forwarded": {            ← "$ref" = pass-through; literal = hardcoded
-            "use_sim_time": "$use_sim_time",
-            "map_yaml_file": "$map_yaml"
-          }
-        }
-      ],
-      "yaml_files": [...], "urdf_files": [...], "joint_limits": {...}
-    },
-    ...
-  }
-}
-```
+`--packages` accepts comma-separated substrings (fuzzy-match on package name or path). Omit for full workspace scan. `summary.safety_limits.binding.linear_x` → `--max-vel`; `.angular_z` → `--max-ang` (Rule 28).
 
-**Robot type values:** `humanoid` · `legged` · `aerial` · `underwater` · `surface_vessel` · `mobile_manipulator` · `arm` · `mobile_base` · `unknown`
-
-**Detection rules (applied strictly in this order):**
-1. Humanoid — specific platform package name (NAO, Atlas, Valkyrie …) **or** ≥ 4 URDF joints with torso/neck/shoulder/elbow patterns. Generic terms like "walking"/"balance" are intentionally excluded (too broad).
-2. Legged — specific quadruped/hexapod package name (Spot, Go1, ANYmal …) or ≥ 4 URDF joints with FL/FR/RL/RR leg naming.
-3. Aerial, underwater, surface\_vessel — platform-specific package names or source keywords.
-4. Mobile manipulator — both mobile-base *and* arm signals present.
-5. Arm — arm/gripper/MoveIt package or ≥ 3 non-wheel URDF joints.
-6. Mobile base — velocity topics (`/cmd_vel`) or Nav2 present, or explicit diff-drive/Ackermann packages.
-
-**If detection is wrong:** run `profile scan --robot-type <type>` to override. The evidence field always shows what matched so you can see why a type was chosen.
-
-Use `summary.safety_limits.binding.linear_x` as the `--max-vel` ceiling and `summary.safety_limits.binding.angular_z` as the `--max-ang` ceiling (Rule 28). `binding.linear_y` is set for holonomic robots. `sources` lists every config file that contributed a limit — useful when multiple teleop configs are present. Use `summary.launch_files` to see what launch files exist in the workspace; load any one's full detail with `--section <filename>`. Launch arg defaults and choices are always populated — a missing `default` key means the argument is required with no declared default.
+Load [`references/PROFILE.md`](references/PROFILE.md) for the full JSON field reference and robot-type detection rules.
 
 ---
 
@@ -600,72 +414,40 @@ After estop: verify velocity ≈ 0 by subscribing `<ODOM_TOPIC> --max-messages 1
 
 ## Nav2 Navigation
 
-Send autonomous navigation goals to the Nav2 stack (`NavigateToPose` action). Requires Nav2 to be running on the robot.
+Requires Nav2 running. Sends `NavigateToPose` / `Spin` / `FollowWaypoints` actions.
 
 ```bash
-# Navigate to a map pose and wait for completion (up to 120 s)
-python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.5 -0.3
-
-# With heading constraint
-python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.5 -0.3 --yaw 90
-
-# Waypoint sequence (chained NavigateToPose calls)
-python3 {baseDir}/scripts/ros2_cli.py nav2 go-waypoints 1.0,0.0 2.0,1.5 3.0,0.0
-
-# Cancel active goal + send zero-velocity burst
-python3 {baseDir}/scripts/ros2_cli.py nav2 cancel
-
-# Check whether Nav2 is active and report current feedback
+python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.5 -0.3 [--yaw 90] [--timeout 120] [--feedback]
+python3 {baseDir}/scripts/ros2_cli.py nav2 go-waypoints 1.0,0.0 2.0,1.5 3.0,0.0 [--no-stop-on-failure]
+python3 {baseDir}/scripts/ros2_cli.py nav2 rotate 90                    # obstacle-aware (Nav2 Spin action)
+python3 {baseDir}/scripts/ros2_cli.py nav2 rotate -- -45                # clockwise
+python3 {baseDir}/scripts/ros2_cli.py nav2 move-timed --duration 2.0 --speed 0.3 [--direction fwd|back|left|right]
+python3 {baseDir}/scripts/ros2_cli.py nav2 costmap-clear [--layer local|global|both]
+python3 {baseDir}/scripts/ros2_cli.py nav2 cancel                       # cancel active goal + zero-velocity burst
 python3 {baseDir}/scripts/ros2_cli.py nav2 status
-
-# Set AMCL initial pose (slam_mode: amcl only)
 python3 {baseDir}/scripts/ros2_cli.py nav2 initial-pose 1.0 2.0 --yaw 45
 ```
 
-**Key flags:**
-- `--frame MAP` — coordinate frame (default: `map`)
-- `--timeout 120` — seconds to wait for goal completion (default: 120; navigation can take minutes)
-- `--feedback` — include per-step feedback messages in output (`nav2 go` only)
-- `--no-stop-on-failure` — continue waypoint sequence even if one leg fails (`go-waypoints`)
-
-**Output fields (`nav2 go`):** `success` (bool), `status` (int, 4=SUCCEEDED), `status_name`, `goal {x,y,frame}`, `error?`
-
-**Before `nav2 go`:** always run `nav2 cancel` first if a previous goal may still be active (Rule 9 pre-motion check). Use `nav2 status` to confirm no active goal is present.
-
-```bash
-# Rotate in place 90° CCW (obstacle-aware via Nav2 Spin action)
-python3 {baseDir}/scripts/ros2_cli.py nav2 rotate 90
-
-# Rotate CW 45°
-python3 {baseDir}/scripts/ros2_cli.py nav2 rotate -- -45
-```
-
-**`nav2 rotate` vs `publish-until` for rotation:** use `nav2 rotate` when Nav2 is active — it is obstacle-aware (Nav2 aborts if path is blocked). Fall back to `publish-until` only when Nav2 is not running.
+**Before `nav2 go`:** run `nav2 cancel` first if a previous goal may still be active (Rule 9). Use `nav2 status` to confirm no active goal.
+**`nav2 rotate` vs `publish-until`:** prefer `nav2 rotate` when Nav2 is active — obstacle-aware; fall back to `publish-until` only when Nav2 is not running.
+**Output (`nav2 go`):** `success` (bool), `status` (4=SUCCEEDED), `goal {x,y,frame}`.
+**`nav2 move-timed`:** publishes `/cmd_vel` for fixed duration then auto-stops via zero-velocity burst.
+**`nav2 costmap-clear`:** calls Nav2 clear-costmap services (std_srvs/Empty).
 
 ---
 
 ## Commands Without a Live Graph
 
-These work without ROS running or nodes active:
-
 | Command | Purpose |
 |---|---|
-| `version` | Verify skill is installed and reachable |
+| `version` | Verify skill is installed |
 | `daemon status / start / stop` | Manage the ROS 2 daemon |
-| `bag info <file>` | Bag metadata (duration, message counts, per-topic stats) |
-| `logs list-runs` | List available ROS 2 log runs in the log directory |
-| `logs query` | Filter log entries by severity, node, time, text |
-| `logs tail` | Incremental log reading (new entries since last call) |
-| `logs node-summary` | Per-node log statistics for a run |
+| `bag info <file>` | Bag metadata (duration, counts, per-topic stats) |
+| `logs list-runs / query / tail / node-summary` | Log introspection |
 | `component types` | List registered composable node types |
+| `pkg list / prefix / executables / xml / create` | Package introspection and scaffolding |
+| `profile scan / show / rescan / list / annotate` | Robot profile management |
 | `--help` on any command | Inspect flags and subcommands |
-| `pkg list / prefix / executables / xml` | Package introspection |
-| `pkg create <name> [flags]` | Scaffold a new ROS 2 package |
-| `profile scan [--workspace PATH] [--packages PATTERNS] [--robot-type TYPE]` | Build robot profile; `--packages lekiwi` fuzzy-matches packages by name/path (comma-separated for multiple patterns); `--robot-type` overrides detection |
-| `profile show [--section S]` | Show saved robot profile or a section (always includes annotations) |
-| `profile rescan [--launch-file F] [--packages PATTERNS]` | Update existing profile; `--packages` filter is reused automatically from the saved profile unless overridden |
-| `profile list` | List all saved robot profiles |
-| `profile annotate "note"` | Append a free-text note to the profile (read at every session start) |
 
 ---
 
@@ -681,6 +463,7 @@ This skill uses **progressive disclosure**. SKILL.md covers the most common oper
 | [`references/RULES-MOTION.md`](references/RULES-MOTION.md) | **Always load at session start** (any mobile-base or arm robot may receive a motion command) — movement algorithm (Rule 3), pre-motion check + Nav2 preemption (Rule 9), REP-103/105 (Rule 17), estop (Rule 18), decel zone (Rule 20), timeout recovery (Rule 21), command limits (Rules 22–23), sequencing (Rule 24), proximity scan (Rule 25). Step 1 of Rule 3 is the authoritative source on the profile fast-path for motion. |
 | [`references/RULES-DIAGNOSTICS.md`](references/RULES-DIAGNOSTICS.md) | **Load when something fails** — failure diagnosis + log-level elevation (Rule 7), post-action verification table (Rule 8), multi-step sequencing (Rule 16), Error Recovery Protocols. |
 | [`references/RULES-REFERENCE.md`](references/RULES-REFERENCE.md) | **Load for command lookup** — full intent→command table (Step 1), sensor search by type (Steps 2–3), message structure (Step 4), velocity limits (Step 5), Launch workflow, Discord image delivery (Rule 26), Setup. |
+| [`references/PROFILE.md`](references/PROFILE.md) | Load for the full profile JSON field reference and robot-type detection rules. Load when you need to know what a specific profile field contains or how robot types are detected. |
 | [`references/COMMANDS.md`](references/COMMANDS.md) | Load when you need the exact flag name, argument format, or JSON output structure for a specific command. 4535 lines — use `--help` on the specific subcommand first; only load this file if `--help` is insufficient or unavailable. |
 | [`references/EXAMPLES.md`](references/EXAMPLES.md) | Load for step-by-step walkthroughs of common tasks (move N meters, capture camera image, send Nav2 goal, etc.). 699 lines. |
 | [`references/CLI.md`](references/CLI.md) | Load for direct `ros2` CLI equivalents and debugging. Not needed during normal agent operation. 90 lines. |

@@ -1,0 +1,93 @@
+{
+  "skill_name": "ros2-skill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Drive the robot forward 0.5 meters.",
+      "expected_output": "Resolves velocity topic and type from profile (Path A), checks robot is stationary via odom, publishes positive linear.x velocity with publish-until --monitor odom --euclidean --delta 0.5, then verifies robot stopped.",
+      "assertions": [
+        "Uses profile to resolve VEL_TOPIC and VEL_TYPE — does not run topics find in Path A",
+        "Subscribes odom before moving to confirm robot is stationary",
+        "Publishes velocity with positive linear.x and --max-vel applied",
+        "Uses publish-until with --monitor odom and --euclidean --delta 0.5",
+        "Post-motion: subscribes odom to confirm velocity is approximately zero"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "List all available topics on the robot. Show me the first 20.",
+      "expected_output": "Returns a JSON list of up to 20 topic names and types from the live graph.",
+      "assertions": [
+        "Runs topics list --limit 20 (not bare topics list without a limit)",
+        "Returns structured JSON output with topic names and types",
+        "Does not run context or a broader graph sweep just for this"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Check if the robot is healthy and ready to operate.",
+      "expected_output": "Runs doctor, loads profile, reports any WARN/ERROR findings, and gives an overall health verdict.",
+      "assertions": [
+        "Runs doctor command",
+        "Runs profile show to load robot configuration",
+        "Reports any WARN or ERROR level findings explicitly",
+        "Does not claim healthy if doctor reports critical failures"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Navigate the robot to position x=2.0, y=1.5 on the map.",
+      "expected_output": "Cancels any active Nav2 goal first, then sends nav2 go 2.0 1.5, monitors until complete, reports success or failure.",
+      "assertions": [
+        "Runs nav2 cancel before sending the new goal (pre-motion check)",
+        "Runs nav2 go 2.0 1.5 with appropriate timeout (not less than 30s)",
+        "Reports the success field in output",
+        "Does not hang indefinitely — uses a timeout"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Scan the workspace and create a robot profile for the lekiwi robot.",
+      "expected_output": "Runs profile scan --packages lekiwi, then profile show to display the summary including robot_type, velocity_topics, and safety_limits.",
+      "assertions": [
+        "Runs profile scan --packages lekiwi (not a bare scan without filter)",
+        "Runs profile show after scan to display results",
+        "Reports robot_type and at least one of velocity_topics or safety_limits",
+        "Does not require a live ROS 2 graph to complete (works offline)"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Capture an image from the robot's camera and save it.",
+      "expected_output": "Finds the camera topic, verifies camera_info K matrix is non-zero, captures one image with capture-image, saves to .artifacts/ directory.",
+      "assertions": [
+        "Verifies camera_info exists and K matrix is non-zero before capturing",
+        "Uses topics capture-image command (not topics subscribe)",
+        "Saves output to {baseDir}/.artifacts/ — not to /tmp",
+        "Reports image_rotated_deg field in output (even if 0)"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Rotate the robot 90 degrees to the left.",
+      "expected_output": "If Nav2 is active, uses nav2 rotate 90 (obstacle-aware). Otherwise falls back to topics publish-until with angular.z and --rotate 90 --degrees.",
+      "assertions": [
+        "Checks whether Nav2 is available before choosing method",
+        "Uses nav2 rotate 90 when Nav2 is active",
+        "Falls back to publish-until --rotate 90 --degrees only when Nav2 is not running",
+        "Does not use a bare timed sleep to control rotation duration"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Call the /trigger_sweep service to start a sensor sweep.",
+      "expected_output": "Looks up the service type with services details, constructs the correct JSON payload, calls the service, and reports the response.",
+      "assertions": [
+        "Runs services details /trigger_sweep to get request/response schema",
+        "Uses services call /trigger_sweep with correct JSON payload",
+        "Reports the full service response in output",
+        "Does not guess the service type without introspecting first"
+      ]
+    }
+  ]
+}
