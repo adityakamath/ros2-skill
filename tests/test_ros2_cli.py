@@ -124,6 +124,7 @@ MINIMAL_ARGS = [
     ("nodes",    "details",          ["nodes", "details", "/n"]),
     ("nodes",    "info",             ["nodes", "info", "/n"]),
     ("nodes",    "ls",               ["nodes", "ls"]),
+    ("nodes",    "kill",             ["nodes", "kill", "/n", "--confirm"]),
     # lifecycle
     ("lifecycle","nodes",            ["lifecycle", "nodes"]),
     ("lifecycle","list",             ["lifecycle", "list"]),
@@ -257,7 +258,9 @@ MINIMAL_ARGS = [
     ("nav2", "cancel",       ["nav2", "cancel"]),
     ("nav2", "status",       ["nav2", "status"]),
     ("nav2", "go-waypoints", ["nav2", "go-waypoints", "1.0,2.0", "3.0,4.0"]),
-    ("nav2", "initial-pose", ["nav2", "initial-pose", "1.0", "2.0"]),
+    ("nav2", "initial-pose",   ["nav2", "initial-pose", "1.0", "2.0"]),
+    ("nav2", "move-timed",    ["nav2", "move-timed", "--duration", "2.0", "--speed", "0.3"]),
+    ("nav2", "costmap-clear", ["nav2", "costmap-clear"]),
     # foxglove
     ("foxglove", "start",    ["foxglove", "start"]),
     ("foxglove", "stop",     ["foxglove", "stop"]),

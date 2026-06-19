@@ -1189,6 +1189,132 @@ def cmd_nav2_localize(args):
         return output({"error": str(e)})
 
 
+def cmd_nav2_move_timed(args):
+    """Publish velocity commands for a fixed duration then stop.
+
+    Auto-discovers the first ``cmd_vel``-style Twist topic on the graph.
+    Directions map to Twist fields:
+      fwd/back → linear.x (±speed m/s)
+      left/right → angular.z (±speed rad/s)
+    """
+    direction = args.direction.lower()
+    if direction not in ("fwd", "back", "left", "right"):
+        return output({
+            "error": f"Unknown direction '{direction}'",
+            "hint": "Valid: fwd | back | left | right",
+        })
+
+    duration = args.duration
+    speed = args.speed
+
+    try:
+        from geometry_msgs.msg import Twist  # noqa: PLC0415
+
+        with ros2_context():
+            node = ROS2CLI()
+
+            topics = node.get_topic_names_and_types()
+            vel_topic = None
+            for name, types in topics:
+                for t in types:
+                    if "Twist" in t and "cmd_vel" in name.lower():
+                        vel_topic = name
+                        break
+                if vel_topic:
+                    break
+
+            if not vel_topic:
+                return output({
+                    "error": "No cmd_vel Twist topic found on the graph",
+                    "hint": "Ensure the robot's velocity controller is running",
+                })
+
+            pub = node.create_publisher(Twist, vel_topic, 10)
+
+            msg = Twist()
+            if direction == "fwd":
+                msg.linear.x = speed
+            elif direction == "back":
+                msg.linear.x = -speed
+            elif direction == "left":
+                msg.angular.z = speed
+            else:  # right
+                msg.angular.z = -speed
+
+            end = time.time() + duration
+            while time.time() < end:
+                pub.publish(msg)
+                rclpy.spin_once(node, timeout_sec=0.05)
+
+            _publish_zero_burst(node)
+
+        return output({
+            "moved": True,
+            "topic": vel_topic,
+            "direction": direction,
+            "speed": speed,
+            "duration_s": duration,
+        })
+
+    except Exception as e:
+        return output({"error": str(e)})
+
+
+def cmd_nav2_costmap_clear(args):
+    """Clear Nav2 costmap obstacle layers to recover from false detections.
+
+    Calls the standard Nav2 clearing services:
+      local  → /local_costmap/clear_entirely_local_costmap
+      global → /global_costmap/clear_entirely_global_costmap
+    """
+    layer = getattr(args, "layer", "both").lower()
+    timeout = getattr(args, "timeout", 10.0)
+
+    services_to_call = []
+    if layer in ("local", "both"):
+        services_to_call.append("/local_costmap/clear_entirely_local_costmap")
+    if layer in ("global", "both"):
+        services_to_call.append("/global_costmap/clear_entirely_global_costmap")
+
+    if not services_to_call:
+        return output({
+            "error": f"Unknown layer '{layer}'",
+            "hint": "Valid: local | global | both",
+        })
+
+    srv_class = get_srv_type("std_srvs/srv/Empty") or get_srv_type("std_srvs/Empty")
+    if srv_class is None:
+        return output({
+            "error": "Cannot load std_srvs/srv/Empty",
+            "hint": "Install: sudo apt install ros-$ROS_DISTRO-std-srvs",
+        })
+
+    cleared = []
+    errors = []
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            for svc_name in services_to_call:
+                _, err = _call_service(node, svc_name, srv_class, srv_class.Request(), timeout)
+                if err:
+                    errors.append({"service": svc_name, "error": err})
+                else:
+                    cleared.append(svc_name)
+
+        result = {
+            "cleared": len(cleared) > 0,
+            "layer": layer,
+            "layers_cleared": cleared,
+        }
+        if errors:
+            result["errors"] = errors
+        return output(result)
+
+    except Exception as e:
+        return output({"error": str(e)})
+
+
 def cmd_nav2_diagnose(args):
     """Aggregate Nav2 health: action server, localization, costmaps, goal queue."""
     timeout = getattr(args, "timeout", 5.0)  # noqa: F841 — reserved for future subscription use

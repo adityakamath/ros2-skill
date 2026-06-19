@@ -53,6 +53,7 @@ from ros2_topic import (
 from ros2_node import (
     cmd_nodes_list,
     cmd_nodes_details,
+    cmd_nodes_kill,
 )
 
 from ros2_param import (
@@ -220,6 +221,8 @@ from ros2_nav2 import (
     cmd_nav2_mode_set,
     cmd_nav2_localize,
     cmd_nav2_diagnose,
+    cmd_nav2_move_timed,
+    cmd_nav2_costmap_clear,
 )
 
 # ---------------------------------------------------------------------------
@@ -657,6 +660,12 @@ def build_parser():
     p.add_argument("node", help="Node name (e.g. /turtlesim)")
     p = nsub.add_parser("info", help="Alias for details (ros2 node info)")
     p.add_argument("node", help="Node name (e.g. /turtlesim)")
+    p = nsub.add_parser("kill", help="Terminate a node (lifecycle shutdown then pkill fallback)")
+    p.add_argument("node", help="Node name (e.g. /turtlesim)")
+    p.add_argument("--confirm", action="store_true",
+                   help="Safety interlock — must be set to actually kill the node")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Seconds to wait for lifecycle shutdown (default: 10)")
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -1522,6 +1531,28 @@ def build_parser():
     p.add_argument("--timeout", type=float, default=30.0,
                    help="Seconds to wait for the spin to complete (default: 30)")
 
+    # move-timed
+    p = nav2sub.add_parser("move-timed",
+                           help="Publish velocity commands for a fixed duration then stop")
+    p.add_argument("--duration", type=float, required=True, metavar="SEC",
+                   help="How long to move in seconds")
+    p.add_argument("--speed", type=float, required=True, metavar="SPEED",
+                   help="Speed magnitude: m/s for fwd/back, rad/s for left/right")
+    p.add_argument("--direction", default="fwd",
+                   choices=["fwd", "back", "left", "right"],
+                   help="Movement direction (default: fwd)")
+    p.add_argument("--topic", default=None,
+                   help="cmd_vel topic override (default: auto-discover)")
+
+    # costmap-clear
+    p = nav2sub.add_parser("costmap-clear",
+                           help="Clear Nav2 costmap layers to recover from false obstacle detections")
+    p.add_argument("--layer", default="both",
+                   choices=["local", "global", "both"],
+                   help="Which costmap layer to clear (default: both)")
+    p.add_argument("--timeout", type=float, default=10.0,
+                   help="Service call timeout in seconds (default: 10)")
+
     # ------------------------------------------------------------------
     # foxglove — Foxglove Bridge management
     # ------------------------------------------------------------------
@@ -1758,6 +1789,7 @@ DISPATCH = {
     # nodes — canonical
     ("nodes", "list"): cmd_nodes_list,
     ("nodes", "details"): cmd_nodes_details,
+    ("nodes", "kill"): cmd_nodes_kill,
     # nodes — aliases
     ("nodes", "info"): cmd_nodes_details,
     ("nodes", "ls"): cmd_nodes_list,
@@ -1912,6 +1944,8 @@ DISPATCH = {
     ("nav2", "mode"):          cmd_nav2_mode,
     ("nav2", "localize"):      cmd_nav2_localize,
     ("nav2", "diagnose"):      cmd_nav2_diagnose,
+    ("nav2", "move-timed"):    cmd_nav2_move_timed,
+    ("nav2", "costmap-clear"): cmd_nav2_costmap_clear,
 }
 
 

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """ROS 2 node commands."""
 
+import subprocess
+import time
+
 from ros2_utils import ROS2CLI, output, ros2_context
 
 
@@ -53,6 +56,82 @@ def cmd_nodes_details(args):
         output(result)
     except Exception as e:
         output({"error": str(e)})
+
+
+def cmd_nodes_kill(args):
+    """Terminate a running ROS 2 node.
+
+    Attempts graceful lifecycle shutdown first; falls back to pkill.
+    Requires ``--confirm`` as a safety gate.
+    """
+    if not getattr(args, "confirm", False):
+        return output({
+            "error": "Safety gate: --confirm is required to kill a node",
+            "hint": f"Re-run with: nodes kill {args.node} --confirm",
+        })
+
+    node_name = args.node.lstrip("/")
+    full_name = args.node if args.node.startswith("/") else f"/{args.node}"
+    timeout = getattr(args, "timeout", 10.0)
+
+    method = None
+    killed = False
+
+    # 1. Graceful: lifecycle shutdown via ros2 CLI subprocess
+    try:
+        r = subprocess.run(
+            ["ros2", "lifecycle", "set", full_name, "shutdown"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if r.returncode == 0:
+            method = "lifecycle_shutdown"
+            killed = True
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # 2. Fallback: pkill by node name substring
+    if not killed:
+        try:
+            r = subprocess.run(
+                ["pkill", "-f", node_name],
+                capture_output=True, text=True, timeout=5,
+            )
+            killed = r.returncode in (0, 1)  # 1 = no process found but not an error
+            method = "pkill"
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    # 3. Verify node is gone from graph
+    node_gone = False
+    try:
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            with ros2_context():
+                cli = ROS2CLI()
+                names = [
+                    f"{ns.rstrip('/')}/{n}"
+                    for n, ns in cli.get_node_names_and_namespaces()
+                ]
+            if full_name not in names:
+                node_gone = True
+                break
+            time.sleep(0.5)
+    except Exception:
+        pass
+
+    if not killed and not node_gone:
+        return output({
+            "killed": False,
+            "node": full_name,
+            "error": "Could not kill node — lifecycle shutdown and pkill both failed",
+        })
+
+    return output({
+        "killed": True,
+        "node": full_name,
+        "method": method,
+        "node_gone": node_gone,
+    })
 
 
 if __name__ == "__main__":
