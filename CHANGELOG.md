@@ -2,25 +2,7 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.9] - 2026-07-05
-
-New Nav2 helpers, a node kill command, and agentskills.io spec compliance.
-
-### New Commands
-
-- `nav2 move-timed [--duration S] [--speed M/S] [--direction forward|backward]` — publish constant velocity on `/cmd_vel` for a fixed duration then zero-burst stop
-- `nav2 costmap-clear [--layer local|global|both]` — call Nav2 `clear_local_costmap` / `clear_global_costmap` services
-- `nodes kill <node> [--confirm] [--timeout 5]` — lifecycle shutdown with pkill fallback and 3 s graph verification; requires `--confirm`
-
-### Changes
-
-- **`context --include-schemas`:** new opt-in flag; appends `schemas: {type_str: fields_dict}` to context output for every unique topic message type
-- **agentskills.io compliance:** `SKILL.md` trimmed to < 500 lines; `references/PROFILE.md` extracted for progressive disclosure; `evals/evals.json` added (8 agent-behaviour scenarios); `evals/eval_queries.json` added (22 trigger/no-trigger test cases)
-- **Exit codes:** `output()` now calls `sys.exit(1)` when the result contains an `"error"` key; exit 0 / 1 / 2 semantics documented in `--help`
-
----
-
-## [1.0.8] - 2026-05-20 (updated 2026-05-29)
+## [1.0.8] - 2026-05-20 (updated 2026-07-05)
 
 Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map lifecycle, and several quality-of-life improvements. **Note:** foxglove, system, and nav2 map/mode/localize commands are implemented and unit-tested but not validated on real hardware.
 
@@ -79,6 +61,18 @@ Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map
 - **`profile scan` — URDF `<param>` velocity extraction:** scans `<ros2_control><joint><param>` blocks for velocity keys (`max_vel_x`, `max_velocity`, etc.); feeds into `safety_limits`
 - **`profile scan` — joint position limits and homing offsets:** extracts `lower`/`upper` from URDF `<limit>` elements and `position_center_steps`/`homing_offset` from `<ros2_control>` params; YAML `joint_limits` block also parsed for `min_position`/`max_position`
 - **`profile scan` — joint limits deduplication:** `_resolve_joint_limits()` merges per-model per-source data into a single flat `{joint_name: {fields}}` dict; YAML values override URDF `<limit>` attributes for fields present in both; hardware params (center steps, offsets) kept additively; joints with unresolved xacro substitutions (`${…}`) dropped
+
+### New Commands (2026-07-05)
+
+- `nav2 move-timed [--duration S] [--speed M/S] [--direction forward|backward]` — publish constant velocity on `/cmd_vel` for a fixed duration then zero-burst stop
+- `nav2 costmap-clear [--layer local|global|both]` — call Nav2 `clear_local_costmap` / `clear_global_costmap` services
+- `nodes kill <node> [--confirm] [--timeout 5]` — lifecycle shutdown with pkill fallback and 3 s graph verification; requires `--confirm`
+
+### Changes (2026-07-05)
+
+- **`context --include-schemas`:** new opt-in flag; appends `schemas: {type_str: fields_dict}` to context output for every unique topic message type
+- **agentskills.io compliance:** `SKILL.md` trimmed to < 500 lines; `references/PROFILE.md` extracted for progressive disclosure; `evals/evals.json` added (8 agent-behaviour scenarios); `evals/eval_queries.json` added (22 trigger/no-trigger test cases)
+- **Exit codes:** `output()` now calls `sys.exit(1)` when the result contains an `"error"` key; exit 0 / 1 / 2 semantics documented in `--help`
 
 ---
 
