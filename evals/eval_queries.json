@@ -1,0 +1,121 @@
+{
+  "skill_name": "ros2-skill",
+  "description": "Trigger evaluation queries — tests whether the skill description activates on the right prompts and stays silent on unrelated ones.",
+  "eval_queries": [
+    {
+      "id": 1,
+      "query": "Drive the robot forward slowly.",
+      "should_trigger": true
+    },
+    {
+      "id": 2,
+      "query": "What ROS 2 topics are available on the robot?",
+      "should_trigger": true
+    },
+    {
+      "id": 3,
+      "query": "Navigate to coordinates x=3.0, y=1.5 on the map.",
+      "should_trigger": true
+    },
+    {
+      "id": 4,
+      "query": "Check if the robot is healthy.",
+      "should_trigger": true
+    },
+    {
+      "id": 5,
+      "query": "Stop the robot immediately.",
+      "should_trigger": true
+    },
+    {
+      "id": 6,
+      "query": "Capture an image from the camera.",
+      "should_trigger": true
+    },
+    {
+      "id": 7,
+      "query": "Rotate the robot 90 degrees to the left.",
+      "should_trigger": true
+    },
+    {
+      "id": 8,
+      "query": "Call the /start_mapping service.",
+      "should_trigger": true
+    },
+    {
+      "id": 9,
+      "query": "Show me the robot's transform tree.",
+      "should_trigger": true
+    },
+    {
+      "id": 10,
+      "query": "Scan the workspace and build a robot profile.",
+      "should_trigger": true
+    },
+    {
+      "id": 11,
+      "query": "Kill the lidar node.",
+      "should_trigger": true
+    },
+    {
+      "id": 12,
+      "query": "What packages are installed on this robot?",
+      "should_trigger": true
+    },
+    {
+      "id": 13,
+      "query": "Write me a Python script to parse JSON files.",
+      "should_trigger": false
+    },
+    {
+      "id": 14,
+      "query": "What is the capital of France?",
+      "should_trigger": false
+    },
+    {
+      "id": 15,
+      "query": "Help me debug a React component that won't render.",
+      "should_trigger": false
+    },
+    {
+      "id": 16,
+      "query": "List all files in my home directory.",
+      "should_trigger": false
+    },
+    {
+      "id": 17,
+      "query": "Create a Docker container for a web server.",
+      "should_trigger": false
+    },
+    {
+      "id": 18,
+      "query": "Move the robot arm to position A.",
+      "should_trigger": true,
+      "note": "near-miss — 'robot arm' implies ROS 2 control"
+    },
+    {
+      "id": 19,
+      "query": "The simulation is running in Gazebo. Can you check the /odom topic?",
+      "should_trigger": true,
+      "note": "near-miss — user says Gazebo + topic name"
+    },
+    {
+      "id": 20,
+      "query": "Show me the robot battery status.",
+      "should_trigger": true,
+      "note": "near-miss — battery status is ambiguous but robot context applies"
+    },
+    {
+      "id": 21,
+      "query": "How do I install ROS 2 Humble on Ubuntu?",
+      "should_trigger": false,
+      "note": "near-miss — mentions ROS 2 but is an installation/docs question, not robot control"
+    },
+    {
+      "id": 22,
+      "query": "Explain what a ROS 2 topic is.",
+      "should_trigger": false,
+      "note": "near-miss — mentions ROS 2 but is a conceptual question, not a robot task"
+    }
+  ]
+}

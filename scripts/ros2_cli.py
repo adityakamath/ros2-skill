@@ -363,7 +363,16 @@ def _add_subscribe_args(p):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="ROS 2 Skill CLI - Control ROS 2 robots directly via rclpy"
+        description="ROS 2 Skill CLI - Control ROS 2 robots directly via rclpy",
+        epilog=(
+            "Exit codes:\n"
+            "  0  Success — command completed, output is valid JSON\n"
+            "  1  Command error — ROS 2 call failed, timeout, or node unreachable; "
+            "output JSON contains an 'error' key\n"
+            "  2  Invalid arguments — bad flag values or missing required arguments "
+            "(argparse default)\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--timeout", type=float, default=None, dest="global_timeout",

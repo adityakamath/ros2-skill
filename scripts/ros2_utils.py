@@ -321,6 +321,8 @@ def _json_default(obj):
 
 def output(data):
     print(json.dumps(data, indent=2, ensure_ascii=False, default=_json_default))
+    if isinstance(data, dict) and "error" in data:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
