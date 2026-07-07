@@ -406,6 +406,66 @@ class TestDispatchTable(unittest.TestCase):
 
 
 
+class TestKillSessionGraceful(unittest.TestCase):
+    """kill_session() must try a graceful SIGINT (via tmux send-keys C-c)
+    before falling back to a hard `tmux kill-session` — `tmux kill-session`
+    alone sends SIGHUP, which ros2 launch does not catch, so hardware
+    interface shutdown callbacks (e.g. releasing servo torque) never ran."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_utils
+        cls.mod = ros2_utils
+
+    def test_sends_ctrl_c_before_hard_kill(self):
+        commands = []
+
+        def fake_run_cmd(cmd, timeout=10):
+            commands.append(cmd)
+            return "", "", 0
+
+        with patch.object(self.mod, "run_cmd", side_effect=fake_run_cmd), \
+             patch.object(self.mod, "session_exists", return_value=False), \
+             patch.object(self.mod, "check_session_alive", return_value=False):
+            result = self.mod.kill_session("launch_test_session")
+
+        self.assertTrue(result)
+        self.assertTrue(any("send-keys" in c and "C-c" in c for c in commands),
+                        f"expected a tmux send-keys C-c call, got: {commands}")
+        # The graceful send-keys must happen before any kill-session call.
+        send_keys_idx = next(i for i, c in enumerate(commands) if "send-keys" in c)
+        kill_idxs = [i for i, c in enumerate(commands) if "kill-session" in c]
+        if kill_idxs:
+            self.assertLess(send_keys_idx, kill_idxs[0])
+
+    def test_returns_true_immediately_once_session_gone(self):
+        """No hard kill-session call needed if the graceful shutdown already
+        made the session disappear on its own."""
+        commands = []
+
+        def fake_run_cmd(cmd, timeout=10):
+            commands.append(cmd)
+            return "", "", 0
+
+        with patch.object(self.mod, "run_cmd", side_effect=fake_run_cmd), \
+             patch.object(self.mod, "session_exists", return_value=False):
+            result = self.mod.kill_session("launch_test_session")
+
+        self.assertTrue(result)
+        self.assertFalse(any("kill-session" in c for c in commands),
+                         f"should not need a hard kill once session is gone: {commands}")
+
+    def test_falls_back_to_hard_kill_if_still_alive(self):
+        with patch.object(self.mod, "run_cmd", return_value=("", "", 0)), \
+             patch.object(self.mod, "session_exists", return_value=True), \
+             patch.object(self.mod, "check_session_alive", return_value=True):
+            result = self.mod.kill_session("launch_test_session", graceful_timeout=0.05)
+
+        self.assertTrue(result)
+
+
 class TestOutput(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

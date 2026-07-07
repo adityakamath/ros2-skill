@@ -736,8 +736,32 @@ def session_exists(session_name):
     return session_name in stdout.strip().split('\n')
 
 
-def kill_session(session_name):
-    """Kill a tmux session."""
+def kill_session(session_name, graceful_timeout=10.0):
+    """Kill a tmux session gracefully, then fall back to a hard kill.
+
+    `tmux kill-session` alone sends SIGHUP to the pane's process group.
+    `ros2 launch` (and many other long-running ROS 2 processes) only
+    registers signal handlers for SIGINT/SIGTERM to run its shutdown
+    sequence — lifecycle deactivation, hardware interface cleanup (e.g.
+    releasing servo torque), node destructors, etc. SIGHUP is not one of
+    those, so a bare `kill-session` tears down the whole process tree
+    before any of that cleanup runs, silently skipping it.
+
+    This sends Ctrl-C (SIGINT) to the pane first — exactly what an
+    operator would press if attached to the session — and gives the
+    process up to `graceful_timeout` seconds to exit and run its own
+    cleanup. Only if it's still alive after that does it fall back to a
+    hard `tmux kill-session`, which is now just a safety net rather than
+    the primary mechanism.
+    """
+    run_cmd(f"tmux send-keys -t {shlex.quote(session_name)} C-c")
+    deadline = time.time() + graceful_timeout
+    while time.time() < deadline:
+        if not session_exists(session_name):
+            return True
+        if not check_session_alive(session_name):
+            break
+        time.sleep(0.3)
     kill_cmd = f"tmux kill-session -t {shlex.quote(session_name)}"
     stdout, stderr, rc = run_cmd(kill_cmd)
     return rc == 0
