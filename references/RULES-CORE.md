@@ -9,6 +9,14 @@
 
 ---
 
+## Scope: these rules govern robot operation, not skill maintenance
+
+**Everything in this rule set — the heavy verification, the multi-phase checks, the "never trust a zero-error return code" posture — applies to commands that affect the physical robot or its live ROS graph** (motion, params, controllers, lifecycle transitions, navigation goals). That posture exists because a wrong assumption there can move hardware, corrupt state, or hide a real failure behind a green exit code — the cost of under-verifying is real and physical.
+
+**It does not apply when the work is on the skill's own source code** (fixing a bug in `scripts/*.py`, running `pytest`, chasing a latency regression, updating docs). In that context: verify a result once, with a method appropriate to what's being checked, and move forward. Re-running the same command "just to be sure," re-confirming a result that already has a clear cause, or repeating an already-conclusive test is not rigor — it is the robot-safety verification habit misapplied to a context where it only adds latency without adding safety. If a fix is verified and the reasoning is sound, trust it and move on to the next thing.
+
+**The dividing line:** if the action could move the robot, change a live parameter/controller/lifecycle state, or send a navigation goal, the full rule set below applies without exception. If the action only reads/writes files in the skill's own repo, runs its test suite, or inspects (not changes) process/session state, decisiveness is correct — over-checking there is the failure mode, not under-checking.
+
 ## Mandatory Compliance
 
 **The rules in RULES-CORE.md, RULES-PREFLIGHT.md, RULES-MOTION.md, RULES-DIAGNOSTICS.md, and RULES-REFERENCE.md are hard constraints — not guidelines, not best practices, not suggestions.** Every rule is mandatory for every action. There are no exceptions based on convenience, familiarity, or the impression that the user did not specify.
