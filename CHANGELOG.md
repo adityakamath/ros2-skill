@@ -107,6 +107,8 @@ Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map
 - **Persistent fast daemon** (`ros2_fastd.py`, new) — a long-lived background process holding one warm rclpy node and a persistent TF buffer, reachable over a Unix domain socket; used automatically (with safe fallback) by the ten commands listed above
 - **Lazy rclpy import** — `ros2_utils.py` previously imported `rclpy`/`Node`/qos types unconditionally at module load time (~0.9s), paid by every single CLI invocation regardless of whether the fast daemon handled the request; now deferred to first actual use. `ros2_cli.py`'s dispatch table was similarly changed from eager `from ros2_X import ...` for all ~25 command modules to lazy `importlib`-based resolution of only the one module a given command needs. Net effect: `ros2_cli.py`'s own import time dropped from ~0.72s to ~0.10s
 - **Internal** — consolidated five duplicate wait/call/retry service-call loops (`ros2_control`, `ros2_param`, `ros2_nav2`, `ros2_lifecycle`, `ros2_service`) into one shared `call_ros_service()` in `ros2_utils.py`
+- **`nodes kill`** — replaced `pkill -f`, which hangs indefinitely on this host, with a direct `/proc` scan + `os.kill()`; also capped the lifecycle-shutdown probe at 2s (was up to the full `--timeout`, default 10s) and made the post-kill verify loop reuse one rclpy session (or the fast daemon) instead of re-initializing per poll
+- **`tf monitor`** — fixed an unhandled exception from `all_frames_as_yaml()` crashing the whole command instead of returning a clean error
 
 ---
 
