@@ -2713,9 +2713,10 @@ class TestParamPresetIO(unittest.TestCase):
         self.assertEqual({p["preset"] for p in r2["presets"]}, {"alpha", "beta"})
         # Delete: missing preset → error; existing → deleted, path ends with .json
         with patch.object(self.mod, "_presets_base", return_value="/fake/presets"), \
-             patch.object(self.mod.os.path, "exists", return_value=False), self._stdout() as buf:
+             patch.object(self.mod.os.path, "exists", return_value=False), self._stdout() as buf, \
+             self.assertRaises(SystemExit):
             self.mod.cmd_params_preset_delete(types.SimpleNamespace(preset="ghost"))
-            r3 = json.loads(buf.getvalue())
+        r3 = json.loads(buf.getvalue())
         self.assertIn("error", r3)
         self.assertIn("ghost", r3["error"])
         removed = []
@@ -2756,22 +2757,24 @@ class TestLaunchTmuxPath(unittest.TestCase):
     def test_tmux_error_and_empty_sessions(self):
         """No tmux → error from launch and run; empty sessions → empty lists from both."""
         import types
-        with patch.object(self.launch, "check_tmux", return_value=False), self._stdout() as buf:
+        with patch.object(self.launch, "check_tmux", return_value=False), self._stdout() as buf, \
+             self.assertRaises(SystemExit):
             self.launch.cmd_launch_run(types.SimpleNamespace(
                 package="pkg", launch_file="nav.launch.py", args=[], session=None))
-            r = json.loads(buf.getvalue())
+        r = json.loads(buf.getvalue())
         self.assertIn("error", r)
         self.assertIn("tmux", r["error"].lower())
         with patch.object(self.launch, "list_sessions",
                           return_value={"error": "tmux is not installed", "running_sessions": []}), \
-             self._stdout() as buf:
+             self._stdout() as buf, self.assertRaises(SystemExit):
             self.launch.cmd_launch_list(types.SimpleNamespace())
-            self.assertIn("error", json.loads(buf.getvalue()))
-        with patch.object(self.ros2_run_mod, "check_tmux", return_value=False), self._stdout() as buf:
+        self.assertIn("error", json.loads(buf.getvalue()))
+        with patch.object(self.ros2_run_mod, "check_tmux", return_value=False), self._stdout() as buf, \
+             self.assertRaises(SystemExit):
             self.ros2_run_mod.cmd_run(types.SimpleNamespace(
                 package="pkg", executable="node", args=[], session=None,
                 presets=None, params=None, config_path=None))
-            r2 = json.loads(buf.getvalue())
+        r2 = json.loads(buf.getvalue())
         self.assertIn("error", r2)
         self.assertIn("tmux", r2["error"].lower())
         # Empty sessions → empty lists
@@ -2976,9 +2979,9 @@ class TestControlCommandPaths(unittest.TestCase):
              patch.object(self.mod, 'ROS2CLI', MagicMock()), \
              patch.object(self.mod, '_call_cm_service',
                           return_value=(None, {"error": "service not available"})), \
-             self._stdout() as buf:
+             self._stdout() as buf, self.assertRaises(SystemExit):
             self.mod.cmd_control_list_controllers(self._args())
-            self.assertIn("error", json.loads(buf.getvalue()))
+        self.assertIn("error", json.loads(buf.getvalue()))
         mock_result = MagicMock()
         mock_result.controller = []
         with patch.object(self.mod, 'ros2_context', MagicMock()), \
@@ -3003,9 +3006,9 @@ class TestControlCommandPaths(unittest.TestCase):
              patch.object(self.mod, 'ROS2CLI', MagicMock()), \
              patch.object(self.mod, '_call_cm_service',
                           return_value=(None, {"error": "timeout"})), \
-             self._stdout() as buf:
+             self._stdout() as buf, self.assertRaises(SystemExit):
             self.mod.cmd_control_load_controller(self._args(name='joint_controller'))
-            self.assertIn("error", json.loads(buf.getvalue()))
+        self.assertIn("error", json.loads(buf.getvalue()))
         # _call_cm_service: unavailable → error+destroy; retries=3 → 3 wait calls
         mn = MagicMock()
         mc = MagicMock()
@@ -3075,9 +3078,9 @@ class TestLifecycleCommandPaths(unittest.TestCase):
                                        'lifecycle_msgs.srv': mock_lc.srv}), \
              patch.object(self.mod, 'ros2_context', MagicMock()), \
              patch.object(self.mod, 'ROS2CLI', return_value=mock_node_inst), \
-             self._stdout() as buf:
+             self._stdout() as buf, self.assertRaises(SystemExit):
             self.mod.cmd_lifecycle_get(args)
-            res = json.loads(buf.getvalue())
+        res = json.loads(buf.getvalue())
         self.assertIn("error", res)
         self.assertIn("my_node", res["error"])
 
@@ -3141,7 +3144,8 @@ class TestEstopBranching(unittest.TestCase):
         mock_node.get_topic_names.return_value = [('/scan', ['sensor_msgs/msg/LaserScan'])]
         with patch.object(self.mod, 'ros2_context', MagicMock()), \
              patch.object(self.mod, 'ROS2CLI', return_value=mock_node), \
-             patch('sys.stdout', new_callable=StringIO) as buf:
+             patch('sys.stdout', new_callable=StringIO) as buf, \
+             self.assertRaises(SystemExit):
             self.mod.cmd_estop(types.SimpleNamespace(topic=None))
         self.assertIn('error', json.loads(buf.getvalue()))
 
@@ -3279,7 +3283,8 @@ class TestTFMonitorMissingFrame(unittest.TestCase):
              patch('rclpy.node.Node', return_value=MagicMock()), \
              patch('rclpy.spin_once'), \
              patch('time.sleep'), \
-             patch('sys.stdout', new_callable=StringIO) as buf:
+             patch('sys.stdout', new_callable=StringIO) as buf, \
+             self.assertRaises(SystemExit):
             self.mod.cmd_tf_monitor(args)
         return json.loads(buf.getvalue())
 
@@ -4813,11 +4818,13 @@ class TestNav2CmdValidation(unittest.TestCase):
         self.mod = ros2_nav2
 
     def _capture(self, fn, **kw):
-        import io, argparse
-        buf = io.StringIO()
-        with unittest.mock.patch("sys.stdout", buf):
+        import argparse
+        import ros2_utils
+        captured = []
+        with patch.object(ros2_utils, "output", side_effect=captured.append), \
+             patch.object(self.mod, "output", side_effect=captured.append):
             fn(argparse.Namespace(**kw))
-        return json.loads(buf.getvalue())
+        return captured[0] if captured else {}
 
     def test_nav2_command_error_paths(self):
         """go error names server; cancel→error; status/initial_pose→dict; go_waypoints bad input→error."""
@@ -4893,11 +4900,14 @@ class TestRecentFeatureOutput(unittest.TestCase):
         _setup_ros_mocks()
 
     def _capture(self, fn, args_ns):
-        import io
-        buf = io.StringIO()
-        with unittest.mock.patch("sys.stdout", buf):
+        import sys as _sys
+        import ros2_utils
+        target_mod = _sys.modules[fn.__module__]
+        captured = []
+        with patch.object(ros2_utils, "output", side_effect=captured.append), \
+             patch.object(target_mod, "output", side_effect=captured.append):
             fn(args_ns)
-        return json.loads(buf.getvalue())
+        return captured[0] if captured else {}
 
     def _ns(self, **kw):
         import argparse
@@ -4946,12 +4956,12 @@ class TestFoxglove(unittest.TestCase):
         return argparse.Namespace(**kw)
 
     def _capture(self, fn, ns):
-        import io
-        buf = io.StringIO()
-        with unittest.mock.patch("sys.stdout", buf):
+        import ros2_utils
+        captured = []
+        with patch.object(ros2_utils, "output", side_effect=captured.append), \
+             patch.object(self.mod, "output", side_effect=captured.append):
             fn(ns)
-        raw = buf.getvalue().strip()
-        return json.loads(raw) if raw else {}
+        return captured[0] if captured else {}
 
     # ------------------------------------------------------------------ start
 

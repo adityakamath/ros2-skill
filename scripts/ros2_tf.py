@@ -2,6 +2,10 @@
 """ROS 2 TF2 transform commands."""
 
 import math
+import os
+import shlex
+import tempfile
+import time
 
 from ros2_utils import (
     output,
@@ -10,8 +14,9 @@ from ros2_utils import (
     check_tmux,
     generate_session_name,
     session_exists,
-    quote_path,
     source_local_ws,
+    save_session,
+    try_fastd,
 )
 
 
@@ -73,11 +78,22 @@ def cmd_tf_list(args):
             "suggestion": "Install with: sudo apt install ros-{distro}-tf2-ros"
         })
 
+    timeout = getattr(args, "timeout", 3.0)
+
     with ros2_context():
         node = rclpy.node.Node("tf_list")
         tf_buffer = Buffer()
         tf_listener = TransformListener(tf_buffer, node)
-        rclpy.spin_once(node, timeout_sec=0.5)
+
+        # A single spin_once is not reliable: DDS discovery against every TF
+        # broadcaster (robot_state_publisher, controllers, EKF, etc.) can take
+        # longer than one short spin, especially on a busy graph (Nav2 + many
+        # nodes) — frames get missed non-deterministically. Spin repeatedly
+        # for up to `timeout` seconds so the buffer has a real chance to hear
+        # from all active broadcasters.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.2)
 
         # all_frames_as_yaml returns a YAML string, not a dict
         all_frames_yaml = tf_buffer.all_frames_as_yaml()
@@ -121,6 +137,38 @@ def cmd_tf_lookup(args):
     """Lookup transform between source and target frames."""
     source = args.source
     target = args.target
+    timeout = getattr(args, 'timeout', 5.0)
+
+    # Fast path: persistent daemon, no rclpy.init() for this call at all.
+    # The daemon's TF buffer has been listening since it started (likely far
+    # longer than this call's own timeout budget), so no spin-and-wait is
+    # needed here — just the lookup itself, computed the same way below.
+    daemon_resp = try_fastd(
+        "tf_lookup", {"source": source, "target": target, "timeout": min(timeout, 2.0)},
+        timeout=timeout + 2.0,
+    )
+    if daemon_resp is not None:
+        if "error" in daemon_resp:
+            return output({
+                "error": f"Transform not found: {daemon_resp['error']}",
+                "suggestion": "Run 'tf list' to see all frames in the tf tree.",
+            })
+        t = daemon_resp["translation"]
+        r = daemon_resp["rotation"]
+        roll, pitch, yaw = euler_from_quaternion(r["x"], r["y"], r["z"], r["w"])
+        return output({
+            "source_frame": source,
+            "target_frame": target,
+            "translation": t,
+            "rotation": r,
+            "euler": {"roll": roll, "pitch": pitch, "yaw": yaw},
+            "euler_degrees": {
+                "roll": math.degrees(roll),
+                "pitch": math.degrees(pitch),
+                "yaw": math.degrees(yaw),
+            },
+            "timestamp": daemon_resp["timestamp"],
+        })
 
     try:
         import rclpy
@@ -132,21 +180,33 @@ def cmd_tf_lookup(args):
             "suggestion": "Install with: sudo apt install ros-{distro}-tf2-ros"
         })
 
-    timeout = getattr(args, 'timeout', 5.0)
-
     with ros2_context():
         node = rclpy.node.Node("tf_lookup")
         tf_buffer = Buffer()
         tf_listener = TransformListener(tf_buffer, node)
-        rclpy.spin_once(node, timeout_sec=0.5)
+
+        # A single spin_once is not reliable: DDS/discovery against every TF
+        # broadcaster can take longer than one short spin, especially on a
+        # busy graph, so the lookup below can spuriously fail even when the
+        # transform genuinely exists (see cmd_tf_list for the same fix).
+        # Spin repeatedly, exiting early the moment the transform is available
+        # instead of always waiting the full timeout.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.2)
+            if tf_buffer.can_transform(target, source, rclpy.time.Time()):
+                break
 
         try:
-            now = node.get_clock().now()
+            # rclpy.time.Time() (= t=0) requests the latest available
+            # transform instead of the literal current wall-clock time,
+            # avoiding extrapolation errors when the last received transform
+            # is a few milliseconds behind "now" (see cmd_tf_echo).
             transform = tf_buffer.lookup_transform(
                 target,
                 source,
-                now,
-                timeout=rclpy.duration.Duration(seconds=timeout)
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.5)
             )
 
             t = transform.transform.translation
@@ -205,6 +265,20 @@ def cmd_tf_echo(args):
         tf_listener = TransformListener(tf_buffer, node)
 
         for i in range(count):
+            # Spin until the transform is available (bounded by `timeout`),
+            # exiting as soon as it's found. A single/no pre-spin is not
+            # reliable — DDS discovery against the broadcaster can take
+            # longer than one short spin, so lookup_transform's own timeout
+            # (which does not spin the node itself) can spuriously miss a
+            # transform that genuinely exists (see cmd_tf_list for the same
+            # fix). Later iterations reuse a short pace since the buffer is
+            # already warm and receiving continuously by then.
+            deadline = time.monotonic() + (timeout if i == 0 else 0.2)
+            while time.monotonic() < deadline:
+                rclpy.spin_once(node, timeout_sec=0.2)
+                if tf_buffer.can_transform(target, source, rclpy.time.Time()):
+                    break
+
             try:
                 # Use Time(0) to request the latest available transform, avoiding
                 # extrapolation errors caused by requesting exactly "now" on a
@@ -213,7 +287,7 @@ def cmd_tf_echo(args):
                     target,
                     source,
                     rclpy.time.Time(),
-                    timeout=rclpy.duration.Duration(seconds=timeout)
+                    timeout=rclpy.duration.Duration(seconds=0.5)
                 )
 
                 t = transform.transform.translation
@@ -234,8 +308,6 @@ def cmd_tf_echo(args):
                 })
             except Exception as e:
                 results.append({"error": str(e)})
-
-            rclpy.spin_once(node, timeout_sec=0.5)
 
     output({
         "source_frame": source,
@@ -269,22 +341,26 @@ def cmd_tf_monitor(args):
         tf_buffer = Buffer()
         tf_listener = TransformListener(tf_buffer, node)
 
-        # Allow the listener to populate before querying
-        import time
-        time.sleep(0.5)
-        rclpy.spin_once(node, timeout_sec=0.5)
+        # Allow the listener to populate before querying. A blind time.sleep()
+        # does nothing useful here (the node isn't spinning during it, so no
+        # messages can be received), and a single spin_once is not reliable —
+        # DDS discovery against the broadcaster can take longer than one short
+        # spin (see cmd_tf_list for the same fix). Spin repeatedly, bounded by
+        # `timeout`, until frames actually show up.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.2)
+            if tf_buffer.all_frames_as_yaml():
+                break
 
         # Auto-discover reference frame if not specified
         if reference_frame is None:
             try:
-                frames_yaml = tf_buffer.all_frames_as_yaml()
-                # Parse frame names from YAML — each frame line starts with "  <name>:"
-                available = [
-                    line.strip().rstrip(':')
-                    for line in frames_yaml.splitlines()
-                    if line.strip() and not line.startswith(' ') is False and ':' in line
-                    and not line.strip().startswith('#')
-                ]
+                # all_frames_as_yaml() nests each frame's parent/broadcaster/etc.
+                # as indented sub-fields — only the top-level keys are actual
+                # frame names (see _available_frames, which parses this the
+                # same, correct way).
+                available = _available_frames(tf_buffer)
                 # Prefer common root frame names; fall back to first discovered
                 preferred = ['world', 'map', 'odom']
                 reference_frame = next(
@@ -301,13 +377,23 @@ def cmd_tf_monitor(args):
                 })
 
         for i in range(count):
+            # Reference frame already confirmed present above for i == 0;
+            # for later iterations the buffer is already warm, so just pace
+            # briefly instead of a blind fixed wait.
+            if i > 0:
+                pace_deadline = time.monotonic() + 0.2
+                while time.monotonic() < pace_deadline:
+                    rclpy.spin_once(node, timeout_sec=0.2)
+
             try:
-                now = node.get_clock().now()
+                # rclpy.time.Time() (= t=0) requests the latest available
+                # transform instead of the literal current wall-clock time,
+                # avoiding extrapolation errors (see cmd_tf_echo).
                 transform = tf_buffer.lookup_transform(
                     reference_frame,
                     frame,
-                    now,
-                    timeout=rclpy.duration.Duration(seconds=timeout)
+                    rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=0.5)
                 )
 
                 t = transform.transform.translation
@@ -320,8 +406,6 @@ def cmd_tf_monitor(args):
                 })
             except Exception as e:
                 results.append({"error": str(e)})
-
-            rclpy.spin_once(node, timeout_sec=0.5)
 
     output({
         "reference_frame": reference_frame,
@@ -373,9 +457,15 @@ def cmd_tf_static(args):
             "usage_positional": "tf static x y z roll pitch yaw from_frame to_frame"
         })
 
-    # Generate session name
-    session_name = f"tf_static_{from_frame}_to_{to_frame}"[:50]
-    session_name = "".join(c for c in session_name if c.isalnum() or c in '_-')
+    # Generate session name. Prefixed via generate_session_name("run", ...) —
+    # not "tf_static_..." — so this session is actually manageable through
+    # the existing 'run kill'/'run list' machinery (which validates a "run_"
+    # prefix and looks up metadata by session name). Previously this session
+    # was untracked: no save_session() call, a session name that didn't
+    # match any kill command's expected prefix, and the error message below
+    # suggesting 'run kill' which would have rejected it — there was no
+    # working way to stop a tf_static session other than raw tmux commands.
+    session_name = generate_session_name("run", "tf_static", f"{from_frame}_to_{to_frame}")
 
     if session_exists(session_name):
         return output({
@@ -383,8 +473,18 @@ def cmd_tf_static(args):
             "suggestion": f"Use 'run kill {session_name}' first, or check with 'tmux list'"
         })
 
-    # Build static_transform_publisher command
-    cmd = f"static_transform_publisher {x} {y} {z} {roll} {pitch} {yaw} {from_frame} {to_frame}"
+        # Build static_transform_publisher command. Pre-existing bug fixed here:
+    # the bare executable name is not on PATH after sourcing (confirmed via
+    # `which static_transform_publisher` — not found), so this never actually
+    # ran; it needs the 'ros2 run tf2_ros' wrapper like any other executable.
+    # from_frame/to_frame are free-text user input — shlex.join() quotes
+    # every token exactly once, matching the fix in ros2_launch.py/
+    # ros2_run.py for the same class of nested-shell-quoting injection (a
+    # frame name containing a single quote could otherwise break out of the
+    # tmux/bash -c nesting below).
+    cmd = shlex.join(["ros2", "run", "tf2_ros", "static_transform_publisher",
+                       str(x), str(y), str(z),
+                       str(roll), str(pitch), str(yaw), from_frame, to_frame])
 
     # Get local workspace to source
     ws_path, ws_status = source_local_ws()
@@ -400,12 +500,22 @@ def cmd_tf_static(args):
     elif ws_status == "not_found":
         ws_path = None
 
-    # Build tmux command
-    quoted_ws = quote_path(ws_path) if ws_path else None
-    if quoted_ws:
-        tmux_cmd = f"tmux new-session -d -s {session_name} 'bash -c \"source {quoted_ws} && {cmd}\" 2>&1'"
-    else:
-        tmux_cmd = f"tmux new-session -d -s {session_name} '{cmd} 2>&1'"
+    # Write to a script file rather than interpolating into nested
+    # shell-quoted strings — see ros2_launch.py cmd_launch_run for the
+    # confirmed injection this avoids (a frame name containing a single
+    # quote could otherwise break out of the tmux/bash -c nesting).
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".launch_scripts")
+    os.makedirs(scripts_dir, exist_ok=True)
+    script_lines = ["#!/bin/bash", "set -e", "exec 2>&1"]
+    if ws_path:
+        script_lines.append(f"source {shlex.quote(ws_path)}")
+    script_lines.append(cmd)
+    fd, script_path = tempfile.mkstemp(prefix=f"{session_name}_", suffix=".sh", dir=scripts_dir)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(script_lines) + "\n")
+    os.chmod(script_path, 0o700)
+
+    tmux_cmd = f"tmux new-session -d -s {session_name} bash {shlex.quote(script_path)}"
 
     _, stderr, rc = run_cmd(tmux_cmd, timeout=30)
 
@@ -434,6 +544,17 @@ def cmd_tf_static(args):
 
     if warning:
         result["warning"] = warning
+
+    # Save metadata so 'run kill'/'run list' can manage this session like any
+    # other — including cleaning up the script file via kill_session_cmd.
+    save_session(session_name, {
+        "type": "run",
+        "package": "tf2_ros",
+        "executable": "static_transform_publisher",
+        "args": [str(x), str(y), str(z), str(roll), str(pitch), str(yaw), from_frame, to_frame],
+        "command": cmd,
+        "script_path": script_path,
+    })
 
     output(result)
     return result

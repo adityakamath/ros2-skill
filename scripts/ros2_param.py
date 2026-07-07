@@ -4,13 +4,11 @@
 import json
 import os
 import re
-import time
 import types
 
-import rclpy
 from rcl_interfaces.msg import Parameter, ParameterValue
 
-from ros2_utils import ROS2CLI, output, parse_node_param, ros2_context
+from ros2_utils import ROS2CLI, call_ros_service, output, parse_node_param, ros2_context, try_fastd
 
 
 # ---------------------------------------------------------------------------
@@ -25,29 +23,12 @@ def _norm_node(name):
 def _call_service(node, srv_type, service_name, request, timeout, retries=1):
     """Call a ROS 2 service and return (result, error_dict).
 
+    Thin wrapper around ros2_utils.call_ros_service, kept under this name
+    since this module's ~15 call sites already use it.
+
     Returns (result, None) on success or (None, {"error": "..."}) on failure.
-    Creates and destroys its own client so callers stay clean.
     """
-    client = node.create_client(srv_type, service_name)
-    try:
-        for attempt in range(retries):
-            last_attempt = (attempt == retries - 1)
-            if not client.wait_for_service(timeout_sec=timeout):
-                if not last_attempt:
-                    continue
-                return None, {"error": f"Parameter service not available: {service_name}"}
-            future = client.call_async(request)
-            end_time = time.time() + timeout
-            while time.time() < end_time and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-            if future.done():
-                return future.result(), None
-            future.cancel()
-            if not last_attempt:
-                continue
-        return None, {"error": f"Timeout calling {service_name}"}
-    finally:
-        client.destroy()
+    return call_ros_service(node, srv_type, service_name, request, timeout, retries)
 
 
 def _param_value_to_python(v):
@@ -143,19 +124,48 @@ def cmd_params_get(args):
         return output({"error": "Use format /node_name:param_name or /node_name param_name (e.g. /turtlesim background_r)"})
 
     extra_names = list(getattr(args, 'extra_names', []) or [])
+    node_name, param_name = full_name.split(':', 1)
+    node_name = _norm_node(node_name)
+    all_param_names = [param_name] + extra_names
+    retries = getattr(args, 'retries', 1)
+
+    # Fast path: persistent daemon, no rclpy.init() for this call at all.
+    if retries == 1:
+        daemon_resp = try_fastd("get_parameters", {
+            "node_name": node_name,
+            "param_names": all_param_names,
+            "timeout": args.timeout,
+        }, timeout=args.timeout + 2.0)
+        if daemon_resp is not None:
+            if "error" in daemon_resp:
+                return output(daemon_resp)
+            # Reconstruct the same shape cmd_params_get already builds below
+            # from a list of ParameterValue objects — the daemon already
+            # returns plain Python values (or None for an unset param), so
+            # skip straight to that shape here instead of re-deriving it.
+            py_values = daemon_resp["values"]
+            if not extra_names:
+                py_val = py_values[0]
+                if py_val is not None:
+                    return output({"name": full_name, "value": str(py_val), "exists": True})
+                return output({"name": full_name, "value": "", "exists": False})
+            params_out = {}
+            for pname, py_val in zip(all_param_names, py_values):
+                if py_val is not None:
+                    params_out[pname] = {"value": str(py_val), "exists": True}
+                else:
+                    params_out[pname] = {"value": "", "exists": False}
+            return output({"node": node_name, "parameters": params_out, "count": len(params_out)})
 
     try:
         from rcl_interfaces.srv import GetParameters
         with ros2_context():
             node = ROS2CLI()
-            node_name, param_name = full_name.split(':', 1)
-            node_name = _norm_node(node_name)
-            all_param_names = [param_name] + extra_names
             request = GetParameters.Request()
             request.names = all_param_names
             result, err = _call_service(
                 node, GetParameters, f"{node_name}/get_parameters",
-                request, args.timeout, getattr(args, 'retries', 1),
+                request, args.timeout, retries,
             )
         if err:
             return output(err)
@@ -268,8 +278,10 @@ def cmd_params_set(args):
         for i in range(0, len(rest), 2):
             pairs.append((rest[i], rest[i + 1]))
 
+    verify = getattr(args, "verify", False)
+
     try:
-        from rcl_interfaces.srv import SetParameters
+        from rcl_interfaces.srv import SetParameters, GetParameters
         with ros2_context():
             node = ROS2CLI()
             request = SetParameters.Request()
@@ -285,38 +297,60 @@ def cmd_params_set(args):
                 node, SetParameters, f"{node_name}/set_parameters",
                 request, args.timeout, getattr(args, 'retries', 1),
             )
-        if err:
-            return output(err)
+            if err:
+                return output(err)
 
-        # Single param — preserve original compact output format
-        if len(pairs) == 1:
-            pname, pval_str = pairs[0]
-            if result.results and result.results[0].successful:
-                output({"name": f"{node_name}:{pname}", "value": pval_str, "success": True})
-            else:
-                reason = result.results[0].reason if result.results else ""
-                reason_lc = reason.lower()
-                if re.search(r'\b(read[- ]?only|readonly)\b', reason_lc):
-                    output({"name": f"{node_name}:{pname}", "value": pval_str, "success": False,
-                            "error": "Parameter is read-only and cannot be changed at runtime",
-                            "read_only": True})
+            # Optional same-node verify: read back the actual current values via
+            # GetParameters in this node/process instead of a separate 'params
+            # get' CLI invocation (second rclpy.init()/shutdown() cycle).
+            verified_values = {}
+            if verify:
+                get_request = GetParameters.Request()
+                get_request.names = [pname for pname, _ in pairs]
+                get_result, get_err = _call_service(
+                    node, GetParameters, f"{node_name}/get_parameters",
+                    get_request, args.timeout, getattr(args, 'retries', 1),
+                )
+                if not get_err and get_result.values:
+                    for (pname, _), pval in zip(pairs, get_result.values):
+                        if pval.type != 0:
+                            py_val = _param_value_to_python(pval)
+                            verified_values[pname] = str(py_val) if py_val is not None else ""
+
+            # Single param — preserve original compact output format
+            if len(pairs) == 1:
+                pname, pval_str = pairs[0]
+                if result.results and result.results[0].successful:
+                    entry = {"name": f"{node_name}:{pname}", "value": pval_str, "success": True}
+                    if verify:
+                        entry["verified_value"] = verified_values.get(pname)
+                    output(entry)
                 else:
-                    output({"name": f"{node_name}:{pname}", "value": pval_str, "success": False,
-                            "error": reason or "Parameter rejected by node"})
-        else:
-            # Multi-param — return structured results list
-            results_out = []
-            for (pname, pval_str), r in zip(pairs, result.results or []):
-                entry = {"name": pname, "value": pval_str, "success": r.successful}
-                if not r.successful:
-                    reason = r.reason.lower()
-                    if re.search(r'\b(read[- ]?only|readonly)\b', reason):
-                        entry["error"] = "Parameter is read-only"
-                        entry["read_only"] = True
+                    reason = result.results[0].reason if result.results else ""
+                    reason_lc = reason.lower()
+                    if re.search(r'\b(read[- ]?only|readonly)\b', reason_lc):
+                        output({"name": f"{node_name}:{pname}", "value": pval_str, "success": False,
+                                "error": "Parameter is read-only and cannot be changed at runtime",
+                                "read_only": True})
                     else:
-                        entry["error"] = r.reason or "Parameter rejected by node"
-                results_out.append(entry)
-            output({"node": node_name, "results": results_out, "count": len(pairs)})
+                        output({"name": f"{node_name}:{pname}", "value": pval_str, "success": False,
+                                "error": reason or "Parameter rejected by node"})
+            else:
+                # Multi-param — return structured results list
+                results_out = []
+                for (pname, pval_str), r in zip(pairs, result.results or []):
+                    entry = {"name": pname, "value": pval_str, "success": r.successful}
+                    if not r.successful:
+                        reason = r.reason.lower()
+                        if re.search(r'\b(read[- ]?only|readonly)\b', reason):
+                            entry["error"] = "Parameter is read-only"
+                            entry["read_only"] = True
+                        else:
+                            entry["error"] = r.reason or "Parameter rejected by node"
+                    if verify:
+                        entry["verified_value"] = verified_values.get(pname)
+                    results_out.append(entry)
+                output({"node": node_name, "results": results_out, "count": len(pairs)})
     except Exception as e:
         output({"error": str(e)})
 

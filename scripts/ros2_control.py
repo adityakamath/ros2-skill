@@ -3,52 +3,27 @@
 
 import os
 import subprocess
-import time
 
-import rclpy
-
-from ros2_utils import ROS2CLI, msg_to_dict, output, resolve_output_path, ros2_context
+from ros2_utils import ROS2CLI, call_ros_service, msg_to_dict, output, resolve_output_path, ros2_context, try_fastd
 
 
 def _call_cm_service(node, srv_type, cm_name, svc_suffix, request, timeout, retries=1):
     """Call one controller manager service and return (result, error_dict).
 
-    Creates the client, waits for the service, fires the async call, spins
-    until done or timeout, then destroys the client in a finally block.
-    Returns (result, None) on success or (None, {"error": "..."}) on failure.
+    Thin wrapper around ros2_utils.call_ros_service — kept as its own
+    function (rather than inlining at each of this module's ~14 call sites)
+    since it builds the service name from (cm_name, svc_suffix) and supplies
+    the controller-manager-specific "is it running?" hint.
 
+    Returns (result, None) on success or (None, {"error": "..."}) on failure.
     ``retries`` (default 1) controls how many total attempts are made before
     giving up.  Pass ``getattr(args, 'retries', 1)`` from callers.
     """
     service_name = f"{cm_name}/{svc_suffix}"
-    client = node.create_client(srv_type, service_name)
-    try:
-        for attempt in range(retries):
-            last_attempt = (attempt == retries - 1)
-
-            if not client.wait_for_service(timeout_sec=timeout):
-                if not last_attempt:
-                    continue
-                return None, {
-                    "error": f"Controller manager service not available: {service_name}. "
-                             "Is the controller manager running?"
-                }
-
-            future = client.call_async(request)
-            end_time = time.time() + timeout
-            while time.time() < end_time and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-
-            if future.done():
-                return future.result(), None
-
-            future.cancel()
-            if not last_attempt:
-                continue
-
-        return None, {"error": f"Timeout calling {service_name}"}
-    finally:
-        client.destroy()
+    return call_ros_service(
+        node, srv_type, service_name, request, timeout, retries,
+        unavailable_hint="Is the controller manager running?",
+    )
 
 
 def cmd_control_list_controller_types(args):
@@ -74,6 +49,20 @@ def cmd_control_list_controller_types(args):
 
 def cmd_control_list_controllers(args):
     """List loaded controllers, their type and status."""
+    # Fast path: persistent daemon, no rclpy.init() for this call at all.
+    # Only used for the default controller-manager name and a single retry —
+    # falls back to the normal path for anything more specific so behavior
+    # for less-common flag combinations is unaffected.
+    if args.controller_manager == "/controller_manager" and getattr(args, 'retries', 1) == 1:
+        daemon_resp = try_fastd("list_controllers", {
+            "controller_manager": args.controller_manager, "timeout": args.timeout,
+        })
+        if daemon_resp is not None:
+            if "error" in daemon_resp:
+                return output(daemon_resp)
+            controllers = daemon_resp.get("controllers", [])
+            return output({"controllers": controllers, "count": len(controllers)})
+
     try:
         from controller_manager_msgs.srv import ListControllers
         with ros2_context():
@@ -275,7 +264,7 @@ def cmd_control_switch_controllers(args):
     if not activate and not deactivate:
         return output({"error": "At least one of --activate or --deactivate must be non-empty"})
     try:
-        from controller_manager_msgs.srv import SwitchController
+        from controller_manager_msgs.srv import SwitchController, ListControllers
         from builtin_interfaces.msg import Duration
         with ros2_context():
             node = ROS2CLI()
@@ -295,14 +284,39 @@ def cmd_control_switch_controllers(args):
                 node, SwitchController, args.controller_manager,
                 "switch_controller", request, args.timeout, getattr(args, 'retries', 1),
             )
-        if err:
-            return output(err)
-        output({
-            "activate":   activate,
-            "deactivate": deactivate,
-            "strictness": args.strictness,
-            "ok":         result.ok,
-        })
+            if err:
+                return output(err)
+
+            out = {
+                "activate":   activate,
+                "deactivate": deactivate,
+                "strictness": args.strictness,
+                "ok":         result.ok,
+            }
+
+            # Optional same-node verify: confirm the requested state changes
+            # actually landed, without paying a second rclpy.init()/shutdown()
+            # cycle for a separate 'control list-controllers' call.
+            if getattr(args, "verify", False):
+                lc_result, lc_err = _call_cm_service(
+                    node, ListControllers, args.controller_manager,
+                    "list_controllers", ListControllers.Request(),
+                    args.timeout, getattr(args, 'retries', 1),
+                )
+                if lc_err:
+                    out["verify_error"] = lc_err.get("error")
+                else:
+                    states = {c.name: c.state for c in lc_result.controller}
+                    out["verified_states"] = {
+                        name: states.get(name) for name in (activate + deactivate)
+                    }
+                    out["verified_activated"] = all(
+                        states.get(name) == "active" for name in activate
+                    )
+                    out["verified_deactivated"] = all(
+                        states.get(name) == "inactive" for name in deactivate
+                    )
+        output(out)
     except Exception as e:
         output({"error": str(e)})
 

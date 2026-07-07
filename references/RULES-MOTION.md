@@ -113,6 +113,8 @@ topics publish-sequence <VEL_TOPIC> '[<move_payload>, <zero_payload>]' '[<durati
 
 **Before issuing any motion command**, perform all three pre-motion checks. Run steps A and B in parallel, then evaluate:
 
+**Faster combined form for A + the Step 1 controller-active check:** `preflight motion --controller <NAME> --odom-topic <ODOM_TOPIC>` runs the odom-stationary check (A) and the controller-active check in a single rclpy node spin instead of two, halving that portion's middleware discovery overhead. It does not replace step B (node presence) or step C (odom frequency) below — those still need their own calls.
+
 **A — Odom health and pose capture** (subscribe once):
 ```bash
 topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2

@@ -10,19 +10,33 @@ import json
 import os
 import re
 import shlex
+import socket
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import (qos_profile_system_default, QoSProfile,
-                           ReliabilityPolicy, DurabilityPolicy, HistoryPolicy)
-    from rcl_interfaces.msg import Parameter, ParameterValue
-except ImportError as e:
-    print(json.dumps({"error": f"Missing ROS 2 dependency: {e}. Source ROS 2 setup.bash or install the missing package."}))
-    sys.exit(1)
+# rclpy itself costs ~0.9s to import (dominant per-command latency, measured
+# independently of the fast-daemon). Every domain module imports this file,
+# so rclpy is loaded lazily on first actual use (ros2_context, ROS2CLI(),
+# call_ros_service) instead of unconditionally at module load time — that
+# lets pure-Python paths (try_fastd, get_msg_type, output, session mgmt,
+# argparse construction) run without ever paying the tax.
+rclpy = None
+
+
+def _ensure_rclpy():
+    """Import rclpy on first use and cache the module globally."""
+    global rclpy
+    if rclpy is not None:
+        return rclpy
+    try:
+        import rclpy as _rclpy
+    except ImportError as e:
+        print(json.dumps({"error": f"Missing ROS 2 dependency: {e}. Source ROS 2 setup.bash or install the missing package."}))
+        sys.exit(1)
+    rclpy = _rclpy
+    return rclpy
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +123,7 @@ def _get_service_event_qos():
     """Return (and cache) the QoS profile for service event topics."""
     global _SERVICE_EVENT_QOS
     if _SERVICE_EVENT_QOS is None:
+        from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
         _SERVICE_EVENT_QOS = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
@@ -125,11 +140,109 @@ def _get_service_event_qos():
 @contextmanager
 def ros2_context():
     """Initialise rclpy on entry and shut it down on exit."""
+    _ensure_rclpy()
     rclpy.init()
     try:
         yield
     finally:
         rclpy.shutdown()
+
+
+def call_ros_service(node, srv_type, service_name, request, timeout=5.0, retries=1,
+                      unavailable_hint=None):
+    """Call a ROS 2 service and return ``(response, error_dict)``.
+
+    Creates the client, waits for the service, fires the async call, spins
+    until done or timeout, then destroys the client in a finally block.
+    Returns ``(response, None)`` on success, or ``(None, {"error": "..."})``
+    if the service never became available or timed out.
+
+    ``retries`` (default 1) controls how many total attempts are made
+    before giving up — each attempt pays the full ``wait_for_service``
+    timeout, so total wall-clock time can be up to ``retries * timeout``.
+
+    ``unavailable_hint``, if given, is appended as an extra sentence to the
+    "service not available" error message (e.g. "Is the controller manager
+    running?") — callers with domain-specific guidance can supply this
+    without needing their own copy of the whole wait/call/retry loop.
+
+    This is the single shared implementation behind ros2_control.py's
+    _call_cm_service, ros2_param.py's _call_service, and ros2_nav2.py's
+    _call_service — those three (plus ros2_lifecycle.py and ros2_service.py,
+    which called this same sequence inline) used to carry independent
+    copies of this loop.
+    """
+    _ensure_rclpy()
+    client = node.create_client(srv_type, service_name)
+    try:
+        for attempt in range(retries):
+            last_attempt = (attempt == retries - 1)
+
+            if not client.wait_for_service(timeout_sec=timeout):
+                if not last_attempt:
+                    continue
+                msg = f"Service not available: {service_name}"
+                if unavailable_hint:
+                    msg += f". {unavailable_hint}"
+                return None, {"error": msg}
+
+            future = client.call_async(request)
+            end_time = time.time() + timeout
+            while time.time() < end_time and not future.done():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            if future.done():
+                return future.result(), None
+
+            future.cancel()
+            if not last_attempt:
+                continue
+
+        return None, {"error": f"Timeout calling {service_name}"}
+    finally:
+        client.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Fast daemon (persistent rclpy node) — optional acceleration
+# ---------------------------------------------------------------------------
+
+_FASTD_SOCKET = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".fastd", "fastd.sock"
+)
+
+
+def try_fastd(op, params, timeout=10.0):
+    """Attempt to service a request via the persistent fast-daemon (ros2_fastd.py).
+
+    Returns the daemon's response dict on success, or ``None`` if the daemon
+    isn't running/reachable or anything goes wrong — this function never
+    raises. Callers MUST treat ``None`` as "fall back to the normal
+    rclpy.init()-per-call path", not as an error; the daemon is a pure
+    optimization and its absence must never change behavior, only latency.
+    """
+    if not os.path.exists(_FASTD_SOCKET):
+        return None
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(_FASTD_SOCKET)
+        try:
+            request = json.dumps({"op": op, "params": params}) + "\n"
+            sock.sendall(request.encode("utf-8"))
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+        finally:
+            sock.close()
+        if not data:
+            return None
+        return json.loads(data.decode("utf-8"))
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -329,15 +442,35 @@ def output(data):
 # Base ROS 2 node
 # ---------------------------------------------------------------------------
 
-class ROS2CLI(Node):
-    def __init__(self, node_name='ros2_cli'):
-        super().__init__(node_name)
+# ROS2CLI is used exclusively as ROS2CLI() / ROS2CLI("name") across every
+# domain module (never subclassed) — that lets it be a factory function
+# instead of a class, so rclpy.node.Node is only imported the first time a
+# caller actually constructs a node, not at ros2_utils import time.
+_ROS2CLI_CLASS = None
 
-    def get_topic_names(self):
-        return self.get_topic_names_and_types()
 
-    def get_service_names(self):
-        return self.get_service_names_and_types()
+def _get_ROS2CLI_class():
+    global _ROS2CLI_CLASS
+    if _ROS2CLI_CLASS is None:
+        _ensure_rclpy()
+        from rclpy.node import Node
+
+        class _ROS2CLIImpl(Node):
+            def __init__(self, node_name='ros2_cli'):
+                super().__init__(node_name)
+
+            def get_topic_names(self):
+                return self.get_topic_names_and_types()
+
+            def get_service_names(self):
+                return self.get_service_names_and_types()
+
+        _ROS2CLI_CLASS = _ROS2CLIImpl
+    return _ROS2CLI_CLASS
+
+
+def ROS2CLI(node_name='ros2_cli'):
+    return _get_ROS2CLI_class()(node_name)
 
 
 # ---------------------------------------------------------------------------
@@ -770,10 +903,23 @@ def kill_session_cmd(session, prefix):
             "error": f"Failed to kill session: {session}",
             "session": session
         }
-    
+
+    # Clean up the generated launch script (see ros2_launch.py cmd_launch_run —
+    # the launch command is written to a script file rather than interpolated
+    # into a shell string, to avoid a nested-quoting injection vulnerability;
+    # each launch creates a new file, so it must be removed here or
+    # .launch_scripts/ accumulates one file per launch forever).
+    metadata = get_session_metadata(session)
+    script_path = (metadata or {}).get("script_path")
+    if script_path and os.path.exists(script_path):
+        try:
+            os.remove(script_path)
+        except OSError:
+            pass
+
     # Clean up session metadata
     delete_session_metadata(session)
-    
+
     return {
         "success": True,
         "session": session,

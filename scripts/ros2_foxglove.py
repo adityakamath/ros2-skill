@@ -16,6 +16,8 @@ alphabetical-fallback logic handles future releases automatically.
 """
 
 import os
+import shlex
+import tempfile
 from typing import Optional
 
 from ros2_utils import (
@@ -26,7 +28,6 @@ from ros2_utils import (
     session_exists,
     kill_session,
     check_session_alive,
-    quote_path,
     save_session,
     get_session_metadata,
     delete_session_metadata,
@@ -197,14 +198,22 @@ def cmd_foxglove_start(args):
     elif ws_status == "not_found":
         ws_path = None
 
-    quoted_ws = quote_path(ws_path) if ws_path else None
-    if quoted_ws:
-        tmux_cmd = (
-            f"tmux new-session -d -s {session_name} "
-            f"'bash -c \"source {quoted_ws} && {launch_cmd}\" 2>&1'"
-        )
-    else:
-        tmux_cmd = f"tmux new-session -d -s {session_name} '{launch_cmd} 2>&1'"
+    # Written to a script file rather than interpolated into nested
+    # shell-quoted strings — same pattern as ros2_launch.py/ros2_run.py/
+    # ros2_tf.py/ros2_daemon.py/ros2_component.py. Not currently exploitable
+    # here (port is argparse type=int constrained), but kept consistent.
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".launch_scripts")
+    os.makedirs(scripts_dir, exist_ok=True)
+    script_lines = ["#!/bin/bash", "set -e", "exec 2>&1"]
+    if ws_path:
+        script_lines.append(f"source {shlex.quote(ws_path)}")
+    script_lines.append(launch_cmd)
+    fd, script_path = tempfile.mkstemp(prefix=f"{session_name}_", suffix=".sh", dir=scripts_dir)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(script_lines) + "\n")
+    os.chmod(script_path, 0o700)
+
+    tmux_cmd = f"tmux new-session -d -s {session_name} bash {shlex.quote(script_path)}"
 
     _, stderr, rc = run_cmd(tmux_cmd, timeout=30)
     if rc != 0:
@@ -236,6 +245,7 @@ def cmd_foxglove_start(args):
         "type": "foxglove",
         "port": port,
         "command": launch_cmd,
+        "script_path": script_path,
     })
 
     return output(result)
@@ -288,6 +298,13 @@ def cmd_foxglove_stop(args):
     failed = []
     for sname in to_stop:
         if kill_session(sname):
+            metadata = get_session_metadata(sname)
+            script_path = (metadata or {}).get("script_path")
+            if script_path and os.path.exists(script_path):
+                try:
+                    os.remove(script_path)
+                except OSError:
+                    pass
             delete_session_metadata(sname)
             stopped.append(sname)
         else:

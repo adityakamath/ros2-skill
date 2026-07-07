@@ -40,7 +40,7 @@ metadata:
 >
 > - **Do not run `topics find`, `topics type`, `tf list` (for frame names), `services find`, or a `params list` velocity-limit sweep for any data the profile already holds.** This is a Rule 14 violation, not "extra safety".
 > - The profile fields are the source of truth for: `cmd_vel_topic`, velocity message type, odometry topic, velocity safety limits, TF frame names, controller names, e-stop service, joint names.
-> - The **only** live calls allowed before motion in Path A: (1) `control list-controllers` for runtime active/inactive state, (2) one odom subscribe for the stationary check, (3) `interface proto <VEL_TYPE>` once per session for the payload template, (4) optional `topics hz` if you have not yet seen the odom rate.
+> - The **only** live calls allowed before motion in Path A: (1) `preflight motion --controller <NAME> --odom-topic <ODOM_TOPIC>` for combined runtime active/inactive + stationary check (or the slower separate `control list-controllers` + odom subscribe pair), (2) `interface proto <VEL_TYPE>` once per session for the payload template, (3) optional `topics hz` if you have not yet seen the odom rate.
 > - **Forbidden rationalisations** (if you find yourself thinking any of these, you are violating Rule 13 — stop and use the profile):
 >   - *"Maximum safety requires live introspection."*
 >   - *"This catches runtime changes the profile might miss."*
@@ -74,12 +74,28 @@ python3 {baseDir}/scripts/ros2_cli.py <command> --help # list subcommands
 Run once per session before the first task. Takes seconds. Catches the most common silent failures.
 
 ```bash
-# Step 1 — health check
-python3 {baseDir}/scripts/ros2_cli.py doctor
+# Step 1 — health check (--exclude-packages skips BOTH network-bound
+# checks — PackageCheck's version lookup and PlatformCheck's distro-support
+# lookup, the latter easy to miss since its name doesn't contain "package" —
+# ~49% faster and no less useful for a routine check)
+python3 {baseDir}/scripts/ros2_cli.py doctor --exclude-packages
 
 # Step 2 — daemon
 python3 {baseDir}/scripts/ros2_cli.py daemon status
 python3 {baseDir}/scripts/ros2_cli.py daemon start      # if not running
+
+# Step 2b — fast daemon (optional, recommended). A persistent rclpy node
+# that hot-path commands (control list-controllers, topics subscribe,
+# preflight motion/joint-command, services call, params get, tf lookup) use
+# automatically instead of paying rclpy.init()/shutdown() per call — cuts
+# those calls from ~3-4s to ~1.0-1.4s. tf lookup in particular benefits from
+# a persistent tf2 buffer that's been listening since the daemon started,
+# so it needs no per-call spin-and-wait at all.
+# Purely a speedup: if it's not running, or you skip this step, every command
+# falls back to its normal per-process path unchanged. Safe to start once and
+# leave running for the whole session.
+python3 {baseDir}/scripts/ros2_cli.py daemon-fast status
+python3 {baseDir}/scripts/ros2_cli.py daemon-fast start  # if not running
 
 # Step 3 — simulated time (if applicable)
 python3 {baseDir}/scripts/ros2_cli.py topics find rosgraph_msgs/msg/Clock
@@ -138,13 +154,26 @@ Stop and tell the user if Step 1 reports critical failures. Re-run Step 3 before
 | Controller names | `summary.active_controllers` | using `control list-controllers` to *discover* controller names (still required to check runtime state — see below) |
 | E-stop service | `summary.estop_config.service_name` | `services find std_srvs/srv/SetBool` |
 | Joint names / order / index | `summary.hardware_interfaces[].joints`, `summary.joint_limits` | `params get /controller_manager:joints`, parsing `robot_description` |
+| Joint-command topic/type/order (pan-tilt, arm, gripper — any `ForwardCommandController`/`JointGroupPositionController`/`JointGroupVelocityController`/`JointGroupEffortController`) | `summary.joint_command_topics[]` — each entry has `controller`, `topic` (always `/<controller>/commands`), `msg_type` (always `std_msgs/msg/Float64MultiArray`), `joints` (array order = command array order) | `topics list` / `topics find` / `topics type` to discover a joint command topic — this is static YAML config, not runtime state, and is 100% derivable from the controller name alone; live discovery here is a Rule 14 violation |
+| IMU topic | `summary.imu_topics[]` — each entry has `controller`, `topic` (always `/<controller>/imu` for an `imu_sensor_broadcaster/IMUSensorBroadcaster`), `msg_type` (always `sensor_msgs/msg/Imu`) | `topics find sensor_msgs/msg/Imu` — same reasoning as joint-command topics: derivable from the controller name alone |
+| GPS topic | `summary.gps_topics[]` — each entry has `controller`, `topic` (always `/<controller>/gps/fix` for a `gps_sensor_broadcaster/GPSSensorBroadcaster` — note two path segments, unlike IMU's single-segment `/<controller>/imu`), `msg_type` (always `sensor_msgs/msg/NavSatFix`) | `topics find sensor_msgs/msg/NavSatFix` |
+| LiDAR scan topic | `summary.lidar_scan_topic` — normalized (leading `/`) from the driver's static YAML config (`laser_scan_topic_name`) | `topics find sensor_msgs/msg/LaserScan` |
+| Diagnostics topic | Always `/diagnostics` — fixed ROS-wide convention (`diagnostic_updater`/`diagnostic_aggregator`), not robot-specific, no profile field needed | `topics find diagnostic_msgs/msg/DiagnosticArray` |
+| Joint states topic | Always `/joint_states` — fixed convention from `joint_state_broadcaster`, not robot-specific, no profile field needed | `topics find sensor_msgs/msg/JointState` |
 
 **The only live calls still mandatory before motion in Path A** (these read runtime state, which the profile cannot know):
 
-1. `control list-controllers` — confirm the controller named in `summary.active_controllers` is `active` right now.
-2. Subscribe `<ODOM_TOPIC> --max-messages 1 --timeout 2` — confirm robot is stationary (Rule 9). This double-serves as a liveness check on the odom topic.
-3. `interface proto <VEL_TYPE>` — once per session, get the payload template (the type came from the profile, but the field layout did not).
-4. Optional: `topics hz <ODOM_TOPIC> --duration 2` if `publish-until` is being used and you have not confirmed odom rate this session.
+1. `preflight motion --controller <NAME> --odom-topic <ODOM_TOPIC>` — confirms the controller named in `summary.active_controllers` is `active` **and** that the robot is stationary, in a single rclpy node spin. Prefer this over the two separate calls below — it pays one `rclpy.init()`/`shutdown()` cycle (one middleware discovery round-trip) instead of two, roughly halving pre-motion latency. Check `ready_for_motion` in the response; if `false`, inspect `controller_active` and `stationary` to see which one failed.
+   - Equivalent but slower two-call form (still correct, use only if you need the full controller list or a `--duration`/streaming subscribe): `control list-controllers` + `topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2`.
+2. `interface proto <VEL_TYPE>` — once per session, get the payload template (the type came from the profile, but the field layout did not).
+3. Optional: `topics hz <ODOM_TOPIC> --duration 2` if `publish-until` is being used and you have not confirmed odom rate this session.
+
+**Before a joint/pan-tilt/arm position command** (same principle, different profile field — `summary.joint_command_topics[]` instead of `cmd_vel_topic`):
+
+1. `preflight joint-command --controller <NAME> --joint-state-topic /joint_states --joints <j1,j2,...>` — confirms the controller is `active` **and** reads current joint positions, in a single rclpy node spin. Check `ready_for_command`; if `false`, inspect `controller_active` and `missing_joints`.
+   - Equivalent but slower two-call form: `control list-controllers` + `topics subscribe /joint_states --max-messages 1 --timeout 2`.
+2. No `interface proto` needed — `msg_type` is always `std_msgs/msg/Float64MultiArray` and its shape (`{"data": [...]}`, ordered per `summary.joint_command_topics[].joints`) never varies, unlike `Twist`/`TwistStamped`.
+3. Publish once via `topics publish <topic> '{"data": [v1, v2, ...]}'` (a single position command holds as the setpoint — no `publish-until`/streaming needed), then verify with one `topics subscribe /joint_states --max-messages 1 --timeout 2` after a short settle — no fixed/blind `sleep`.
 
 **Path A violation — worked counterexample (what NOT to do):**
 
@@ -163,15 +192,14 @@ Cost of the violation: 5–30 seconds wasted, **and** if any `topics find` retur
 **Correct Path A motion sequence:**
 
 ```
-✅ Read VEL_TOPIC, VEL_TYPE, ODOM_TOPIC, MAX_VEL, MAX_ANG from profile  (0 live calls)
-✅ interface proto <VEL_TYPE>                                           (1 live call, once/session)
-✅ control list-controllers                                             (1 live call — runtime state)
-✅ topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2           (1 live call — stationary + liveness)
-✅ topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC>   (the actual command)
-✅ topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2           (post-motion verify, Rule 8)
+✅ Read VEL_TOPIC, VEL_TYPE, ODOM_TOPIC, MAX_VEL, MAX_ANG from profile              (0 live calls)
+✅ interface proto <VEL_TYPE>                                                       (1 live call, once/session)
+✅ preflight motion --controller <NAME> --odom-topic <ODOM_TOPIC>                   (1 live call — controller + stationary, combined)
+✅ topics publish-until <VEL_TOPIC> '<payload>' --monitor <ODOM_TOPIC>               (the actual command)
+✅ topics subscribe <ODOM_TOPIC> --max-messages 1 --timeout 2                       (post-motion verify, Rule 8)
 ```
 
-3 live calls before the command + 1 after. Not the 6–9 live discovery calls of Path B.
+2 live calls before the command + 1 after. Not the 6–9 live discovery calls of Path B, and one fewer rclpy session than the separate `control list-controllers` + `topics subscribe` pair.
 
 **If a profile field is missing** (Rule 0.0a): fall back to live discovery for **that one field only** — the path does not flip. Other fields stay on the profile.
 
@@ -287,6 +315,14 @@ python3 {baseDir}/scripts/ros2_cli.py params set <node:param> <value>
 ### Controllers and Lifecycle
 
 ```bash
+# Pre-motion: combined controller-active + odom-stationary check in one node spin
+python3 {baseDir}/scripts/ros2_cli.py preflight motion --controller <NAME> --odom-topic <ODOM_TOPIC>
+
+# Pre-joint-command (pan-tilt, arm, gripper): combined controller-active +
+# current joint-position check in one node spin. Read <NAME>/--joints from
+# profile summary.joint_command_topics[] — no live topic discovery needed.
+python3 {baseDir}/scripts/ros2_cli.py preflight joint-command --controller <NAME> --joints <j1,j2,...>
+
 python3 {baseDir}/scripts/ros2_cli.py control list-controllers
 python3 {baseDir}/scripts/ros2_cli.py control list-hardware-components
 python3 {baseDir}/scripts/ros2_cli.py control switch-controllers --activate <name> --deactivate <name>
@@ -297,12 +333,16 @@ python3 {baseDir}/scripts/ros2_cli.py lifecycle set <node> activate
 
 ### Camera and Images
 
+Calibration (K-matrix non-zero check) is verified **once, right after a camera-providing launch session comes up** — see Rule 0.6 in RULES-PREFLIGHT.md. Do not re-verify it on every capture request; a plain "grab a photo" / "capture image" / "send me a picture" request goes straight to `capture-image` below with no calibration check.
+
 ```bash
-# Verify camera before use — K matrix must be non-zero
+# One-time, post-launch only (not per capture) — see RULES-PREFLIGHT.md Rule 0.6
 python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CameraInfo
 python3 {baseDir}/scripts/ros2_cli.py topics subscribe <camera_info_topic> --max-messages 1 --timeout 2
 
-# Capture image (auto-rotates if profile shows upside-down mount; output: {success, path, image_rotated_deg})
+# Capture image — auto-rotates using (in priority order): 1) a structured
+# camera_rotation_overrides match, 2) the URDF sensor_mounts heuristic.
+# Output: {success, path, profile_applied, image_rotated_deg, rotation_source}
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg
 python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic> --output {baseDir}/.artifacts/<name>.jpg --no-profile
 
@@ -310,10 +350,19 @@ python3 {baseDir}/scripts/ros2_cli.py topics capture-image --topic <camera_topic
 python3 {baseDir}/scripts/ros2_cli.py topics depth-point --topic <depth_topic> --u <col> --v <row>
 ```
 
+**If a captured image comes out with the wrong orientation:** the URDF-derived heuristic (`sensor_mounts[].image_rotation_deg`) is often wrong or absent — many camera mount joints only encode the standard REP-103 body→optical-frame rotation, which looks like a physical-orientation signal but isn't one, and vendor link names (e.g. Luxonis OAK's `oak_link`) may not even be recognised by the classifier. Don't rely on retrying or re-deriving from the URDF — record the correction directly:
+
+```bash
+python3 {baseDir}/scripts/ros2_cli.py profile set-camera-rotation <topic_substring> <degrees> --note "<why>"
+# e.g.: profile set-camera-rotation oak 180 --note "OAK-D S2 physically mounted upside-down on pan-tilt bracket"
+```
+
+`<degrees>` must be one of `0`, `90`, `180`, `-90`. This is a structured, one-time correction — `capture-image` checks it before the URDF heuristic and applies it to every future capture whose topic contains `<topic_substring>`, no per-request recheck needed. Pair it with a human-readable `profile annotate` note so other agents/sessions see *why* in `profile show`.
+
 ### Diagnostics and Health
 
 ```bash
-python3 {baseDir}/scripts/ros2_cli.py doctor                              # full DDS/graph health check
+python3 {baseDir}/scripts/ros2_cli.py doctor --exclude-packages           # full DDS/graph health check (skip slow network version-lookup)
 python3 {baseDir}/scripts/ros2_cli.py doctor hello                        # DDS multicast test
 python3 {baseDir}/scripts/ros2_cli.py doctor diagnostics                  # hardware health from /diagnostics_agg
 python3 {baseDir}/scripts/ros2_cli.py doctor diagnostics --level warn     # show only WARN/ERROR/STALE
@@ -380,9 +429,12 @@ python3 {baseDir}/scripts/ros2_cli.py profile rescan --packages ''      # widen 
 # Manage
 python3 {baseDir}/scripts/ros2_cli.py profile list
 python3 {baseDir}/scripts/ros2_cli.py profile annotate "Left encoder drifts right — apply 5% correction."
+python3 {baseDir}/scripts/ros2_cli.py profile set-camera-rotation <topic_substring> <0|90|180|-90> --note "<why>"
 ```
 
 `--packages` accepts comma-separated substrings (fuzzy-match on package name or path). Omit for full workspace scan. `summary.safety_limits.binding.linear_x` → `--max-vel`; `.angular_z` → `--max-ang` (Rule 28).
+
+**`--name` gotcha when multiple profiles exist:** `annotate` and `set-camera-rotation` both default to `--name robot` and only auto-detect the active profile when **exactly one** `*_profile.json` file exists in `.profiles/`. If more than one profile file is present (e.g. a stale one from an earlier session alongside the current robot's), the default silently creates/edits a `robot_profile.json` stub instead of erroring — and if that stub ends up with a non-empty `summary`, it can even hijack `_select_default_profile()`'s "most recently modified" selection away from the real profile. **Always pass `--name <robot_name>` explicitly** (matching the name shown in `profile show`) when more than one profile file exists. Run `profile list` first if unsure.
 
 Load [`references/PROFILE.md`](references/PROFILE.md) for the full JSON field reference and robot-type detection rules.
 
@@ -442,6 +494,7 @@ python3 {baseDir}/scripts/ros2_cli.py nav2 initial-pose 1.0 2.0 --yaw 45
 |---|---|
 | `version` | Verify skill is installed |
 | `daemon status / start / stop` | Manage the ROS 2 daemon |
+| `daemon-fast status / start / stop` | Manage the skill's persistent rclpy node — speeds up `control list-controllers`, `topics subscribe` (single-message), `preflight motion`, `preflight joint-command`, `services call`, `params get`, `tf lookup`; purely optional, safe to leave stopped. Connections are handled concurrently (thread-per-connection); the underlying rclpy work is still serialized for safety, so parallel requests queue briefly rather than racing. |
 | `bag info <file>` | Bag metadata (duration, counts, per-topic stats) |
 | `logs list-runs / query / tail / node-summary` | Log introspection |
 | `component types` | List registered composable node types |

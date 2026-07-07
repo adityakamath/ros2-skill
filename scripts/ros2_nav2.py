@@ -26,7 +26,7 @@ from typing import Optional
 import rclpy
 
 from ros2_utils import (
-    ROS2CLI, get_action_type, get_msg_type, get_srv_type, msg_to_dict, dict_to_msg,
+    ROS2CLI, call_ros_service, get_action_type, get_msg_type, get_srv_type, msg_to_dict, dict_to_msg,
     output, ros2_context,
 )
 
@@ -416,14 +416,26 @@ def cmd_nav2_status(args):
                         result["active_goal"] = msg_to_dict(received[0].feedback)
 
             # Attempt to get one collision monitor state message (best-effort).
+            # CollisionMonitor only publishes on a state *change* (e.g.
+            # NORMAL -> APPROACH), not periodically — so "no message within
+            # this short window" is the expected, common case whenever
+            # nothing nearby has changed recently, and looks identical to
+            # "collision_monitor isn't running at all" unless distinguished.
+            # A cheap graph check (is there a publisher on this topic at all?)
+            # tells them apart without waiting.
             cm_class = get_msg_type("nav2_msgs/msg/CollisionMonitorState")
             if cm_class:
+                cm_topic = "/collision_monitor_state"
+                result["collision_monitor_publisher_present"] = any(
+                    name == cm_topic for name, _ in topic_types
+                )
+
                 cm_received = []
                 cm_done = threading.Event()
 
                 cm_sub = node.create_subscription(
                     cm_class,
-                    "/collision_monitor_state",
+                    cm_topic,
                     lambda msg: (cm_received.append(msg), cm_done.set()),
                     10,
                 )
@@ -433,6 +445,12 @@ def cmd_nav2_status(args):
 
                 if cm_received:
                     result["collision_monitor"] = msg_to_dict(cm_received[0])
+                elif result["collision_monitor_publisher_present"]:
+                    result["collision_monitor_note"] = (
+                        "collision_monitor is running but published no state-change message "
+                        "in this window — normal if nothing nearby has changed recently, not "
+                        "an error. Use 'lifecycle get /collision_monitor' to confirm it's active."
+                    )
 
         output(result)
 
@@ -582,22 +600,14 @@ def _call_service(node, svc_name, srv_class, request, timeout: float = 5.0):
     """Call *svc_name* with *request* and return ``(response, error_str)``.
 
     Returns ``(None, error_message)`` on failure; ``(response, None)`` on
-    success.  Destroys the client before returning.
+    success. Thin string-error adapter around ros2_utils.call_ros_service
+    (which returns a dict-shaped error) — kept so this module's 8 existing
+    call sites, which expect a plain string here, don't need to change.
     """
-    client = node.create_client(srv_class, svc_name)
-    try:
-        if not client.wait_for_service(timeout_sec=timeout):
-            return None, f"Service '{svc_name}' not available (waited {timeout:.0f}s)"
-        future = client.call_async(request)
-        end = time.time() + timeout
-        while time.time() < end and not future.done():
-            rclpy.spin_once(node, timeout_sec=0.1)
-        if not future.done():
-            future.cancel()
-            return None, f"Timeout waiting for response from '{svc_name}'"
-        return future.result(), None
-    finally:
-        client.destroy()
+    result, err = call_ros_service(node, srv_class, svc_name, request, timeout)
+    if err:
+        return None, err["error"]
+    return result, None
 
 
 # ---------------------------------------------------------------------------
@@ -1282,11 +1292,18 @@ def cmd_nav2_costmap_clear(args):
             "hint": "Valid: local | global | both",
         })
 
-    srv_class = get_srv_type("std_srvs/srv/Empty") or get_srv_type("std_srvs/Empty")
+    # Pre-existing bug fixed here: these services are nav2_msgs/srv/
+    # ClearEntireCostmap, not std_srvs/srv/Empty — confirmed via
+    # `ros2 service type /global_costmap/clear_entirely_global_costmap`.
+    # A client created with the wrong type never sees the real server as
+    # available (request/response type is part of the underlying DDS
+    # topic name), so this always failed with "service not available"
+    # despite the service genuinely running.
+    srv_class = get_srv_type("nav2_msgs/srv/ClearEntireCostmap")
     if srv_class is None:
         return output({
-            "error": "Cannot load std_srvs/srv/Empty",
-            "hint": "Install: sudo apt install ros-$ROS_DISTRO-std-srvs",
+            "error": "Cannot load nav2_msgs/srv/ClearEntireCostmap",
+            "hint": "Install: sudo apt install ros-$ROS_DISTRO-nav2-msgs",
         })
 
     cleared = []

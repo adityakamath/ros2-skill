@@ -16,7 +16,7 @@ from rclpy.qos import qos_profile_system_default, qos_profile_sensor_data, Relia
 from ros2_utils import (
     ROS2CLI, get_msg_type, get_msg_error, get_msg_fields,
     msg_to_dict, dict_to_msg, output, resolve_field, _get_service_event_qos,
-    resolve_output_path, ros2_context, resolve_topic_type,
+    resolve_output_path, ros2_context, resolve_topic_type, try_fastd,
 )
 
 # ---------------------------------------------------------------------------
@@ -136,12 +136,58 @@ def cmd_estop(args):
                 pub.publish(msg)
                 time.sleep(burst_interval)
 
-        output({
-            "success": True,
-            "topic": topic,
-            "type": msg_type,
-            "message": "Emergency stop activated (mobile robot stopped)"
-        })
+            result = {
+                "success": True,
+                "topic": topic,
+                "type": msg_type,
+                "message": "Emergency stop activated (mobile robot stopped)"
+            }
+
+            # Optional same-node verify: confirm velocity actually reads back
+            # as zero, without paying a second rclpy.init()/shutdown() cycle
+            # for a separate 'topics subscribe <ODOM_TOPIC>' call.
+            odom_topic = getattr(args, "verify_odom_topic", None)
+            if odom_topic:
+                odom_type = resolve_topic_type(node, odom_topic, None)
+                if not odom_type:
+                    result["verify_error"] = f"Could not detect message type for topic: {odom_topic}"
+                else:
+                    verify_timeout = getattr(args, "verify_timeout", 5.0)
+                    velocity_threshold = getattr(args, "velocity_threshold", 0.01)
+                    subscriber = TopicSubscriber(odom_topic, odom_type)
+                    if subscriber.sub is None:
+                        result["verify_error"] = f"Could not load message type: {odom_type}"
+                    else:
+                        executor = rclpy.executors.SingleThreadedExecutor()
+                        executor.add_node(subscriber)
+                        end_time = time.time() + verify_timeout
+                        odom_msg = None
+                        while time.time() < end_time:
+                            executor.spin_once(timeout_sec=0.1)
+                            with subscriber.lock:
+                                if subscriber.messages:
+                                    odom_msg = subscriber.messages[0]
+                                    break
+                        subscriber.destroy_node()
+
+                        if odom_msg is None:
+                            result["verify_error"] = f"Timeout after {verify_timeout}s waiting for a message on {odom_topic}"
+                        else:
+                            twist = odom_msg.get("twist", {}).get("twist", {})
+                            lin = twist.get("linear", {}) or {}
+                            ang = twist.get("angular", {}) or {}
+                            linear_speed = math.sqrt(
+                                lin.get("x", 0.0) ** 2 + lin.get("y", 0.0) ** 2 + lin.get("z", 0.0) ** 2
+                            )
+                            angular_speed_z = abs(ang.get("z", 0.0))
+                            result["verified_stationary"] = (
+                                linear_speed <= velocity_threshold
+                                and angular_speed_z <= velocity_threshold
+                            )
+                            result["linear_speed"] = linear_speed
+                            result["angular_speed_z"] = angular_speed_z
+
+        output(result)
     except Exception as e:
         output({"error": str(e)})
 
@@ -288,6 +334,21 @@ def cmd_topics_subscribe(args):
 
     throttle_rate_ms = getattr(args, "throttle_rate_ms", None)
     max_bytes = getattr(args, "max_bytes", None)
+
+    # Fast path: persistent daemon, no rclpy.init() for this call at all.
+    # Only the plain single-message case (no --duration streaming, no
+    # throttle/byte-cap options) is supported by the daemon's handler —
+    # anything else falls through to the normal path unchanged.
+    if not args.duration and throttle_rate_ms is None and max_bytes is None:
+        daemon_resp = try_fastd(
+            "subscribe_once",
+            {"topic": args.topic, "timeout": args.timeout, "msg_type": args.msg_type},
+            timeout=args.timeout + 2.0,
+        )
+        if daemon_resp is not None:
+            if "error" in daemon_resp:
+                return output(daemon_resp)
+            return output({"msg": daemon_resp["msg"]})
 
     try:
         with ros2_context():
@@ -1743,34 +1804,70 @@ def cmd_topics_capture_image(args):
     out_path = resolve_output_path(output_filename)
 
     # ── Profile-aware camera orientation ─────────────────────────────────────
-    # Load the robot profile summary silently.  If unavailable (profile not yet
+    # Load the robot profile silently.  If unavailable (profile not yet
     # scanned, or --no-profile passed), proceed without any rotation.
+    #
+    # Two sources are checked, in priority order:
+    #   1. camera_rotation_overrides — a structured, human-supplied correction
+    #      (via 'profile set-camera-rotation'). Takes priority because it
+    #      corrects for cases the URDF heuristic below gets wrong: many camera
+    #      mount joints only encode the REP-103 body->optical-frame rotation,
+    #      which looks like a physical orientation but isn't one, so the
+    #      heuristic can be silently wrong or simply absent (no sensor_mounts
+    #      entry at all if the link name isn't recognised).
+    #   2. sensor_mounts[].image_rotation_deg — the URDF-derived heuristic,
+    #      used only when no override matches.
     profile_rotation_deg = 0
     profile_applied = False
     profile_note = None
+    profile_source = None
     if not skip_profile:
         try:
-            from ros2_profile import load_profile_summary
-            summary = load_profile_summary()
-            if summary:
-                # Filter sensor_mounts to visual sensors only.
-                visual_types = {"camera", "depth_camera"}
-                all_mounts = summary.get("sensor_mounts", [])
-                visual = [m for m in all_mounts
-                          if m.get("sensor_type") in visual_types]
-                non_zero = [m for m in visual
-                            if m.get("image_rotation_deg", 0) != 0]
-                if non_zero:
-                    profile_rotation_deg = non_zero[0]["image_rotation_deg"]
-                    profile_applied = True
-                    if len(non_zero) > 1:
-                        profile_note = (
-                            f"Multiple non-upright visual sensor mounts detected "
-                            f"({[m['link'] for m in non_zero]}); applied "
-                            f"rotation from first match: {non_zero[0]['link']}"
-                        )
+            from ros2_profile import load_camera_rotation_overrides
+            topic_lc = topic.lower()
+            overrides = load_camera_rotation_overrides()
+            matches = [o for o in overrides if o.get("match") and o["match"] in topic_lc]
+            if matches:
+                chosen = max(matches, key=lambda o: len(o["match"]))
+                profile_rotation_deg = chosen["degrees"]
+                profile_applied = True
+                profile_source = "override"
+                if chosen.get("note"):
+                    profile_note = chosen["note"]
+                if len(matches) > 1:
+                    profile_note = (
+                        f"Multiple camera_rotation_overrides matched topic "
+                        f"'{topic}' ({[m['match'] for m in matches]}); applied "
+                        f"the most specific match: '{chosen['match']}'."
+                        + (f" {profile_note}" if profile_note else "")
+                    )
         except Exception:
             pass  # profile load is best-effort; never block image capture
+
+        if not profile_applied:
+            try:
+                from ros2_profile import load_profile_summary
+                summary = load_profile_summary()
+                if summary:
+                    # Filter sensor_mounts to visual sensors only.
+                    visual_types = {"camera", "depth_camera"}
+                    all_mounts = summary.get("sensor_mounts", [])
+                    visual = [m for m in all_mounts
+                              if m.get("sensor_type") in visual_types]
+                    non_zero = [m for m in visual
+                                if m.get("image_rotation_deg", 0) != 0]
+                    if non_zero:
+                        profile_rotation_deg = non_zero[0]["image_rotation_deg"]
+                        profile_applied = True
+                        profile_source = "urdf_heuristic"
+                        if len(non_zero) > 1:
+                            profile_note = (
+                                f"Multiple non-upright visual sensor mounts detected "
+                                f"({[m['link'] for m in non_zero]}); applied "
+                                f"rotation from first match: {non_zero[0]['link']}"
+                            )
+            except Exception:
+                pass  # profile load is best-effort; never block image capture
 
     try:
         received = {}
@@ -1822,6 +1919,7 @@ def cmd_topics_capture_image(args):
                   "profile_applied": profile_applied}
         if profile_applied:
             result["image_rotated_deg"] = profile_rotation_deg
+            result["rotation_source"] = profile_source
         if profile_note:
             result["profile_note"] = profile_note
 

@@ -591,6 +591,8 @@ docs/plans/
 # Runtime output directories
 .artifacts/
 .presets/
+.fastd/
+.launch_scripts/
 
 # Claude AI work data
 .claude/

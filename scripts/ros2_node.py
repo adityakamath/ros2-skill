@@ -4,7 +4,7 @@
 import subprocess
 import time
 
-from ros2_utils import ROS2CLI, output, ros2_context
+from ros2_utils import ROS2CLI, output, ros2_context, try_fastd
 
 
 def _split_node_path(full_name):
@@ -17,6 +17,11 @@ def _split_node_path(full_name):
 
 
 def cmd_nodes_list(args):
+    # Fast path: persistent daemon, no rclpy.init() for this call at all.
+    daemon_resp = try_fastd("list_nodes", {})
+    if daemon_resp is not None:
+        return output(daemon_resp)
+
     try:
         with ros2_context():
             node = ROS2CLI()
@@ -28,6 +33,11 @@ def cmd_nodes_list(args):
 
 
 def cmd_nodes_details(args):
+    # Fast path: persistent daemon, no rclpy.init() for this call at all.
+    daemon_resp = try_fastd("node_details", {"node": args.node})
+    if daemon_resp is not None:
+        return output(daemon_resp)
+
     try:
         with ros2_context():
             node = ROS2CLI()

@@ -23,207 +23,18 @@ from ros2_utils import (  # noqa: F401 – intentional re-exports
 )
 
 # ---------------------------------------------------------------------------
-# Domain modules
+# Domain modules — imported lazily (see DISPATCH / main() below).
+#
+# Domain modules are NOT imported here. Several (ros2_topic, ros2_service,
+# ros2_action, ros2_doctor, ros2_system, ros2_preflight, ros2_nav2) import
+# rclpy submodules at their own top level, and rclpy's first import costs
+# ~0.7-0.9s — paid by *every* CLI invocation if these were imported eagerly,
+# regardless of which command actually ran. DISPATCH instead stores
+# (module_name, function_name) strings; main() imports only the one module
+# needed for the invoked (command, subcommand) pair, after argparse has
+# already determined what that is.
 # ---------------------------------------------------------------------------
-from ros2_topic import (
-    cmd_estop,
-    cmd_topics_list,
-    cmd_topics_type,
-    cmd_topics_details,
-    cmd_topics_message,
-    cmd_topics_subscribe,
-    cmd_topics_echo_once,
-    cmd_topics_publish,
-    cmd_topics_publish_sequence,
-    cmd_topics_publish_until,
-    cmd_topics_hz,
-    cmd_topics_find,
-    cmd_topics_bw,
-    cmd_topics_delay,
-    cmd_topics_capture_image,
-    cmd_topics_depth_point,
-    cmd_topics_diag_list,
-    cmd_topics_diag,
-    cmd_topics_battery_list,
-    cmd_topics_battery,
-    cmd_topics_qos_check,
-    cmd_topics_classify,
-)
-
-from ros2_node import (
-    cmd_nodes_list,
-    cmd_nodes_details,
-    cmd_nodes_kill,
-)
-
-from ros2_param import (
-    cmd_params_list,
-    cmd_params_get,
-    cmd_params_set,
-    cmd_params_describe,
-    cmd_params_dump,
-    cmd_params_load,
-    cmd_params_delete,
-    cmd_params_preset_save,
-    cmd_params_preset_load,
-    cmd_params_preset_list,
-    cmd_params_preset_delete,
-    cmd_params_find,
-    cmd_params_exists,
-    cmd_params_get_all_nodes,
-)
-
-from ros2_service import (
-    cmd_services_list,
-    cmd_services_type,
-    cmd_services_details,
-    cmd_services_info,
-    cmd_services_call,
-    cmd_services_echo,
-    cmd_services_find,
-)
-
-from ros2_action import (
-    cmd_actions_list,
-    cmd_actions_details,
-    cmd_actions_send,
-    cmd_actions_echo,
-    cmd_actions_type,
-    cmd_actions_cancel,
-    cmd_actions_find,
-    cmd_actions_status,
-)
-
-from ros2_doctor import (
-    cmd_doctor_check,
-    cmd_doctor_hello,
-    cmd_doctor_diagnostics,
-)
-from ros2_multicast import (
-    cmd_multicast_send,
-    cmd_multicast_receive,
-)
-from ros2_launch import (
-    cmd_launch_run,
-    cmd_launch_list,
-    cmd_launch_kill,
-    cmd_launch_restart,
-    cmd_launch_foxglove,
-)
-from ros2_foxglove import (
-    cmd_foxglove_start,
-    cmd_foxglove_stop,
-    cmd_foxglove_status,
-)
-from ros2_system import (
-    cmd_system_battery,
-    cmd_system_shutdown,
-    cmd_system_reboot,
-)
-from ros2_run import (
-    cmd_run,
-    cmd_run_list,
-    cmd_run_kill,
-    cmd_run_restart,
-)
-from ros2_tf import (
-    cmd_tf_list,
-    cmd_tf_lookup,
-    cmd_tf_echo,
-    cmd_tf_monitor,
-    cmd_tf_static,
-    cmd_tf_euler_from_quaternion,
-    cmd_tf_quaternion_from_euler,
-    cmd_tf_euler_from_quaternion_degrees,
-    cmd_tf_quaternion_from_euler_degrees,
-    cmd_tf_transform_point,
-    cmd_tf_transform_vector,
-    cmd_tf_tree,
-    cmd_tf_validate,
-)
-from ros2_lifecycle import (
-    cmd_lifecycle_nodes,
-    cmd_lifecycle_list,
-    cmd_lifecycle_get,
-    cmd_lifecycle_set,
-)
-from ros2_interface import (
-    cmd_interface_list,
-    cmd_interface_show,
-    cmd_interface_proto,
-    cmd_interface_packages,
-    cmd_interface_package,
-    _expand_fields,
-    get_msg_type,
-)
-from ros2_bag import (
-    cmd_bag_info,
-)
-from ros2_logs import (
-    cmd_logs_list_runs,
-    cmd_logs_query,
-    cmd_logs_tail,
-    cmd_logs_node_summary,
-)
-from ros2_component import (
-    cmd_component_types,
-    cmd_component_list,
-    cmd_component_load,
-    cmd_component_unload,
-    cmd_component_standalone,
-    cmd_component_kill,
-)
-from ros2_pkg import (
-    cmd_pkg_list,
-    cmd_pkg_prefix,
-    cmd_pkg_executables,
-    cmd_pkg_xml,
-    cmd_pkg_create,
-)
-from ros2_daemon import (
-    cmd_daemon_status,
-    cmd_daemon_start,
-    cmd_daemon_stop,
-)
-from ros2_profile import (
-    cmd_profile_scan,
-    cmd_profile_show,
-    cmd_profile_rescan,
-    cmd_profile_list,
-    cmd_profile_annotate,
-)
-from ros2_control import (
-    cmd_control_list_controller_types,
-    cmd_control_list_controllers,
-    cmd_control_list_hardware_components,
-    cmd_control_list_hardware_interfaces,
-    cmd_control_load_controller,
-    cmd_control_unload_controller,
-    cmd_control_configure_controller,
-    cmd_control_reload_controller_libraries,
-    cmd_control_set_controller_state,
-    cmd_control_set_hardware_component_state,
-    cmd_control_switch_controllers,
-    cmd_control_view_controller_chains,
-)
-from ros2_nav2 import (
-    cmd_nav2_go,
-    cmd_nav2_rotate,
-    cmd_nav2_cancel,
-    cmd_nav2_status,
-    cmd_nav2_go_waypoints,
-    cmd_nav2_initial_pose,
-    cmd_nav2_map_list,
-    cmd_nav2_map_save,
-    cmd_nav2_map_load,
-    cmd_nav2_map_delete,
-    cmd_nav2_mode_get,
-    cmd_nav2_mode_set,
-    cmd_nav2_localize,
-    cmd_nav2_diagnose,
-    cmd_nav2_move_timed,
-    cmd_nav2_costmap_clear,
-)
+import importlib
 
 # ---------------------------------------------------------------------------
 # Built-in commands that don't need rclpy
@@ -232,11 +43,11 @@ from ros2_nav2 import (
 def cmd_version(args):
     domain_id = int(os.environ.get('ROS_DOMAIN_ID', 0))
     distro = os.environ.get('ROS_DISTRO', 'unknown')
-    try:
-        import rclpy  # noqa: F401
-        rclpy_available = True
-    except ImportError:
-        rclpy_available = False
+    # find_spec() only locates the module (cheap); actually importing rclpy
+    # costs ~0.7-0.9s and "is it installed" doesn't require running its
+    # module-init code.
+    import importlib.util
+    rclpy_available = importlib.util.find_spec("rclpy") is not None
     output({"version": "2", "distro": distro, "domain_id": domain_id, "rclpy_available": rclpy_available})
 
 
@@ -295,6 +106,7 @@ def cmd_context(args):
                 for type_str in types:
                     if type_str and type_str not in schemas:
                         try:
+                            from ros2_interface import _expand_fields
                             cls = get_msg_type(type_str)
                             if cls is not None:
                                 fields = dict(cls.get_fields_and_field_types())
@@ -313,6 +125,9 @@ def cmd_context(args):
 
 def cmd_nav2_map(args):
     """Route ``nav2 map`` to the correct map lifecycle handler."""
+    from ros2_nav2 import (
+        cmd_nav2_map_list, cmd_nav2_map_save, cmd_nav2_map_load, cmd_nav2_map_delete,
+    )
     sub = getattr(args, "map_subcommand", None)
     handlers = {
         "list":   cmd_nav2_map_list,
@@ -328,6 +143,7 @@ def cmd_nav2_map(args):
 
 def cmd_nav2_mode(args):
     """Route ``nav2 mode`` to the correct mode handler."""
+    from ros2_nav2 import cmd_nav2_mode_get, cmd_nav2_mode_set
     sub = getattr(args, "mode_subcommand", None)
     handlers = {
         "get": cmd_nav2_mode_get,
@@ -399,6 +215,13 @@ def build_parser():
     estop = sub.add_parser("estop", help="Emergency stop for mobile robots (publishes zero velocity)")
     estop.add_argument("--topic", dest="topic", default=None,
                        help="Custom velocity topic (default: auto-detect)")
+    estop.add_argument("--verify-odom-topic", dest="verify_odom_topic", default=None,
+                       help="If given, also confirm velocity reads back as zero on this odom topic "
+                            "in the same node/process (avoids a second 'topics subscribe' call)")
+    estop.add_argument("--verify-timeout", dest="verify_timeout", type=float, default=5.0,
+                       help="Max seconds to wait for the verify odom message (default: 5)")
+    estop.add_argument("--velocity-threshold", dest="velocity_threshold", type=float, default=0.01,
+                       help="Max |linear| (m/s) and |angular.z| (rad/s) to call it stationary (default: 0.01)")
 
     # ------------------------------------------------------------------
     # topics
@@ -700,6 +523,9 @@ def build_parser():
                    help="Transition label (e.g. configure, activate) or numeric ID")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p.add_argument("--verify", action="store_true", default=False,
+                   help="Confirm the resulting state via GetState in the same node/process "
+                        "(avoids a second 'lifecycle get' CLI invocation)")
 
     # ------------------------------------------------------------------
     # control
@@ -783,6 +609,9 @@ def build_parser():
     p.add_argument("--activate-asap", dest="activate_asap", action="store_true",
                    default=False,
                    help="Activate controllers as soon as possible")
+    p.add_argument("--verify", action="store_true", default=False,
+                   help="Confirm the requested state changes landed via a list-controllers "
+                        "call in the same node/process (avoids a second CLI invocation)")
     _add_cm_args(p)
 
     p = csub.add_parser("view-controller-chains",
@@ -794,6 +623,49 @@ def build_parser():
     p.add_argument("--config", default="~/.nanobot/config.json",
                    help="Path to nanobot config for Discord (default: ~/.nanobot/config.json)")
     _add_cm_args(p)
+
+    # ------------------------------------------------------------------
+    # preflight
+    # ------------------------------------------------------------------
+    preflight = sub.add_parser("preflight", help="Combined pre-motion safety checks")
+    pfsub = preflight.add_subparsers(dest="subcommand")
+
+    p = pfsub.add_parser("motion",
+        help="Check controller-active + odom-stationary in a single node spin "
+             "(replaces separate 'control list-controllers' + 'topics subscribe' "
+             "calls before a motion command)")
+    p.add_argument("--controller", required=True,
+                   help="Controller name to verify is active (from profile summary.active_controllers)")
+    p.add_argument("--odom-topic", dest="odom_topic", required=True,
+                   help="Odometry topic to check for stationary state")
+    p.add_argument("--controller-manager", dest="controller_manager",
+                   default="/controller_manager",
+                   help="Controller manager node name (default: /controller_manager)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Controller manager service call timeout in seconds (default: 5)")
+    p.add_argument("--stationary-timeout", dest="stationary_timeout", type=float, default=2.0,
+                   help="Max seconds to wait for one odom message (default: 2)")
+    p.add_argument("--velocity-threshold", dest="velocity_threshold", type=float, default=0.01,
+                   help="Max |linear| (m/s) and |angular.z| (rad/s) to call the robot stationary (default: 0.01)")
+
+    p = pfsub.add_parser("joint-command",
+        help="Check controller-active + current joint positions in a single node spin "
+             "(replaces separate 'control list-controllers' + 'topics subscribe' "
+             "calls before a joint/pan-tilt/arm position command)")
+    p.add_argument("--controller", required=True,
+                   help="Controller name to verify is active (from profile summary.joint_command_topics[].controller)")
+    p.add_argument("--joint-state-topic", dest="joint_state_topic", default="/joint_states",
+                   help="JointState topic to read current positions from (default: /joint_states)")
+    p.add_argument("--joints", default=None,
+                   help="Comma-separated joint names to extract (from profile summary.joint_command_topics[].joints); "
+                        "omit to return every joint in the message")
+    p.add_argument("--controller-manager", dest="controller_manager",
+                   default="/controller_manager",
+                   help="Controller manager node name (default: /controller_manager)")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="Controller manager service call timeout in seconds (default: 5)")
+    p.add_argument("--state-timeout", dest="state_timeout", type=float, default=2.0,
+                   help="Max seconds to wait for one joint_states message (default: 2)")
 
     # ------------------------------------------------------------------
     # params
@@ -829,6 +701,9 @@ def build_parser():
                         "(mirrors Lyrical YAML !! annotations: !!bool, !!int, !!float, !!str)")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="Timeout in seconds (default: 5)")
+    p.add_argument("--verify", action="store_true", default=False,
+                   help="Read back the actual value via GetParameters in the same node/process "
+                        "(avoids a second 'params get' CLI invocation)")
     p = psub.add_parser("describe", help="Get parameter descriptor")
     p.add_argument("name", help="/node_name:param_name or just /node_name")
     p.add_argument("param_name", nargs="?", default=None,
@@ -947,7 +822,9 @@ def build_parser():
                        help="Print report sections for failed checks only")
         p.add_argument("--exclude-packages", "-ep", dest="exclude_packages",
                        action="store_true", default=False,
-                       help="Exclude package checks")
+                       help="Skip network-bound checks (PackageCheck's version lookup and "
+                            "PlatformCheck's distro-support lookup) — ~2-3x faster, "
+                            "recommended for routine health checks")
         p.add_argument("--include-warnings", "-iw", dest="include_warnings",
                        action="store_true", default=False,
                        help="Treat warnings as failures in the summary")
@@ -1004,8 +881,12 @@ def build_parser():
     tfsub = tf.add_subparsers(dest="subcommand")
 
     # tf list
-    tfsub.add_parser("list", help="List all coordinate frames")
-    tfsub.add_parser("ls", help="Alias for list")
+    p = tfsub.add_parser("list", help="List all coordinate frames")
+    p.add_argument("--timeout", "-t", type=float, default=3.0,
+                   help="Seconds to spin collecting TF broadcasts before reporting (default: 3.0)")
+    p = tfsub.add_parser("ls", help="Alias for list")
+    p.add_argument("--timeout", "-t", type=float, default=3.0,
+                   help="Seconds to spin collecting TF broadcasts before reporting (default: 3.0)")
 
     # tf lookup <source> <target>
     p = tfsub.add_parser("lookup", help="Lookup transform between frames")
@@ -1258,6 +1139,22 @@ def build_parser():
     daemonsub.add_parser("stop",   help="Stop the ROS 2 daemon")
 
     # ------------------------------------------------------------------
+    # daemon-fast — the skill's own persistent rclpy node (distinct from
+    # the built-in ROS 2 daemon above). Pure latency optimization: hot-path
+    # commands (control list-controllers, topics subscribe, preflight
+    # motion/joint-command) use it automatically when running and fall back
+    # to the normal per-process path unchanged when it isn't.
+    # ------------------------------------------------------------------
+    daemonfast = sub.add_parser("daemon-fast",
+        help="Manage the skill's persistent rclpy node (accelerates hot-path "
+             "commands by avoiding rclpy.init()/shutdown() per call; optional, "
+             "always falls back safely if not running)")
+    daemonfastsub = daemonfast.add_subparsers(dest="subcommand")
+    daemonfastsub.add_parser("start",  help="Start the fast daemon in a tmux session")
+    daemonfastsub.add_parser("stop",   help="Stop the fast daemon")
+    daemonfastsub.add_parser("status", help="Check whether the fast daemon is running and reachable")
+
+    # ------------------------------------------------------------------
     # pkg
     # ------------------------------------------------------------------
     pkg = sub.add_parser("pkg", help="ROS 2 package utilities (no graph required)")
@@ -1470,6 +1367,22 @@ def build_parser():
     p = psub.add_parser("annotate",
                         help="Append a free-text note to the robot profile")
     p.add_argument("text", help="Annotation text (natural language; stored verbatim)")
+    p.add_argument("--name", default="robot", metavar="NAME",
+                   help="Robot name (default: auto-detected from .profiles/)")
+
+    # set-camera-rotation
+    p = psub.add_parser("set-camera-rotation",
+        help="Store a structured image-rotation correction for a camera "
+             "(used by 'topics capture-image'; overrides the URDF-derived "
+             "heuristic, which is often wrong or absent for cameras whose "
+             "mount joint only encodes the REP-103 optical-frame rotation)")
+    p.add_argument("match",
+                   help="Case-insensitive substring matched against the capture "
+                        "topic, e.g. 'oak' matches '/oak/rgb/image_raw'")
+    p.add_argument("degrees", type=int, choices=[0, 90, 180, -90],
+                   help="Rotation to apply: 0, 90, 180, or -90")
+    p.add_argument("--note", default=None,
+                   help="Optional human-readable reason, stored alongside the override")
     p.add_argument("--name", default="robot", metavar="NAME",
                    help="Robot name (default: auto-detected from .profiles/)")
 
@@ -1751,210 +1664,222 @@ def build_parser():
 # Dispatch table
 # ---------------------------------------------------------------------------
 
+# Values are either a local callable (cmd_version / cmd_context / cmd_nav2_map
+# / cmd_nav2_mode, all defined above) or a ("module_name", "function_name")
+# string pair resolved lazily by main() via importlib — see the comment above
+# the (now-removed) domain-module import block for why this matters.
 DISPATCH = {
     ("version", None): cmd_version,
     ("context", None): cmd_context,
-    ("estop", None): cmd_estop,
+    ("estop", None): ("ros2_topic", "cmd_estop"),
     # topics — canonical
-    ("topics", "list"): cmd_topics_list,
-    ("topics", "type"): cmd_topics_type,
-    ("topics", "details"): cmd_topics_details,
-    ("topics", "message"): cmd_topics_message,
-    ("topics", "message-structure"): cmd_topics_message,
-    ("topics", "message-struct"): cmd_topics_message,
-    ("topics", "subscribe"): cmd_topics_subscribe,
-    ("topics", "echo-once"): cmd_topics_echo_once,
-    ("topics", "depth-point"): cmd_topics_depth_point,
-    ("topics", "publish"): cmd_topics_publish,
-    ("topics", "publish-sequence"): cmd_topics_publish_sequence,
-    ("topics", "publish-until"): cmd_topics_publish_until,
-    ("topics", "hz"): cmd_topics_hz,
-    ("topics", "find"): cmd_topics_find,
-    ("topics", "capture-image"): cmd_topics_capture_image,
-    ("topics", "diag-list"): cmd_topics_diag_list,
-    ("topics", "diag"): cmd_topics_diag,
-    ("topics", "battery-list"): cmd_topics_battery_list,
-    ("topics", "battery"): cmd_topics_battery,
+    ("topics", "list"): ("ros2_topic", "cmd_topics_list"),
+    ("topics", "type"): ("ros2_topic", "cmd_topics_type"),
+    ("topics", "details"): ("ros2_topic", "cmd_topics_details"),
+    ("topics", "message"): ("ros2_topic", "cmd_topics_message"),
+    ("topics", "message-structure"): ("ros2_topic", "cmd_topics_message"),
+    ("topics", "message-struct"): ("ros2_topic", "cmd_topics_message"),
+    ("topics", "subscribe"): ("ros2_topic", "cmd_topics_subscribe"),
+    ("topics", "echo-once"): ("ros2_topic", "cmd_topics_echo_once"),
+    ("topics", "depth-point"): ("ros2_topic", "cmd_topics_depth_point"),
+    ("topics", "publish"): ("ros2_topic", "cmd_topics_publish"),
+    ("topics", "publish-sequence"): ("ros2_topic", "cmd_topics_publish_sequence"),
+    ("topics", "publish-until"): ("ros2_topic", "cmd_topics_publish_until"),
+    ("topics", "hz"): ("ros2_topic", "cmd_topics_hz"),
+    ("topics", "find"): ("ros2_topic", "cmd_topics_find"),
+    ("topics", "capture-image"): ("ros2_topic", "cmd_topics_capture_image"),
+    ("topics", "diag-list"): ("ros2_topic", "cmd_topics_diag_list"),
+    ("topics", "diag"): ("ros2_topic", "cmd_topics_diag"),
+    ("topics", "battery-list"): ("ros2_topic", "cmd_topics_battery_list"),
+    ("topics", "battery"): ("ros2_topic", "cmd_topics_battery"),
     # topics — aliases
-    ("topics", "echo"): cmd_topics_subscribe,
-    ("topics", "pub"): cmd_topics_publish,
-    ("topics", "ls"): cmd_topics_list,
-    ("topics", "info"): cmd_topics_details,
+    ("topics", "echo"): ("ros2_topic", "cmd_topics_subscribe"),
+    ("topics", "pub"): ("ros2_topic", "cmd_topics_publish"),
+    ("topics", "ls"): ("ros2_topic", "cmd_topics_list"),
+    ("topics", "info"): ("ros2_topic", "cmd_topics_details"),
     # topics — Phase 2
-    ("topics", "bw"): cmd_topics_bw,
-    ("topics", "delay"): cmd_topics_delay,
-    ("topics", "qos-check"): cmd_topics_qos_check,
-    ("topics", "classify"): cmd_topics_classify,
+    ("topics", "bw"): ("ros2_topic", "cmd_topics_bw"),
+    ("topics", "delay"): ("ros2_topic", "cmd_topics_delay"),
+    ("topics", "qos-check"): ("ros2_topic", "cmd_topics_qos_check"),
+    ("topics", "classify"): ("ros2_topic", "cmd_topics_classify"),
     # services — canonical
-    ("services", "list"): cmd_services_list,
-    ("services", "type"): cmd_services_type,
-    ("services", "details"): cmd_services_details,
-    ("services", "call"): cmd_services_call,
-    ("services", "find"): cmd_services_find,
+    ("services", "list"): ("ros2_service", "cmd_services_list"),
+    ("services", "type"): ("ros2_service", "cmd_services_type"),
+    ("services", "details"): ("ros2_service", "cmd_services_details"),
+    ("services", "call"): ("ros2_service", "cmd_services_call"),
+    ("services", "find"): ("ros2_service", "cmd_services_find"),
     # services — aliases
-    ("services", "ls"): cmd_services_list,
-    ("services", "info"): cmd_services_info,
-    ("services", "echo"): cmd_services_echo,
+    ("services", "ls"): ("ros2_service", "cmd_services_list"),
+    ("services", "info"): ("ros2_service", "cmd_services_info"),
+    ("services", "echo"): ("ros2_service", "cmd_services_echo"),
     # nodes — canonical
-    ("nodes", "list"): cmd_nodes_list,
-    ("nodes", "details"): cmd_nodes_details,
-    ("nodes", "kill"): cmd_nodes_kill,
+    ("nodes", "list"): ("ros2_node", "cmd_nodes_list"),
+    ("nodes", "details"): ("ros2_node", "cmd_nodes_details"),
+    ("nodes", "kill"): ("ros2_node", "cmd_nodes_kill"),
     # nodes — aliases
-    ("nodes", "info"): cmd_nodes_details,
-    ("nodes", "ls"): cmd_nodes_list,
+    ("nodes", "info"): ("ros2_node", "cmd_nodes_details"),
+    ("nodes", "ls"): ("ros2_node", "cmd_nodes_list"),
     # lifecycle — canonical
-    ("lifecycle", "nodes"): cmd_lifecycle_nodes,
-    ("lifecycle", "list"): cmd_lifecycle_list,
-    ("lifecycle", "get"): cmd_lifecycle_get,
-    ("lifecycle", "set"): cmd_lifecycle_set,
+    ("lifecycle", "nodes"): ("ros2_lifecycle", "cmd_lifecycle_nodes"),
+    ("lifecycle", "list"): ("ros2_lifecycle", "cmd_lifecycle_list"),
+    ("lifecycle", "get"): ("ros2_lifecycle", "cmd_lifecycle_get"),
+    ("lifecycle", "set"): ("ros2_lifecycle", "cmd_lifecycle_set"),
     # lifecycle — alias
-    ("lifecycle", "ls"): cmd_lifecycle_list,
+    ("lifecycle", "ls"): ("ros2_lifecycle", "cmd_lifecycle_list"),
     # control — canonical
-    ("control", "list-controller-types"):        cmd_control_list_controller_types,
-    ("control", "list-controllers"):             cmd_control_list_controllers,
-    ("control", "list-hardware-components"):     cmd_control_list_hardware_components,
-    ("control", "list-hardware-interfaces"):     cmd_control_list_hardware_interfaces,
-    ("control", "load-controller"):              cmd_control_load_controller,
-    ("control", "unload-controller"):            cmd_control_unload_controller,
-    ("control", "configure-controller"):         cmd_control_configure_controller,
-    ("control", "reload-controller-libraries"):  cmd_control_reload_controller_libraries,
-    ("control", "set-controller-state"):         cmd_control_set_controller_state,
-    ("control", "set-hardware-component-state"): cmd_control_set_hardware_component_state,
-    ("control", "switch-controllers"):           cmd_control_switch_controllers,
-    ("control", "view-controller-chains"):       cmd_control_view_controller_chains,
+    ("control", "list-controller-types"):        ("ros2_control", "cmd_control_list_controller_types"),
+    ("control", "list-controllers"):             ("ros2_control", "cmd_control_list_controllers"),
+    ("control", "list-hardware-components"):     ("ros2_control", "cmd_control_list_hardware_components"),
+    ("control", "list-hardware-interfaces"):     ("ros2_control", "cmd_control_list_hardware_interfaces"),
+    ("control", "load-controller"):              ("ros2_control", "cmd_control_load_controller"),
+    ("control", "unload-controller"):            ("ros2_control", "cmd_control_unload_controller"),
+    ("control", "configure-controller"):         ("ros2_control", "cmd_control_configure_controller"),
+    ("control", "reload-controller-libraries"):  ("ros2_control", "cmd_control_reload_controller_libraries"),
+    ("control", "set-controller-state"):         ("ros2_control", "cmd_control_set_controller_state"),
+    ("control", "set-hardware-component-state"): ("ros2_control", "cmd_control_set_hardware_component_state"),
+    ("control", "switch-controllers"):           ("ros2_control", "cmd_control_switch_controllers"),
+    ("control", "view-controller-chains"):       ("ros2_control", "cmd_control_view_controller_chains"),
     # control — aliases
-    ("control", "load"):  cmd_control_load_controller,
-    ("control", "unload"): cmd_control_unload_controller,
+    ("control", "load"):  ("ros2_control", "cmd_control_load_controller"),
+    ("control", "unload"): ("ros2_control", "cmd_control_unload_controller"),
+
+    ("preflight", "motion"): ("ros2_preflight", "cmd_preflight_motion"),
+    ("preflight", "joint-command"): ("ros2_preflight", "cmd_preflight_joint_command"),
     # params — canonical
-    ("params", "list"): cmd_params_list,
-    ("params", "get"): cmd_params_get,
-    ("params", "set"): cmd_params_set,
-    ("params", "describe"): cmd_params_describe,
-    ("params", "dump"): cmd_params_dump,
-    ("params", "load"): cmd_params_load,
-    ("params", "delete"): cmd_params_delete,
-    ("params", "preset-save"):   cmd_params_preset_save,
-    ("params", "preset-load"):   cmd_params_preset_load,
-    ("params", "preset-list"):   cmd_params_preset_list,
-    ("params", "preset-delete"): cmd_params_preset_delete,
-    ("params", "find"): cmd_params_find,
-    ("params", "exists"): cmd_params_exists,
-    ("params", "get-all-nodes"): cmd_params_get_all_nodes,
+    ("params", "list"): ("ros2_param", "cmd_params_list"),
+    ("params", "get"): ("ros2_param", "cmd_params_get"),
+    ("params", "set"): ("ros2_param", "cmd_params_set"),
+    ("params", "describe"): ("ros2_param", "cmd_params_describe"),
+    ("params", "dump"): ("ros2_param", "cmd_params_dump"),
+    ("params", "load"): ("ros2_param", "cmd_params_load"),
+    ("params", "delete"): ("ros2_param", "cmd_params_delete"),
+    ("params", "preset-save"):   ("ros2_param", "cmd_params_preset_save"),
+    ("params", "preset-load"):   ("ros2_param", "cmd_params_preset_load"),
+    ("params", "preset-list"):   ("ros2_param", "cmd_params_preset_list"),
+    ("params", "preset-delete"): ("ros2_param", "cmd_params_preset_delete"),
+    ("params", "find"): ("ros2_param", "cmd_params_find"),
+    ("params", "exists"): ("ros2_param", "cmd_params_exists"),
+    ("params", "get-all-nodes"): ("ros2_param", "cmd_params_get_all_nodes"),
     # params — alias
-    ("params", "ls"): cmd_params_list,
+    ("params", "ls"): ("ros2_param", "cmd_params_list"),
     # actions — canonical
-    ("actions", "list"): cmd_actions_list,
-    ("actions", "details"): cmd_actions_details,
-    ("actions", "send"): cmd_actions_send,
-    ("actions", "type"): cmd_actions_type,
-    ("actions", "cancel"): cmd_actions_cancel,
-    ("actions", "echo"): cmd_actions_echo,
-    ("actions", "find"): cmd_actions_find,
-    ("actions", "status"): cmd_actions_status,
+    ("actions", "list"): ("ros2_action", "cmd_actions_list"),
+    ("actions", "details"): ("ros2_action", "cmd_actions_details"),
+    ("actions", "send"): ("ros2_action", "cmd_actions_send"),
+    ("actions", "type"): ("ros2_action", "cmd_actions_type"),
+    ("actions", "cancel"): ("ros2_action", "cmd_actions_cancel"),
+    ("actions", "echo"): ("ros2_action", "cmd_actions_echo"),
+    ("actions", "find"): ("ros2_action", "cmd_actions_find"),
+    ("actions", "status"): ("ros2_action", "cmd_actions_status"),
     # actions — aliases
-    ("actions", "info"): cmd_actions_details,
-    ("actions", "ls"): cmd_actions_list,
+    ("actions", "info"): ("ros2_action", "cmd_actions_details"),
+    ("actions", "ls"): ("ros2_action", "cmd_actions_list"),
     # doctor — canonical
-    ("doctor", None):            cmd_doctor_check,
-    ("doctor", "hello"):         cmd_doctor_hello,
-    ("doctor", "diagnostics"):   cmd_doctor_diagnostics,
+    ("doctor", None):            ("ros2_doctor", "cmd_doctor_check"),
+    ("doctor", "hello"):         ("ros2_doctor", "cmd_doctor_hello"),
+    ("doctor", "diagnostics"):   ("ros2_doctor", "cmd_doctor_diagnostics"),
     # wtf — alias for doctor
-    ("wtf",    None):            cmd_doctor_check,
-    ("wtf",    "hello"):         cmd_doctor_hello,
-    ("wtf",    "diagnostics"):   cmd_doctor_diagnostics,
+    ("wtf",    None):            ("ros2_doctor", "cmd_doctor_check"),
+    ("wtf",    "hello"):         ("ros2_doctor", "cmd_doctor_hello"),
+    ("wtf",    "diagnostics"):   ("ros2_doctor", "cmd_doctor_diagnostics"),
     # multicast
-    ("multicast", "send"):    cmd_multicast_send,
-    ("multicast", "receive"): cmd_multicast_receive,
+    ("multicast", "send"):    ("ros2_multicast", "cmd_multicast_send"),
+    ("multicast", "receive"): ("ros2_multicast", "cmd_multicast_receive"),
     # tf
-    ("tf", "list"): cmd_tf_list,
-    ("tf", "ls"): cmd_tf_list,
-    ("tf", "lookup"): cmd_tf_lookup,
-    ("tf", "get"): cmd_tf_lookup,
-    ("tf", "echo"): cmd_tf_echo,
-    ("tf", "monitor"): cmd_tf_monitor,
-    ("tf", "static"): cmd_tf_static,
-    ("tf", "euler-from-quaternion"): cmd_tf_euler_from_quaternion,
-    ("tf", "quaternion-from-euler"): cmd_tf_quaternion_from_euler,
-    ("tf", "euler-from-quaternion-deg"): cmd_tf_euler_from_quaternion_degrees,
-    ("tf", "quaternion-from-euler-deg"): cmd_tf_quaternion_from_euler_degrees,
-    ("tf", "transform-point"): cmd_tf_transform_point,
-    ("tf", "transform-vector"): cmd_tf_transform_vector,
-    ("tf", "tree"): cmd_tf_tree,
-    ("tf", "validate"): cmd_tf_validate,
+    ("tf", "list"): ("ros2_tf", "cmd_tf_list"),
+    ("tf", "ls"): ("ros2_tf", "cmd_tf_list"),
+    ("tf", "lookup"): ("ros2_tf", "cmd_tf_lookup"),
+    ("tf", "get"): ("ros2_tf", "cmd_tf_lookup"),
+    ("tf", "echo"): ("ros2_tf", "cmd_tf_echo"),
+    ("tf", "monitor"): ("ros2_tf", "cmd_tf_monitor"),
+    ("tf", "static"): ("ros2_tf", "cmd_tf_static"),
+    ("tf", "euler-from-quaternion"): ("ros2_tf", "cmd_tf_euler_from_quaternion"),
+    ("tf", "quaternion-from-euler"): ("ros2_tf", "cmd_tf_quaternion_from_euler"),
+    ("tf", "euler-from-quaternion-deg"): ("ros2_tf", "cmd_tf_euler_from_quaternion_degrees"),
+    ("tf", "quaternion-from-euler-deg"): ("ros2_tf", "cmd_tf_quaternion_from_euler_degrees"),
+    ("tf", "transform-point"): ("ros2_tf", "cmd_tf_transform_point"),
+    ("tf", "transform-vector"): ("ros2_tf", "cmd_tf_transform_vector"),
+    ("tf", "tree"): ("ros2_tf", "cmd_tf_tree"),
+    ("tf", "validate"): ("ros2_tf", "cmd_tf_validate"),
     # launch
-    ("launch", "new"):   cmd_launch_run,
-    ("launch", "list"):   cmd_launch_list,
-    ("launch", "ls"):    cmd_launch_list,
-    ("launch", "kill"):  cmd_launch_kill,
-    ("launch", "restart"): cmd_launch_restart,
-    ("launch", "foxglove"): cmd_launch_foxglove,
+    ("launch", "new"):   ("ros2_launch", "cmd_launch_run"),
+    ("launch", "list"):   ("ros2_launch", "cmd_launch_list"),
+    ("launch", "ls"):    ("ros2_launch", "cmd_launch_list"),
+    ("launch", "kill"):  ("ros2_launch", "cmd_launch_kill"),
+    ("launch", "restart"): ("ros2_launch", "cmd_launch_restart"),
+    ("launch", "foxglove"): ("ros2_launch", "cmd_launch_foxglove"),
     # run
-    ("run", "new"):    cmd_run,
-    ("run", "list"):   cmd_run_list,
-    ("run", "ls"):    cmd_run_list,
-    ("run", "kill"):  cmd_run_kill,
-    ("run", "restart"): cmd_run_restart,
+    ("run", "new"):    ("ros2_run", "cmd_run"),
+    ("run", "list"):   ("ros2_run", "cmd_run_list"),
+    ("run", "ls"):    ("ros2_run", "cmd_run_list"),
+    ("run", "kill"):  ("ros2_run", "cmd_run_kill"),
+    ("run", "restart"): ("ros2_run", "cmd_run_restart"),
     # interface
-    ("interface", "list"):     cmd_interface_list,
-    ("interface", "ls"):       cmd_interface_list,
-    ("interface", "show"):     cmd_interface_show,
-    ("interface", "proto"):    cmd_interface_proto,
-    ("interface", "packages"): cmd_interface_packages,
-    ("interface", "package"):  cmd_interface_package,
+    ("interface", "list"):     ("ros2_interface", "cmd_interface_list"),
+    ("interface", "ls"):       ("ros2_interface", "cmd_interface_list"),
+    ("interface", "show"):     ("ros2_interface", "cmd_interface_show"),
+    ("interface", "proto"):    ("ros2_interface", "cmd_interface_proto"),
+    ("interface", "packages"): ("ros2_interface", "cmd_interface_packages"),
+    ("interface", "package"):  ("ros2_interface", "cmd_interface_package"),
     # bag
-    ("bag", "info"): cmd_bag_info,
+    ("bag", "info"): ("ros2_bag", "cmd_bag_info"),
     # component
-    ("component", "types"): cmd_component_types,
-    ("component", "list"):  cmd_component_list,
-    ("component", "ls"):    cmd_component_list,
-    ("component", "load"):   cmd_component_load,
-    ("component", "unload"): cmd_component_unload,
-    ("component", "kill"):      cmd_component_kill,
-    ("component", "standalone"): cmd_component_standalone,
+    ("component", "types"): ("ros2_component", "cmd_component_types"),
+    ("component", "list"):  ("ros2_component", "cmd_component_list"),
+    ("component", "ls"):    ("ros2_component", "cmd_component_list"),
+    ("component", "load"):   ("ros2_component", "cmd_component_load"),
+    ("component", "unload"): ("ros2_component", "cmd_component_unload"),
+    ("component", "kill"):      ("ros2_component", "cmd_component_kill"),
+    ("component", "standalone"): ("ros2_component", "cmd_component_standalone"),
     # pkg
-    ("pkg", "list"):        cmd_pkg_list,
-    ("pkg", "ls"):          cmd_pkg_list,
-    ("pkg", "prefix"):      cmd_pkg_prefix,
-    ("pkg", "executables"): cmd_pkg_executables,
-    ("pkg", "xml"):         cmd_pkg_xml,
-    ("pkg", "create"):      cmd_pkg_create,
+    ("pkg", "list"):        ("ros2_pkg", "cmd_pkg_list"),
+    ("pkg", "ls"):          ("ros2_pkg", "cmd_pkg_list"),
+    ("pkg", "prefix"):      ("ros2_pkg", "cmd_pkg_prefix"),
+    ("pkg", "executables"): ("ros2_pkg", "cmd_pkg_executables"),
+    ("pkg", "xml"):         ("ros2_pkg", "cmd_pkg_xml"),
+    ("pkg", "create"):      ("ros2_pkg", "cmd_pkg_create"),
     # daemon
-    ("daemon", "status"): cmd_daemon_status,
-    ("daemon", "start"):  cmd_daemon_start,
-    ("daemon", "stop"):   cmd_daemon_stop,
+    ("daemon", "status"): ("ros2_daemon", "cmd_daemon_status"),
+    ("daemon", "start"):  ("ros2_daemon", "cmd_daemon_start"),
+    ("daemon", "stop"):   ("ros2_daemon", "cmd_daemon_stop"),
+
+    ("daemon-fast", "start"):  ("ros2_daemon", "cmd_daemon_fast_start"),
+    ("daemon-fast", "stop"):   ("ros2_daemon", "cmd_daemon_fast_stop"),
+    ("daemon-fast", "status"): ("ros2_daemon", "cmd_daemon_fast_status"),
     # logs
-    ("logs", "list-runs"):    cmd_logs_list_runs,
-    ("logs", "query"):        cmd_logs_query,
-    ("logs", "tail"):         cmd_logs_tail,
-    ("logs", "node-summary"): cmd_logs_node_summary,
+    ("logs", "list-runs"):    ("ros2_logs", "cmd_logs_list_runs"),
+    ("logs", "query"):        ("ros2_logs", "cmd_logs_query"),
+    ("logs", "tail"):         ("ros2_logs", "cmd_logs_tail"),
+    ("logs", "node-summary"): ("ros2_logs", "cmd_logs_node_summary"),
     # profile
-    ("profile", "scan"):     cmd_profile_scan,
-    ("profile", "show"):     cmd_profile_show,
-    ("profile", "rescan"):   cmd_profile_rescan,
-    ("profile", "list"):     cmd_profile_list,
-    ("profile", "ls"):       cmd_profile_list,
-    ("profile", "annotate"): cmd_profile_annotate,
+    ("profile", "scan"):     ("ros2_profile", "cmd_profile_scan"),
+    ("profile", "show"):     ("ros2_profile", "cmd_profile_show"),
+    ("profile", "rescan"):   ("ros2_profile", "cmd_profile_rescan"),
+    ("profile", "list"):     ("ros2_profile", "cmd_profile_list"),
+    ("profile", "ls"):       ("ros2_profile", "cmd_profile_list"),
+    ("profile", "annotate"): ("ros2_profile", "cmd_profile_annotate"),
+    ("profile", "set-camera-rotation"): ("ros2_profile", "cmd_profile_set_camera_rotation"),
     # foxglove
-    ("foxglove", "start"):  cmd_foxglove_start,
-    ("foxglove", "stop"):   cmd_foxglove_stop,
-    ("foxglove", "status"): cmd_foxglove_status,
+    ("foxglove", "start"):  ("ros2_foxglove", "cmd_foxglove_start"),
+    ("foxglove", "stop"):   ("ros2_foxglove", "cmd_foxglove_stop"),
+    ("foxglove", "status"): ("ros2_foxglove", "cmd_foxglove_status"),
     # system
-    ("system", "battery"):  cmd_system_battery,
-    ("system", "shutdown"): cmd_system_shutdown,
-    ("system", "reboot"):   cmd_system_reboot,
+    ("system", "battery"):  ("ros2_system", "cmd_system_battery"),
+    ("system", "shutdown"): ("ros2_system", "cmd_system_shutdown"),
+    ("system", "reboot"):   ("ros2_system", "cmd_system_reboot"),
     # nav2
-    ("nav2", "go"):            cmd_nav2_go,
-    ("nav2", "rotate"):        cmd_nav2_rotate,
-    ("nav2", "cancel"):        cmd_nav2_cancel,
-    ("nav2", "status"):        cmd_nav2_status,
-    ("nav2", "go-waypoints"):  cmd_nav2_go_waypoints,
-    ("nav2", "initial-pose"):  cmd_nav2_initial_pose,
+    ("nav2", "go"):            ("ros2_nav2", "cmd_nav2_go"),
+    ("nav2", "rotate"):        ("ros2_nav2", "cmd_nav2_rotate"),
+    ("nav2", "cancel"):        ("ros2_nav2", "cmd_nav2_cancel"),
+    ("nav2", "status"):        ("ros2_nav2", "cmd_nav2_status"),
+    ("nav2", "go-waypoints"):  ("ros2_nav2", "cmd_nav2_go_waypoints"),
+    ("nav2", "initial-pose"):  ("ros2_nav2", "cmd_nav2_initial_pose"),
     ("nav2", "map"):           cmd_nav2_map,
     ("nav2", "mode"):          cmd_nav2_mode,
-    ("nav2", "localize"):      cmd_nav2_localize,
-    ("nav2", "diagnose"):      cmd_nav2_diagnose,
-    ("nav2", "move-timed"):    cmd_nav2_move_timed,
-    ("nav2", "costmap-clear"): cmd_nav2_costmap_clear,
+    ("nav2", "localize"):      ("ros2_nav2", "cmd_nav2_localize"),
+    ("nav2", "diagnose"):      ("ros2_nav2", "cmd_nav2_diagnose"),
+    ("nav2", "move-timed"):    ("ros2_nav2", "cmd_nav2_move_timed"),
+    ("nav2", "costmap-clear"): ("ros2_nav2", "cmd_nav2_costmap_clear"),
 }
 
 
@@ -2007,6 +1932,10 @@ def main():
     handler = DISPATCH.get(key)
     if handler:
         try:
+            if isinstance(handler, tuple):
+                module_name, func_name = handler
+                module = importlib.import_module(module_name)
+                handler = getattr(module, func_name)
             handler(args)
         except Exception as e:
             output({"error": str(e), "type": type(e).__name__})

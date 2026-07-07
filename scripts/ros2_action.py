@@ -9,7 +9,7 @@ import time
 import rclpy
 
 from ros2_utils import (
-    ROS2CLI, get_action_type, msg_to_dict, dict_to_msg, output, ros2_context,
+    ROS2CLI, get_action_type, msg_to_dict, dict_to_msg, output, ros2_context, try_fastd,
 )
 from ros2_topic import TopicSubscriber
 
@@ -380,6 +380,31 @@ _STATUS_NAMES = {
 }
 
 
+def _goal_statuses_from_dict(status_list):
+    """Build the goal_statuses/active_count summary from a GoalStatusArray
+
+    already converted to plain dicts (msg_to_dict) — shared by the daemon
+    fast path and the local rclpy fallback so both produce identical output.
+    """
+    import uuid as _uuid
+    goal_statuses = []
+    active_count = 0
+    for gs in status_list:
+        uuid_bytes = bytes(gs["goal_info"]["goal_id"]["uuid"])
+        goal_id_str = str(_uuid.UUID(bytes=uuid_bytes))
+        status_int = int(gs["status"])
+        is_active = status_int in (1, 2, 3)  # ACCEPTED, EXECUTING, CANCELING
+        if is_active:
+            active_count += 1
+        goal_statuses.append({
+            "goal_id": goal_id_str,
+            "status": status_int,
+            "status_name": _STATUS_NAMES.get(status_int, f"STATUS_{status_int}"),
+            "active": is_active,
+        })
+    return goal_statuses, active_count
+
+
 def cmd_actions_status(args):
     """One-shot poll of active goal IDs and status codes for an action server.
 
@@ -394,6 +419,40 @@ def cmd_actions_status(args):
     action = args.action.rstrip('/')
     status_topic = action + '/_action/status'
     timeout = args.timeout
+
+    # Fast path: persistent daemon, no rclpy.init() for this call at all.
+    # Same generic "subscribe_once" op used by 'topics subscribe', plus
+    # verify_exists=True so a bogus action name still fails fast (a plain
+    # topic check) instead of paying the full --timeout to discover that.
+    daemon_resp = try_fastd(
+        "subscribe_once",
+        {
+            "topic": status_topic, "timeout": timeout,
+            "msg_type": "action_msgs/msg/GoalStatusArray",
+            "verify_exists": True,
+        },
+        timeout=timeout + 2.0,
+    )
+    if daemon_resp is not None:
+        if daemon_resp.get("not_found"):
+            return output({
+                "error": f"Action server not found: {action}",
+                "hint": "Is the action server running? Use 'actions list' to see active servers.",
+            })
+        if "error" in daemon_resp:
+            return output({
+                "action": action,
+                "goal_statuses": [],
+                "active_count": 0,
+                "note": f"No status message received within {timeout}s — "
+                        "server is present but may have no active goals.",
+            })
+        goal_statuses, active_count = _goal_statuses_from_dict(daemon_resp["msg"]["status_list"])
+        return output({
+            "action": action,
+            "goal_statuses": goal_statuses,
+            "active_count": active_count,
+        })
 
     try:
         from action_msgs.msg import GoalStatusArray
@@ -433,24 +492,7 @@ def cmd_actions_status(args):
                         "server is present but may have no active goals.",
             })
 
-        msg = received[0]
-        goal_statuses = []
-        active_count = 0
-        for gs in msg.status_list:
-            uuid_bytes = bytes(gs.goal_info.goal_id.uuid)
-            import uuid as _uuid
-            goal_id_str = str(_uuid.UUID(bytes=uuid_bytes))
-            status_int = int(gs.status)
-            is_active = status_int in (1, 2, 3)  # ACCEPTED, EXECUTING, CANCELING
-            if is_active:
-                active_count += 1
-            goal_statuses.append({
-                "goal_id": goal_id_str,
-                "status": status_int,
-                "status_name": _STATUS_NAMES.get(status_int, f"STATUS_{status_int}"),
-                "active": is_active,
-            })
-
+        goal_statuses, active_count = _goal_statuses_from_dict(msg_to_dict(received[0])["status_list"])
         output({
             "action": action,
             "goal_statuses": goal_statuses,

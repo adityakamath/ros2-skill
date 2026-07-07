@@ -4,6 +4,7 @@
 import json
 import os
 import shlex
+import tempfile
 
 from ros2_utils import (
     output,
@@ -14,7 +15,6 @@ from ros2_utils import (
     session_exists,
     kill_session,
     check_session_alive,
-    quote_path,
     save_session,
     get_session_metadata,
     delete_session_metadata,
@@ -327,15 +327,19 @@ def cmd_launch_run(args):
                 f"NOTICE: config_path '{config_path}' is not a YAML file or directory; ignored."
             )
 
-    # Build launch command
-    cmd_parts = ["ros2 launch", package, os.path.basename(launch_path)]
+    # Build launch command. Kept as a list of raw (unquoted) tokens — quoting
+    # is applied exactly once, via shlex.join(), at the point this becomes a
+    # shell command string (see script-file construction below). launch_args
+    # in particular are fully user-controlled and must never be concatenated
+    # into a shell string without quoting.
+    cmd_parts = ["ros2", "launch", package, os.path.basename(launch_path)]
     cmd_parts.extend(launch_args)
     if config_files:
         cmd_parts.append("--ros-args")
         for cf in config_files:
-            cmd_parts.extend(["--params-file", shlex.quote(cf)])
+            cmd_parts.extend(["--params-file", cf])
 
-    launch_cmd = " ".join(cmd_parts)
+    launch_cmd = shlex.join(cmd_parts)
     
     # Generate session name
     session_name = generate_session_name("launch", package, launch_file.replace('.launch.py', '').replace('.launch', ''))
@@ -363,15 +367,34 @@ def cmd_launch_run(args):
             "session": session_name
         })
     
-    # Build tmux command with or without sourcing
-    # Use bash -c to support source command (sh doesn't support source)
-    # Quote paths to handle spaces
-    quoted_ws = quote_path(ws_path) if ws_path else None
-    if quoted_ws:
-        tmux_cmd = f"tmux new-session -d -s {session_name} 'bash -c \"source {quoted_ws} && {launch_cmd}\" 2>&1'"
-    else:
-        tmux_cmd = f"tmux new-session -d -s {session_name} '{launch_cmd} 2>&1'"
-    
+    # Write the launch invocation to a script file rather than interpolating
+    # it into nested shell-quoted strings (tmux single-quoted arg wrapping a
+    # bash -c double-quoted string, itself passed through an outer
+    # shell=True subprocess call). That composition is exploitable: a launch
+    # arg value containing a single quote breaks out of the outer
+    # single-quoted tmux argument and injects arbitrary shell commands into
+    # the outer shell — confirmed directly (a value like
+    # "map_name:=x'; touch /tmp/PWNED; echo '" executed the injected command).
+    # shlex.join()/shlex.quote() alone do not fix this: they correctly quote
+    # for ONE shell-parsing pass, but this string was parsed twice (outer
+    # shell, then nested bash -c), and correct quoting for two nested passes
+    # cannot be achieved by string concatenation. Writing to a file and
+    # having tmux execute it by path removes the second parsing pass
+    # entirely — only the file path (which we control, not the user) is
+    # ever embedded in a shell command line.
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".launch_scripts")
+    os.makedirs(scripts_dir, exist_ok=True)
+    script_lines = ["#!/bin/bash", "set -e", "exec 2>&1"]
+    if ws_path:
+        script_lines.append(f"source {shlex.quote(ws_path)}")
+    script_lines.append(launch_cmd)
+    fd, script_path = tempfile.mkstemp(prefix=f"{session_name}_", suffix=".sh", dir=scripts_dir)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(script_lines) + "\n")
+    os.chmod(script_path, 0o700)
+
+    tmux_cmd = f"tmux new-session -d -s {session_name} bash {shlex.quote(script_path)}"
+
     # Run the launch command
     stdout, stderr, rc = run_cmd(tmux_cmd, timeout=30)
     
@@ -427,6 +450,7 @@ def cmd_launch_run(args):
         "config_path": config_path,
         "preset": preset_name,
         "command": launch_cmd,
+        "script_path": script_path,
     })
     
     output(result)
@@ -544,7 +568,17 @@ def cmd_launch_restart(args):
     
     # Kill existing session
     kill_session(session)
-    
+
+    # Clean up the old launch script file (see cmd_launch_run — restart goes
+    # through kill_session() directly rather than kill_session_cmd(), so it
+    # must repeat the same cleanup or leak one .sh file per restart).
+    old_script_path = metadata.get("script_path")
+    if old_script_path and os.path.exists(old_script_path):
+        try:
+            os.remove(old_script_path)
+        except OSError:
+            pass
+
     # Re-launch based on session type
     if metadata.get("type") == "foxglove":
         port = metadata.get("port", 8765)

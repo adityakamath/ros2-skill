@@ -15,6 +15,23 @@ from ros2_utils import ROS2CLI, output, ros2_context
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+# ros2doctor checks that make an external network call (fetching the
+# rosdistro package index to compare installed vs. latest versions/distro
+# support status) rather than just inspecting the local system or ROS graph.
+# --exclude-packages skips these — originally it only matched checks whose
+# entry-point name contained "package" (i.e. just PackageCheck), which missed
+# PlatformCheck: it also calls rosdistro.get_index() to look up distro
+# support status, confirmed via its source
+# (ros2doctor/api/platform.py:_check_platform_helper) and by timing it
+# standalone (~1.3s, comparable to PackageCheck's ~2.3s — both dominated by
+# the network round-trip, not local computation).
+_NETWORK_BOUND_CHECKS = frozenset({"packagecheck", "platformcheck"})
+
+
+def _is_network_bound_check(ep_name):
+    return ep_name.lower() in _NETWORK_BOUND_CHECKS
+
+
 def _get_meta():
     """Return importlib.metadata module, or None if unavailable."""
     try:
@@ -53,7 +70,7 @@ def _run_checks(exclude_packages=False):
 
     results = []
     for ep in eps:
-        if exclude_packages and "package" in ep.name.lower():
+        if exclude_packages and _is_network_bound_check(ep.name):
             continue
         try:
             result = ep.load()().check()
@@ -75,7 +92,7 @@ def _run_reports(exclude_packages=False):
 
     reports = []
     for ep in eps:
-        if exclude_packages and "package" in ep.name.lower():
+        if exclude_packages and _is_network_bound_check(ep.name):
             continue
         try:
             report = ep.load()().report()

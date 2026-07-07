@@ -8,8 +8,8 @@ import time
 import rclpy
 
 from ros2_utils import (
-    ROS2CLI, get_srv_type, msg_to_dict, dict_to_msg, output,
-    ros2_context, _get_service_event_qos,
+    ROS2CLI, call_ros_service, get_srv_type, msg_to_dict, dict_to_msg, output,
+    ros2_context, _get_service_event_qos, try_fastd,
     is_at_least, get_ros_distro,
 )
 from ros2_topic import TopicSubscriber
@@ -161,12 +161,27 @@ def cmd_services_call(args):
         return output({"error": f"Invalid JSON request: {e}"})
 
     retries = getattr(args, 'retries', 1)
+    service_type = service_type_override or args.service_type
+
+    # Fast path: persistent daemon, no rclpy.init() for this call at all.
+    # retries > 1 falls through to the normal path — the daemon's handler
+    # only attempts a single call, matching call_ros_service's default.
+    if retries == 1:
+        daemon_resp = try_fastd("call_service", {
+            "service_name": args.service,
+            "srv_type": service_type,
+            "request_data": request_data,
+            "timeout": args.timeout,
+        }, timeout=args.timeout + 2.0)
+        if daemon_resp is not None:
+            if "error" in daemon_resp:
+                return output({"service": args.service, "success": False, **daemon_resp})
+            return output({"service": args.service, "success": True, "result": daemon_resp["result"]})
 
     try:
         with ros2_context():
             node = ROS2CLI()
 
-            service_type = service_type_override or args.service_type
             if not service_type:
                 for name, types in node.get_service_names():
                     if name == args.service:
@@ -183,34 +198,12 @@ def cmd_services_call(args):
             if not srv_class:
                 return output({"error": f"Cannot load service type: {service_type}"})
 
-            client = node.create_client(srv_class, args.service)
-            timeout = args.timeout
+            request = dict_to_msg(srv_class.Request, request_data)
+            result, err = call_ros_service(node, srv_class, args.service, request, args.timeout, retries)
 
-            for attempt in range(retries):
-                last_attempt = (attempt == retries - 1)
-
-                if not client.wait_for_service(timeout_sec=timeout):
-                    if not last_attempt:
-                        continue
-                    return output({"error": f"Service not available: {args.service}"})
-
-                request = dict_to_msg(srv_class.Request, request_data)
-                future = client.call_async(request)
-
-                end_time = time.time() + timeout
-                while time.time() < end_time and not future.done():
-                    rclpy.spin_once(node, timeout_sec=0.1)
-
-                if future.done():
-                    result_dict = msg_to_dict(future.result())
-                    output({"service": args.service, "success": True, "result": result_dict})
-                    return
-
-                future.cancel()
-                if not last_attempt:
-                    continue
-
-        output({"service": args.service, "success": False, "error": "Service call timeout"})
+        if err:
+            return output({"service": args.service, "success": False, **err})
+        output({"service": args.service, "success": True, "result": msg_to_dict(result)})
     except Exception as e:
         output({"error": str(e)})
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-05-12T23:45:50.373354+00:00",
+  "generated_at": "2026-06-03T22:52:59.535113+00:00",
   "robot_name": "lekiwi",
   "workspace": "/home/ubuntu/ros2_ws",
   "ros_distro": "kilted",
@@ -41,12 +41,15 @@
     ],
     "robot_type_evidence": {
       "mobile_base": [
-        "topic:/base_controller/cmd_vel"
+        "topic:/cmd_vel_teleop",
+        "topic:/cmd_vel_nav",
+        "topic:/base_controller/cmd_vel",
+        "ament:nav2"
       ],
       "pantilt": [
-        "src:lekiwi.launch.py",
         "src:laser.launch.py",
-        "src:lekiwi.launch.py"
+        "src:lekiwi.launch.py",
+        "src:setup.py"
       ]
     },
     "packages": [
@@ -60,12 +63,14 @@
       "sts_hardware_interface"
     ],
     "launch_files": [
+      "control.launch.py",
+      "ekf.launch.py",
       "laser.launch.py",
       "lekiwi.launch.py",
-      "lekiwi_control/lekiwi.launch.py",
-      "nav.launch.py",
+      "nav2.launch.py",
+      "navigation.launch.py",
       "oakd.launch.py",
-      "webcam.launch.py"
+      "slam.launch.py"
     ],
     "urdf_files": [
       "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_description/urdf/base/base.common.xacro",
@@ -86,14 +91,14 @@
     ],
     "velocity_topics": [
       {
-        "topic": "/base_controller/cmd_vel",
+        "topic": "/cmd_vel_teleop",
         "type": "geometry_msgs/msg/TwistStamped"
       }
     ],
     "has_lidar": true,
     "has_camera": true,
     "has_imu": true,
-    "has_nav2": false,
+    "has_nav2": true,
     "safety_limits": {
       "sources": [
         {
@@ -106,6 +111,13 @@
         {
           "file": "control.yaml",
           "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/k2/control.yaml",
+          "linear_x": 0.2,
+          "linear_y": 0.17,
+          "angular_z": 0.68
+        },
+        {
+          "file": "nav2.yaml",
+          "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/config/nav2/nav2.yaml",
           "linear_x": 0.2,
           "linear_y": 0.17,
           "angular_z": 0.68
@@ -237,38 +249,6 @@
         ]
       },
       {
-        "joint": "camera_joint",
-        "link": "camera_link",
-        "sensor_type": "camera",
-        "xyz": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "rpy": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "image_rotation_deg": 0
-      },
-      {
-        "joint": "camera_frame_joint",
-        "link": "camera",
-        "sensor_type": "camera",
-        "xyz": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "rpy": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "image_rotation_deg": 0
-      },
-      {
         "joint": "oak_imu_frame_joint",
         "link": "oak_imu_frame",
         "sensor_type": "imu",
@@ -287,14 +267,15 @@
     "drive_type": "holonomic_omni",
     "kinematics": {
       "wheel_offset": 1.0471975511965976,
-      "robot_radius": 0.132239,
+      "robot_radius": 0.17,
       "wheel_radius": 0.051
     },
     "controller_update_rate_hz": 50,
-    "cmd_vel_topic": "/base_controller/cmd_vel",
+    "cmd_vel_topic": "/cmd_vel_teleop",
     "odom_frame_ids": {
       "odom_frame_id": "odom",
-      "base_frame_id": "base_footprint"
+      "base_frame_id": "base_footprint",
+      "odom_topic": "/odometry/filtered"
     },
     "hardware_interfaces": [
       {
@@ -378,6 +359,7 @@
           "use_sync_write": "$(arg use_sync_write)",
           "enable_mock_mode": "$(arg use_mock)",
           "max_velocity_steps": "${sts_max_velocity_steps}",
+          "proportional_vel_max": "$(arg proportional_vel_max)",
           "reset_states_on_activate": "true"
         }
       }
@@ -416,33 +398,12 @@
         "i_enable_imu": true,
         "i_enable_vio": true,
         "i_fps": 30.0
-      },
-      {
-        "config_file": "webcam.yaml",
-        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml"
-      },
-      {
-        "config_file": "webcam_calibration.yaml",
-        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml",
-        "image_width": 640,
-        "image_height": 480,
-        "camera_name": "USBCamera_USBCamera__base_axi_pcie_120000_rp1_usb_300000_1_1_0_32e6_9221_640x480",
-        "camera_matrix": [
-          719.9532032048179,
-          0.0,
-          341.729237923363,
-          0.0,
-          720.5131653458442,
-          194.1066634964482,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "distortion_model": "rational_polynomial"
       }
     ],
     "localization_config": {
-      "method": "ekf",
+      "method": "amcl",
+      "amcl_robot_model_type": "nav2_amcl::OmniMotionModel",
+      "amcl_scan_topic": "scan",
       "config_file": "ekf_odom.yaml",
       "frequency_hz": 50.0,
       "odom_frame": "odom",
@@ -454,9 +415,49 @@
         "odom0": "/base_controller/odom"
       }
     },
+    "nav2_config": {
+      "config_file": "nav2.yaml",
+      "planner_plugins": [
+        "GridBased"
+      ],
+      "planner_plugin_types": {
+        "GridBased": "nav2_smac_planner::SmacPlanner2D"
+      },
+      "controller_plugins": [
+        "FollowPath"
+      ],
+      "controller_plugin_types": {
+        "FollowPath": "nav2_mppi_controller::MPPIController"
+      },
+      "goal_checker_plugins": [
+        "goal_checker"
+      ],
+      "progress_checker_plugins": [
+        "progress_checker"
+      ],
+      "xy_goal_tolerance": 0.15,
+      "yaw_goal_tolerance": 0.25,
+      "behavior_plugins": [
+        "spin",
+        "backup",
+        "wait"
+      ],
+      "local_costmap_resolution": 0.05,
+      "global_costmap_resolution": 0.05,
+      "velocity_smoother_max_velocity": [
+        0.2,
+        0.17,
+        0.68
+      ],
+      "velocity_smoother_max_accel": [
+        1.0,
+        0.85,
+        3.4
+      ]
+    },
     "teleop_config": {
       "config_file": "teleop.yaml",
-      "cmd_vel_topic": "/base_controller/cmd_vel",
+      "cmd_vel_topic": "/cmd_vel_teleop",
       "msg_type": "geometry_msgs/msg/TwistStamped",
       "scales": {
         "scale_linear_x": 0.2,
@@ -508,8 +509,7 @@
         "laser_frame",
         "imu_link",
         "imu_frame",
-        "camera_link",
-        "camera",
+        "mic_link",
         "left_wheel_link",
         "back_wheel_link",
         "right_wheel_link",
@@ -527,44 +527,68 @@
     },
     "launch_configurations": {
       "config": {
-        "default": "base",
+        "default": "k2",
         "description": "Robot configuration: base, pantilt, or k2"
       },
       "custom_filter": {
         "default": "",
         "description": "(Optional) Name of custom filter config YAML in lekiwi_bringup/config/"
       },
-      "diagnostics": {
+      "control_diagnostics": {
         "default": "true",
-        "description": "Launch motor and IMU diagnostics nodes"
+        "description": "Launch motor and IMU diagnostics nodes in lekiwi_control"
+      },
+      "control_mock": {
+        "default": "",
+        "description": "Mock mode override (true/false) forwarded to lekiwi_control; empty means use urdf_config.yaml value"
       },
       "fusion_mode": {
         "default": "base",
-        "description": "EKF sensor fusion mode (passed to nav.launch.py): base = wheel odom + BNO055; imu = BNO055 only (test platform); odom = wheel odom only (mock / debug)."
+        "description": "EKF sensor fusion mode (passed to navigation.launch.py): base = wheel odom + BNO055; imu = BNO055 only (test platform); odom = wheel odom only (mock / debug)."
+      },
+      "joy": {
+        "default": "false",
+        "description": "Launch joy_node on the robot. Set true when the joystick is connected locally; leave false when /joy is published from a remote device."
+      },
+      "map_name": {
+        "default": "",
+        "description": "Subdirectory name of the map to load for localize or amcl modes (e.g. livingroom1). Required for localize and amcl."
       },
       "pointcloud": {
         "default": "false",
         "description": "Enable RGBD point cloud output from OAK-D (uses oakd_vio_pcl.yaml)"
       },
-      "pan_center_steps": {
-        "default": "2048",
-        "description": "Encoder step that maps to 0 rad for the pan joint"
+      "slam_mode": {
+        "default": "map",
+        "description": "Navigation mode: map = build new map with slam_toolbox + map_saver_node; localize = localize with slam_toolbox (no saving); amcl = localize with AMCL + nav2_map_server (no saving)."
       },
-      "serial_port": {
-        "default": "/dev/ttySERVO",
-        "description": "Serial port for STS motor communication"
+      "use_sim_time": {
+        "default": "false",
+        "description": "Use /clock from a simulator instead of system time (forwarded to control & navigation)."
       },
-      "teleop_config": {
-        "default": "pkg:lekiwi_control/config/$config/teleop.yaml",
-        "description": "Path to the joy_teleop configuration file"
+      "diagnostics": {
+        "default": "true",
+        "description": "Launch motor and IMU diagnostics nodes"
       },
-      "tilt_center_steps": {
-        "default": "2646",
-        "description": "Encoder step that maps to 0 rad for the tilt joint"
+      "sts_serial_port": {
+        "default": "",
+        "description": "Serial port override; empty string means use urdf_config.yaml value"
       },
       "use_mock": {
-        "default": "false",
-        "description": "Use mock/simulation mode (no hardware required)"
+        "default": "",
+        "description": "Mock mode override (true/false); empty string means use urdf_config.yaml value"
+      },
+      "autostart": {
+        "default": "true",
+        "description": "Automatically activate the Nav2 lifecycle nodes on startup."
+      },
+      "log_level": {
+        "default": "info",
+        "description": "Log level for all Nav2 nodes (info | debug | warn | error)."
+      },
+      "params_file": {
+        "default": "$pkg_nav/config/nav2/nav2.yaml",
+        "description": "Full path to the Nav2 parameters YAML file. Defaults to lekiwi_navigation/config/nav2/nav2.yaml."
       }
     },
     "active_controllers": [
@@ -583,6 +607,40 @@
       "effort_controllers/JointGroupEffortController"
     ],
     "mock_hardware_available": true,
+    "maps": [
+      {
+        "file": "map.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/maps/2026_05_14_13_40_45/map.yaml",
+        "name": "map",
+        "type": "occupancy",
+        "resolution": 0.05,
+        "image": "map.pgm"
+      },
+      {
+        "file": "map.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/maps/2026_05_19_20_22_36/map.yaml",
+        "name": "map",
+        "type": "occupancy",
+        "resolution": 0.05,
+        "image": "map.pgm"
+      },
+      {
+        "file": "map.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/maps/livingroom1/map.yaml",
+        "name": "map",
+        "type": "occupancy",
+        "resolution": 0.05,
+        "image": "map.pgm"
+      },
+      {
+        "file": "map.yaml",
+        "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/maps/livingroom2/map.yaml",
+        "name": "map",
+        "type": "occupancy",
+        "resolution": 0.05,
+        "image": "map.pgm"
+      }
+    ],
     "imu_config": {
       "plugin": "bno055_hardware_interface/BNO055HardwareInterface",
       "state_interfaces": [
@@ -607,7 +665,6 @@
     },
     "package_dependencies": {
       "lekiwi_bringup": [
-        "camera_ros",
         "depthai_ros_driver",
         "laser_filters",
         "ldlidar_ros2",
@@ -618,20 +675,33 @@
         "bno055_hardware_interface",
         "controller_manager",
         "forward_command_controller",
+        "generate_parameter_library",
+        "geometry_msgs",
         "imu_sensor_broadcaster",
         "joint_state_broadcaster",
         "joy_teleop",
         "lekiwi_description",
         "omni_wheel_drive_controller",
+        "rclpy",
         "robot_state_publisher",
+        "ros2_control",
+        "ros2_controllers",
+        "std_srvs",
         "sts_hardware_interface",
+        "teleop_twist_keyboard",
         "xacro"
       ],
       "lekiwi_description": [
         "xacro"
       ],
       "lekiwi_navigation": [
-        "robot_localization"
+        "nav2_bringup",
+        "navigation2",
+        "rclpy",
+        "robot_localization",
+        "sensor_msgs",
+        "slam_toolbox",
+        "tf2_ros"
       ]
     }
   },
@@ -641,7 +711,7 @@
       "package": "lekiwi_bringup",
       "launch_args": {
         "config": {
-          "default": "base",
+          "default": "k2",
           "description": "Robot configuration: base, pantilt, or k2"
         },
         "custom_filter": {
@@ -653,9 +723,7 @@
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml"
       ]
     },
     "lekiwi.launch.py": {
@@ -663,20 +731,40 @@
       "package": "lekiwi_bringup",
       "launch_args": {
         "config": {
-          "default": "base",
+          "default": "k2",
           "description": "Bringup configuration: base, pantilt, or k2"
         },
-        "diagnostics": {
+        "control_diagnostics": {
           "default": "true",
-          "description": "Launch motor and IMU diagnostics nodes"
+          "description": "Launch motor and IMU diagnostics nodes in lekiwi_control"
+        },
+        "control_mock": {
+          "default": "",
+          "description": "Mock mode override (true/false) forwarded to lekiwi_control; empty means use urdf_config.yaml value"
         },
         "fusion_mode": {
           "default": "base",
-          "description": "EKF sensor fusion mode (passed to nav.launch.py): base = wheel odom + BNO055; imu = BNO055 only (test platform); odom = wheel odom only (mock / debug)."
+          "description": "EKF sensor fusion mode (passed to navigation.launch.py): base = wheel odom + BNO055; imu = BNO055 only (test platform); odom = wheel odom only (mock / debug)."
+        },
+        "joy": {
+          "default": "false",
+          "description": "Launch joy_node on the robot. Set true when the joystick is connected locally; leave false when /joy is published from a remote device."
+        },
+        "map_name": {
+          "default": "",
+          "description": "Subdirectory name of the map to load for localize or amcl modes (e.g. livingroom1). Required for localize and amcl."
         },
         "pointcloud": {
           "default": "false",
           "description": "Enable RGBD point cloud output from OAK-D (uses oakd_vio_pcl.yaml)"
+        },
+        "slam_mode": {
+          "default": "map",
+          "description": "Navigation mode: map = build new map with slam_toolbox + map_saver_node; localize = localize with slam_toolbox (no saving); amcl = localize with AMCL + nav2_map_server (no saving)."
+        },
+        "use_sim_time": {
+          "default": "false",
+          "description": "Use /clock from a simulator instead of system time (forwarded to control & navigation)."
         }
       },
       "includes": [
@@ -688,9 +776,7 @@
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml"
       ]
     },
     "oakd.launch.py": {
@@ -706,54 +792,36 @@
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
         "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml"
       ]
     },
-    "webcam.launch.py": {
-      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/launch/webcam.launch.py",
-      "package": "lekiwi_bringup",
-      "yaml_files": [
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/laser_filter_k2.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/oakd_vio_pcl.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam.yaml",
-        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_bringup/config/webcam_calibration.yaml"
-      ]
-    },
-    "lekiwi_control/lekiwi.launch.py": {
-      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/launch/lekiwi.launch.py",
+    "control.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/launch/control.launch.py",
       "package": "lekiwi_control",
       "launch_args": {
         "config": {
-          "default": "base",
+          "default": "k2",
           "description": "Robot configuration to launch: base, pantilt, or k2"
         },
         "diagnostics": {
           "default": "true",
           "description": "Launch motor and IMU diagnostics nodes"
         },
-        "pan_center_steps": {
-          "default": "2048",
-          "description": "Encoder step that maps to 0 rad for the pan joint"
+        "joy": {
+          "default": "false",
+          "description": "Launch joy_node on this device. Set true when the joystick is connected locally; leave false when /joy is published from a remote device."
         },
-        "serial_port": {
-          "default": "/dev/ttySERVO",
-          "description": "Serial port for STS motor communication"
-        },
-        "teleop_config": {
-          "default": "pkg:lekiwi_control/config/$config/teleop.yaml",
-          "description": "Path to the joy_teleop configuration file"
-        },
-        "tilt_center_steps": {
-          "default": "2646",
-          "description": "Encoder step that maps to 0 rad for the tilt joint"
+        "sts_serial_port": {
+          "default": "",
+          "description": "Serial port override; empty string means use urdf_config.yaml value"
         },
         "use_mock": {
+          "default": "",
+          "description": "Mock mode override (true/false); empty string means use urdf_config.yaml value"
+        },
+        "use_sim_time": {
           "default": "false",
-          "description": "Use mock/simulation mode (no hardware required)"
+          "description": "Use /clock from a simulator instead of system time."
         }
       },
       "includes": [
@@ -762,15 +830,111 @@
           "package": "sts_hardware_interface",
           "file": "motor_diagnostics.launch.py"
         }
+      ],
+      "yaml_files": [
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/bno055_diagnostics.yaml",
+        "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_control/config/twist_switch.yaml"
       ]
     },
-    "nav.launch.py": {
-      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/launch/nav.launch.py",
+    "ekf.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/launch/ekf.launch.py",
       "package": "lekiwi_navigation",
       "launch_args": {
         "fusion_mode": {
           "default": "base",
-          "description": "EKF sensor fusion mode: base = wheel odom + BNO055 (ekf.yaml); imu = BNO055 only, no wheel odom (ekf_imu.yaml); odom = wheel odom only, no IMU (ekf_odom.yaml)."
+          "description": "EKF sensor fusion mode: base = wheel odom + BNO055 (ekf.yaml); imu = BNO055 only (ekf_imu.yaml); odom = wheel odom only (ekf_odom.yaml)."
+        },
+        "use_sim_time": {
+          "default": "false",
+          "description": "Use /clock from a simulator instead of system time."
+        }
+      }
+    },
+    "nav2.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/launch/nav2.launch.py",
+      "package": "lekiwi_navigation",
+      "launch_args": {
+        "autostart": {
+          "default": "true",
+          "description": "Automatically activate the Nav2 lifecycle nodes on startup."
+        },
+        "log_level": {
+          "default": "info",
+          "description": "Log level for all Nav2 nodes (info | debug | warn | error)."
+        },
+        "params_file": {
+          "default": "$pkg_nav/config/nav2/nav2.yaml",
+          "description": "Full path to the Nav2 parameters YAML file. Defaults to lekiwi_navigation/config/nav2/nav2.yaml."
+        },
+        "use_sim_time": {
+          "default": "false",
+          "description": "Use /clock from a simulator instead of system time."
+        }
+      }
+    },
+    "navigation.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/launch/navigation.launch.py",
+      "package": "lekiwi_navigation",
+      "launch_args": {
+        "fusion_mode": {
+          "default": "base",
+          "description": "EKF sensor fusion mode: base = wheel odom + BNO055 (ekf.yaml); imu = BNO055 only (ekf_imu.yaml); odom = wheel odom only (ekf_odom.yaml)."
+        },
+        "map_name": {
+          "default": "",
+          "description": "Subdirectory name under lekiwi_navigation/maps/ to load (e.g. livingroom). Required for localize and amcl modes."
+        },
+        "slam_mode": {
+          "default": "map",
+          "description": "Navigation mode: map = build new map with slam_toolbox + map_saver_node; localize = localize with slam_toolbox (no saving); amcl = localize with AMCL + nav2_map_server (no saving)."
+        },
+        "use_sim_time": {
+          "default": "false",
+          "description": "Use /clock from a simulator instead of system time."
+        }
+      },
+      "includes": [
+        {
+          "source": "$pkg_nav/launch/ekf.launch.py",
+          "file": "ekf.launch.py",
+          "args_forwarded": {
+            "fusion_mode": "$fusion_mode",
+            "use_sim_time": "$use_sim_time"
+          }
+        },
+        {
+          "source": "$pkg_nav/launch/slam.launch.py",
+          "file": "slam.launch.py",
+          "args_forwarded": {
+            "slam_mode": "$slam_mode",
+            "map_name": "$map_name",
+            "use_sim_time": "$use_sim_time"
+          }
+        },
+        {
+          "source": "$pkg_nav/launch/nav2.launch.py",
+          "file": "nav2.launch.py",
+          "args_forwarded": {
+            "use_sim_time": "$use_sim_time"
+          }
+        }
+      ]
+    },
+    "slam.launch.py": {
+      "path": "/home/ubuntu/ros2_ws/src/lekiwi_ros2/lekiwi_navigation/launch/slam.launch.py",
+      "package": "lekiwi_navigation",
+      "launch_args": {
+        "map_name": {
+          "default": "",
+          "description": "Subdirectory name of the map to load for localize or amcl mode (e.g. livingroom1). The full path is constructed automatically."
+        },
+        "slam_mode": {
+          "default": "map",
+          "description": "map = build new map; localize = slam_toolbox localization; amcl = AMCL on static map."
+        },
+        "use_sim_time": {
+          "default": "false",
+          "description": "Use /clock from a sim instead of system time."
         }
       }
     }

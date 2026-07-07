@@ -9,6 +9,10 @@ service API, which is not reliably discoverable via rclpy on all RMW
 implementations; they will be added when subprocess delegation is permitted.
 """
 
+import os
+import shlex
+import tempfile
+
 from ros2_utils import (
     output,
     ROS2CLI,
@@ -17,12 +21,12 @@ from ros2_utils import (
     generate_session_name,
     session_exists,
     source_local_ws,
-    quote_path,
     run_cmd,
     check_session_alive,
     save_session,
     kill_session,
     delete_session_metadata,
+    get_session_metadata,
 )
 
 
@@ -362,6 +366,13 @@ def _cleanup_standalone_session(session_name):
     subsequent retry.  Phase 1 failures (tmux start itself failed or the
     session check failed) are already clean — no session exists to kill.
     """
+    metadata = get_session_metadata(session_name)
+    script_path = (metadata or {}).get("script_path")
+    if script_path and os.path.exists(script_path):
+        try:
+            os.remove(script_path)
+        except OSError:
+            pass
     kill_session(session_name)
     delete_session_metadata(session_name)
 
@@ -444,18 +455,30 @@ def cmd_component_standalone(args):
         ws_path = None
 
     # ── Phase 1: start container in tmux ────────────────────────────────────
-    ros_cmd = (
-        f"ros2 run rclcpp_components {container_type} "
-        f"--ros-args -r __node:={container_node_name}"
-    )
-    quoted_ws = quote_path(ws_path) if ws_path else None
-    if quoted_ws:
-        tmux_cmd = (
-            f"tmux new-session -d -s {session_name} "
-            f"'bash -c \"source {quoted_ws} && {ros_cmd}\" 2>&1'"
-        )
-    else:
-        tmux_cmd = f"tmux new-session -d -s {session_name} '{ros_cmd} 2>&1'"
+    ros_cmd = shlex.join([
+        "ros2", "run", "rclcpp_components", container_type,
+        "--ros-args", "-r", f"__node:={container_node_name}",
+    ])
+
+    # Written to a script file rather than interpolated into nested
+    # shell-quoted strings (tmux single-quoted arg wrapping a bash -c
+    # double-quoted string) — same pattern as ros2_launch.py/ros2_run.py/
+    # ros2_tf.py/ros2_daemon.py. container_type/container_node_name are
+    # already sanitized to alphanumeric+underscore elsewhere in this
+    # function, so this wasn't exploitable, but kept consistent so this
+    # file isn't the odd one out if that sanitization is ever loosened.
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".launch_scripts")
+    os.makedirs(scripts_dir, exist_ok=True)
+    script_lines = ["#!/bin/bash", "set -e", "exec 2>&1"]
+    if ws_path:
+        script_lines.append(f"source {shlex.quote(ws_path)}")
+    script_lines.append(ros_cmd)
+    fd, script_path = tempfile.mkstemp(prefix=f"{session_name}_", suffix=".sh", dir=scripts_dir)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(script_lines) + "\n")
+    os.chmod(script_path, 0o700)
+
+    tmux_cmd = f"tmux new-session -d -s {session_name} bash {shlex.quote(script_path)}"
 
     _, stderr, rc = run_cmd(tmux_cmd, timeout=15)
     if rc != 0:
@@ -473,6 +496,12 @@ def cmd_component_standalone(args):
             "hint": "Check package is installed: ros2 pkg list | grep rclcpp_components",
         })
         return
+
+    # Save script_path now (before Phase 2) so _cleanup_standalone_session
+    # can find and remove it if Phase 2 fails partway through — the full
+    # metadata below only gets written on complete success. Overwritten by
+    # the fuller save_session() call further down if Phase 2 succeeds.
+    save_session(session_name, {"type": "component_standalone", "script_path": script_path})
 
     # ── Phase 2: wait for container service, then load ───────────────────────
     list_svc = f"{container_path}/list_nodes"
@@ -628,6 +657,7 @@ def cmd_component_standalone(args):
                 "container": container_path,
                 "container_type": container_type,
                 "command": ros_cmd,
+                "script_path": script_path,
             })
 
     except Exception as exc:

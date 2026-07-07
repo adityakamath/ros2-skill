@@ -1321,6 +1321,40 @@ def _detect_drive_type_from_plugin(plugin_str):
     return None
 
 
+# ros2_control controller types whose command topic follows the fixed,
+# well-documented convention "/<controller_name>/commands" with message type
+# std_msgs/msg/Float64MultiArray, ordered per the controller's configured
+# "joints" list. This is NOT runtime state — it's determined entirely by the
+# controller's name and type, both of which are static YAML config. There is
+# therefore no need to ever discover this topic live (topics find/type) when
+# the profile already has it; see SKILL.md / RULES-REFERENCE.md joint-command
+# fast path.
+_DIRECT_COMMAND_CONTROLLER_TYPES = frozenset({
+    "forward_command_controller/ForwardCommandController",
+    "position_controllers/JointGroupPositionController",
+    "velocity_controllers/JointGroupVelocityController",
+    "effort_controllers/JointGroupEffortController",
+})
+
+# Broadcaster controller types whose output topic follows the fixed
+# ros2_control convention "/<controller_name>/imu" — same reasoning as
+# _DIRECT_COMMAND_CONTROLLER_TYPES above: this is static config (the
+# controller's name + type), not runtime state, so it belongs in the
+# profile fast-path rather than behind a live 'topics find' call.
+_IMU_BROADCASTER_CONTROLLER_TYPES = frozenset({
+    "imu_sensor_broadcaster/IMUSensorBroadcaster",
+})
+
+# Same convention, different relative topic: gps_sensor_broadcaster publishes
+# on "~/gps/fix" (two segments, not one like IMU's "~/imu") — confirmed via
+# `strings libgps_sensor_broadcaster.so | grep gps` on the installed binary
+# (source wasn't available locally to read directly), not assumed by analogy
+# with IMU. Publishes sensor_msgs/msg/NavSatFix.
+_GPS_BROADCASTER_CONTROLLER_TYPES = frozenset({
+    "gps_sensor_broadcaster/GPSSensorBroadcaster",
+})
+
+
 def _extract_ros2_control_config(all_yaml_files):
     """Scan ros2_control YAML files and return drive/kinematics/odometry config.
 
@@ -1330,14 +1364,19 @@ def _extract_ros2_control_config(all_yaml_files):
       controller_update_rate_hz : int | None
       odom_frame_ids            : {odom_topic, base_frame_id, odom_frame_id} | None
       controller_plugins        : [str, ...]
+      joint_command_topics       : [{controller, type, topic, msg_type, joints,
+                                     interface_name}, ...] — see
+                                     _DIRECT_COMMAND_CONTROLLER_TYPES above.
     """
     drive_type = None
     kinematics = {}
     update_rate = None
     odom_ids = {}
     plugins = []
+    controller_types = {}   # controller name -> plugin type string
+    controller_joints = {}  # controller name -> {"joints": [...], "interface_name": str|None}
 
-    def _process(node, depth=0):
+    def _process(node, depth=0, parent_key=None):
         nonlocal drive_type, update_rate
         if not isinstance(node, dict) or depth > 8:
             return
@@ -1356,15 +1395,26 @@ def _extract_ros2_control_config(all_yaml_files):
                 for ctrl_k, ctrl_v in cm_params.items():
                     if isinstance(ctrl_v, dict):
                         ptype = ctrl_v.get("type", "")
+                        if not isinstance(ptype, str):
+                            ptype = ""
                         if ptype and ptype not in plugins:
                             plugins.append(ptype)
+                        if ptype:
+                            controller_types.setdefault(ctrl_k, ptype)
                         if drive_type is None and ptype:
                             drive_type = _detect_drive_type_from_plugin(ptype) or drive_type
 
-        # Any block with ros__parameters → kinematics keys + frame IDs
+        # Any block with ros__parameters → kinematics keys + frame IDs +
+        # (for a controller's own top-level block) its joints/interface_name.
         rp = node.get("ros__parameters")
         if isinstance(rp, dict):
             ptype = rp.get("type") or node.get("type") or ""
+            # "type" is also used for non-plugin numeric enums elsewhere in
+            # ROS 2 YAML configs (e.g. Nav2's costmap_filter_info_server
+            # "type: 0" for keepout vs "type: 1" for speed-limit) — guard
+            # against treating those as a controller/plugin type string.
+            if not isinstance(ptype, str):
+                ptype = ""
             if ptype and "/" in ptype and ptype not in plugins:
                 plugins.append(ptype)
             if drive_type is None and ptype:
@@ -1378,15 +1428,59 @@ def _extract_ros2_control_config(all_yaml_files):
                     odom_ids.setdefault("base_frame_id", v)
                 elif k in ("odom_topic", "odometry_topic") and isinstance(v, str) and v:
                     odom_ids.setdefault("odom_topic", v)
+            joints = rp.get("joints")
+            if parent_key and isinstance(joints, list) and joints:
+                controller_joints.setdefault(parent_key, {
+                    "joints": [str(j) for j in joints],
+                    "interface_name": rp.get("interface_name"),
+                })
 
         for k, v in node.items():
             if isinstance(v, dict):
-                _process(v, depth + 1)
+                _process(v, depth + 1, parent_key=k)
 
     for yf in all_yaml_files:
         data = _load_yaml(yf)
         if isinstance(data, dict):
             _process(data)
+
+    joint_command_topics = []
+    for name, ctype in controller_types.items():
+        if ctype not in _DIRECT_COMMAND_CONTROLLER_TYPES:
+            continue
+        joints_info = controller_joints.get(name)
+        if not joints_info:
+            continue
+        joint_command_topics.append({
+            "controller": name,
+            "type": ctype,
+            "topic": f"/{name}/commands",
+            "msg_type": "std_msgs/msg/Float64MultiArray",
+            "joints": joints_info["joints"],
+            "interface_name": joints_info.get("interface_name"),
+        })
+
+    imu_topics = []
+    for name, ctype in controller_types.items():
+        if ctype not in _IMU_BROADCASTER_CONTROLLER_TYPES:
+            continue
+        imu_topics.append({
+            "controller": name,
+            "type": ctype,
+            "topic": f"/{name}/imu",
+            "msg_type": "sensor_msgs/msg/Imu",
+        })
+
+    gps_topics = []
+    for name, ctype in controller_types.items():
+        if ctype not in _GPS_BROADCASTER_CONTROLLER_TYPES:
+            continue
+        gps_topics.append({
+            "controller": name,
+            "type": ctype,
+            "topic": f"/{name}/gps/fix",
+            "msg_type": "sensor_msgs/msg/NavSatFix",
+        })
 
     return {
         "drive_type": drive_type,
@@ -1394,6 +1488,9 @@ def _extract_ros2_control_config(all_yaml_files):
         "controller_update_rate_hz": update_rate,
         "odom_frame_ids": odom_ids if odom_ids else None,
         "controller_plugins": plugins,
+        "joint_command_topics": joint_command_topics,
+        "imu_topics": imu_topics,
+        "gps_topics": gps_topics,
     }
 
 
@@ -2342,15 +2439,23 @@ def _extract_package_dependencies(ws_packages):
 # First match wins; keywords are checked as substrings of the lowercased
 # child link name (e.g. "camera_link" → "camera", "lidar_front" → "lidar").
 _SENSOR_LINK_PATTERNS = [
-    ({"camera", "cam", "rgb", "color"},                                        "camera"),
-    ({"depth", "rgbd", "d435", "d415", "d455", "d457", "l515", "realsense"},  "depth_camera"),
+    # More specific keywords (imu, lidar, gps, gripper) are checked before the
+    # generic "camera" bucket. Vendor camera lines (e.g. Luxonis OAK) often
+    # name their IMU/model-origin child links with the same product prefix
+    # as the camera itself (e.g. "oak_imu_frame", "oak_link_model_origin"),
+    # so a bare vendor keyword like "oak" must not shadow those more specific
+    # matches — see the "oak_imu_frame" misclassification this ordering fixes.
+    ({"imu", "ahrs", "mpu", "bno", "vectornav", "xsens", "microstrain"},      "imu"),
     ({"lidar", "laser", "scan", "velodyne", "hokuyo", "rplidar", "lms",
       "vlp", "ouster", "livox", "hesai"},                                      "lidar"),
-    ({"imu", "ahrs", "mpu", "bno", "vectornav", "xsens", "microstrain"},      "imu"),
     ({"sonar", "ultrasonic", "ultrasound", "ping"},                            "sonar"),
     ({"gps", "gnss", "navsat"},                                                "gps"),
     ({"gripper", "hand", "finger", "ee_link", "tool_link", "eef",
       "end_effector"},                                                          "gripper"),
+    # depth_camera stays ahead of the generic camera bucket: a link like
+    # "depth_camera_link" contains "camera" too and must not be shadowed.
+    ({"depth", "rgbd", "d435", "d415", "d455", "d457", "l515", "realsense"},  "depth_camera"),
+    ({"camera", "cam", "rgb", "color", "oak", "luxonis", "depthai"},           "camera"),
 ]
 
 
@@ -2982,6 +3087,18 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     lidar_config = _extract_lidar_config(all_yaml_files)
     camera_configs = _extract_camera_configs(primary_yaml_files)
 
+    # Normalize the scan topic name from static YAML config into a
+    # ready-to-use, absolute topic name — same fast-path reasoning as
+    # cmd_vel_topic/joint_command_topics: this is static driver config, not
+    # runtime state, so it belongs in the profile instead of behind a live
+    # 'topics find sensor_msgs/msg/LaserScan' call.
+    lidar_scan_topic = None
+    for cfg in lidar_config:
+        topic_name = cfg.get("laser_scan_topic_name")
+        if topic_name:
+            lidar_scan_topic = topic_name if topic_name.startswith("/") else f"/{topic_name}"
+            break
+
     # --- 4e. Localization + Nav2 ---
     scan_steps.append("nav_config")
     localization_config = _extract_localization_config(all_yaml_files)
@@ -3227,6 +3344,10 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "controller_update_rate_hz": ros2_ctrl["controller_update_rate_hz"],
         "cmd_vel_topic": cmd_vel_topic,
         "odom_frame_ids": ros2_ctrl["odom_frame_ids"],
+        "joint_command_topics": ros2_ctrl["joint_command_topics"],
+        "imu_topics": ros2_ctrl["imu_topics"],
+        "gps_topics": ros2_ctrl["gps_topics"],
+        "lidar_scan_topic": lidar_scan_topic,
         "hardware_interfaces": hardware_interfaces,
         "lidar_config": lidar_config,
         "camera_configs": camera_configs,
@@ -3257,6 +3378,40 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 # Profile file I/O
 # ---------------------------------------------------------------------------
 
+def _select_default_profile():
+    """Return ``(robot_name, profile_dict)`` for the best available profile.
+
+    Shared selection logic used both by ``load_profile_summary()`` and by
+    ``cmd_profile_show`` when no explicit ``--name`` is given, so the two
+    call sites never disagree about which profile is "the" profile.
+
+    Selection strategy: try candidates in most-recently-modified order and
+    return the first one that actually parses as valid JSON with a non-empty
+    ``summary``. This means a corrupt or empty profile file never wins just
+    because it happens to tie or lead on mtime (mtime ties are common — any
+    two files written within the same filesystem timestamp resolution window
+    collide) — it is simply skipped in favor of the next-best candidate.
+
+    Returns ``(None, None)`` when no profile has been scanned yet, or none of
+    the profile files on disk are usable.
+    """
+    try:
+        if not _PROFILES_DIR.exists():
+            return None, None
+        profiles = sorted(_PROFILES_DIR.glob("*_profile.json"),
+                           key=lambda p: p.stat().st_mtime, reverse=True)
+        for p in profiles:
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if data.get("summary"):
+                return p.name[:-len("_profile.json")], data
+        return None, None
+    except Exception:
+        return None, None
+
+
 def load_profile_summary():
     """Return the ``summary`` dict of the best available robot profile, or ``None``.
 
@@ -3264,28 +3419,15 @@ def load_profile_summary():
     read profile context before executing a command.  It is intentionally
     silent — it never writes to stdout, never raises, and never blocks.
 
-    Selection strategy (first match wins):
-    1. The single profile in ``.profiles/`` when there is exactly one.
-    2. The most recently *modified* profile when there are several.
+    Selection strategy: see ``_select_default_profile()``.
 
     Returns ``None`` when:
     - No profile has been scanned yet (no ``.profiles/`` directory or no JSON
       files inside it).
-    - The profile file cannot be read or parsed.
+    - No profile file can be read, parsed, or has a non-empty summary.
     """
-    try:
-        if not _PROFILES_DIR.exists():
-            return None
-        profiles = sorted(_PROFILES_DIR.glob("*_profile.json"))
-        if not profiles:
-            return None
-        # Prefer single profile; otherwise pick the most recently written one.
-        chosen = profiles[0] if len(profiles) == 1 \
-            else max(profiles, key=lambda p: p.stat().st_mtime)
-        data = json.loads(chosen.read_text(encoding="utf-8"))
-        return data.get("summary")
-    except Exception:
-        return None
+    _, profile = _select_default_profile()
+    return profile.get("summary") if profile else None
 
 
 def _profile_path(name="robot"):
@@ -3505,6 +3647,16 @@ def cmd_profile_scan(args):
 
     distro = os.environ.get("ROS_DISTRO", "unknown")
 
+    # --- Daemon health check ---
+    # A dead ros2 daemon doesn't fail the scan loudly — the ament_index/
+    # package-discovery step below can instead hang or silently return a
+    # partial package set while blocked on daemon IPC, producing an
+    # incomplete profile with no visible error (this happened once already:
+    # a rescan silently missed pt_control's yaml_files because the daemon
+    # had died mid-session). Check and auto-restart before scanning.
+    from ros2_daemon import ensure_daemon_running
+    daemon_check = ensure_daemon_running()
+
     # --- Workspace discovery ---
     ws_path, ws_status = _discover_workspace(user_ws)
 
@@ -3556,6 +3708,7 @@ def cmd_profile_scan(args):
         "profile_file": profile_file,
         "workspace": ws_path,
         "workspace_status": ws_status,
+        "daemon_check": daemon_check,
         "pkg_filter": scan_result["pkg_filter"],
         "primary_packages": scan_result["primary_packages"],
         "dependency_packages": scan_result["dependency_packages"],
@@ -3578,15 +3731,21 @@ def cmd_profile_show(args):
     robot_name = getattr(args, "name", None) or "robot"
     section = getattr(args, "section", None)
 
-    # Try to infer robot name if 'robot' and a profile exists.
+    # No explicit --name: infer the best available profile via the same
+    # selection logic load_profile_summary() uses (most-recently-modified,
+    # valid-and-non-empty-summary wins), so this command and the internal
+    # Path A profile lookups never disagree about which profile is "the"
+    # profile when more than one exists in .profiles/.
     if robot_name == "robot":
-        if _PROFILES_DIR.exists():
-            profiles = sorted(_PROFILES_DIR.glob("*_profile.json"))
-            if len(profiles) == 1:
-                stem = profiles[0].name.replace("_profile.json", "")
-                robot_name = stem
+        inferred_name, inferred_profile = _select_default_profile()
+        if inferred_name is not None:
+            robot_name = inferred_name
+            profile = inferred_profile
+        else:
+            profile = _load_profile(robot_name)
+    else:
+        profile = _load_profile(robot_name)
 
-    profile = _load_profile(robot_name)
     if profile is None:
         output({
             "error": f"No profile found for robot '{robot_name}'.",
@@ -3621,6 +3780,9 @@ def cmd_profile_show(args):
             # annotations: free-text notes added by the user via 'profile annotate'.
             # Always included so agents see them at session-start without an extra call.
             "annotations": profile.get("annotations", []),
+            # camera_rotation_overrides: structured corrections added via
+            # 'profile set-camera-rotation', applied by 'topics capture-image'.
+            "camera_rotation_overrides": profile.get("camera_rotation_overrides", []),
             "detail_sections": list(profile.get("detail", {}).keys()),
             "hint": "Use --section <launch-filename> to load a launch file's full detail.",
         }
@@ -3691,6 +3853,93 @@ def cmd_profile_annotate(args):
     })
 
 
+_VALID_ROTATIONS = {0, 90, 180, -90}
+
+
+def cmd_profile_set_camera_rotation(args):
+    """Store a structured image-rotation override for a camera.
+
+    URDF-derived rotation (``sensor_mounts[].image_rotation_deg``, computed
+    from a mount joint's roll angle) is a *heuristic* — it is often wrong or
+    absent, because many camera URDFs encode the standard REP-103 body-frame
+    to optical-frame rotation on the same joint, which looks like a physical
+    orientation but isn't one. When a camera is physically mounted upside
+    down (or on its side) and the URDF doesn't capture that correctly, use
+    this command to record the correction directly instead of relying on
+    the heuristic.
+
+    This is a structured, machine-readable counterpart to ``profile
+    annotate`` — the free-text annotation is for humans/agents reading
+    ``profile show``; this override is what ``topics capture-image`` reads
+    to decide the rotation, so it needs an exact match string and a exact
+    degree value rather than natural language.
+
+    ``match`` is a case-insensitive substring checked against the image
+    topic being captured (e.g. "oak" matches "/oak/rgb/image_raw" and
+    "/oak/stereo/image_raw"). ``degrees`` must be one of 0, 90, 180, -90.
+    """
+    match = getattr(args, "match", None)
+    degrees = getattr(args, "degrees", None)
+
+    if not match or not match.strip():
+        return output({"error": "match text cannot be empty."})
+    if degrees not in _VALID_ROTATIONS:
+        return output({
+            "error": f"degrees must be one of {sorted(_VALID_ROTATIONS)}, got {degrees}",
+        })
+
+    robot_name = getattr(args, "name", None) or "robot"
+
+    existing = _load_profile(robot_name)
+    if existing is None:
+        if _PROFILES_DIR.exists():
+            profiles = sorted(_PROFILES_DIR.glob("*_profile.json"))
+            if len(profiles) == 1:
+                robot_name = profiles[0].name.replace("_profile.json", "")
+                existing = _load_profile(robot_name)
+
+    if existing is None:
+        return output({
+            "error": "No profile found to update.",
+            "hint": "Run: python3 ros2_cli.py profile scan [--workspace PATH]",
+        })
+
+    override = {
+        "added_at": datetime.now(timezone.utc).isoformat(),
+        "match": match.strip().lower(),
+        "degrees": degrees,
+        "note": getattr(args, "note", None),
+    }
+    overrides = existing.setdefault("camera_rotation_overrides", [])
+    # Replace any prior override with the same match string instead of
+    # accumulating duplicates — this command is meant to be corrected/re-run.
+    overrides[:] = [o for o in overrides if o.get("match") != override["match"]]
+    overrides.append(override)
+    _save_profile(existing, name=robot_name)
+
+    output({
+        "success": True,
+        "robot_name": robot_name,
+        "override": override,
+        "total_overrides": len(overrides),
+        "hint": "topics capture-image will now apply this rotation to any "
+                f"topic containing '{override['match']}'. Run 'profile show' "
+                "to see all overrides.",
+    })
+
+
+def load_camera_rotation_overrides():
+    """Return the list of camera rotation overrides for the best available profile.
+
+    Mirrors ``load_profile_summary()``: silent, never raises, never blocks.
+    Returns ``[]`` when no profile or no overrides exist.
+    """
+    _, profile = _select_default_profile()
+    if not profile:
+        return []
+    return profile.get("camera_rotation_overrides", []) or []
+
+
 def cmd_profile_rescan(args):
     """Rescan the robot workspace, updating the profile.
 
@@ -3748,6 +3997,9 @@ def cmd_profile_rescan(args):
     # Full rescan — delegate to scan.
     # Preserve any user-added annotations so they survive the rescan.
     preserved_annotations = (existing or {}).get("annotations", [])
+    # Same for camera rotation overrides — these correct URDF heuristics
+    # that a rescan cannot re-derive any better than it did the first time.
+    preserved_camera_overrides = (existing or {}).get("camera_rotation_overrides", [])
 
     args.name = robot_name
     if user_ws is None and existing:
@@ -3770,11 +4022,15 @@ def cmd_profile_rescan(args):
 
     cmd_profile_scan(args)
 
-    # Re-inject annotations into the freshly written profile (if any exist).
-    if preserved_annotations:
+    # Re-inject annotations and camera rotation overrides into the freshly
+    # written profile (if any exist).
+    if preserved_annotations or preserved_camera_overrides:
         refreshed = _load_profile(robot_name)
         if refreshed is not None:
-            refreshed["annotations"] = preserved_annotations
+            if preserved_annotations:
+                refreshed["annotations"] = preserved_annotations
+            if preserved_camera_overrides:
+                refreshed["camera_rotation_overrides"] = preserved_camera_overrides
             _save_profile(refreshed, name=robot_name)
 
 

@@ -2,7 +2,7 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.8] - 2026-05-20 (updated 2026-07-05)
+## [1.0.8] - 2026-05-20 (updated 2026-07-07)
 
 Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map lifecycle, and several quality-of-life improvements. **Note:** foxglove, system, and nav2 map/mode/localize commands are implemented and unit-tested but not validated on real hardware.
 
@@ -73,6 +73,40 @@ Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map
 - **`context --include-schemas`:** new opt-in flag; appends `schemas: {type_str: fields_dict}` to context output for every unique topic message type
 - **agentskills.io compliance:** `SKILL.md` trimmed to < 500 lines; `references/PROFILE.md` extracted for progressive disclosure; `evals/evals.json` added (8 agent-behaviour scenarios); `evals/eval_queries.json` added (22 trigger/no-trigger test cases)
 - **Exit codes:** `output()` now calls `sys.exit(1)` when the result contains an `"error"` key; exit 0 / 1 / 2 semantics documented in `--help`
+
+### New Commands (2026-07-07)
+
+- `daemon-fast start` / `daemon-fast stop` / `daemon-fast status` — manage the skill's own persistent rclpy node (`ros2_fastd.py`), distinct from the built-in `ros2 daemon`; accelerates hot-path commands by avoiding a fresh `rclpy.init()`/`shutdown()` (and RMW discovery) per call; always falls back safely to the normal per-process path when not running
+- `preflight motion --controller C --odom-topic T` — combined controller-active + odom-stationary check in a single node spin, replacing separate `control list-controllers` + `topics subscribe` calls before a motion command
+- `preflight joint-command --controller C --joint-state-topic T [--joints ...]` — same pattern for joint/pan-tilt/arm commands: controller-active + current joint positions in one spin
+- `profile set-camera-rotation <match> <degrees> [--note N]` — store a structured image-rotation override for a camera, keyed by a substring match against its capture topic; used by `topics capture-image` ahead of the URDF-derived heuristic, which is often wrong or absent for cameras whose mount joint only encodes the REP-103 optical-frame rotation
+
+### Changes (2026-07-07)
+
+- **`estop --verify-odom-topic T [--verify-timeout] [--velocity-threshold]`**, **`control switch-controllers --verify`**, **`lifecycle set --verify`**, **`params set --verify`** — each confirms its own post-action result (odom zero / controller states / lifecycle state / parameter readback) in the same node/process instead of requiring a second CLI call
+- **`topics capture-image`** — checks `camera_rotation_overrides` from the profile before falling back to the URDF `sensor_mounts` heuristic; output adds `rotation_source`
+- **`control list-controllers`**, **`topics subscribe`** (single-message case), **`services call`** (single attempt), **`params get`**, **`tf lookup`**, **`lifecycle get`**, **`lifecycle set`**, **`nodes list`**, **`nodes details`**, **`actions status`** — all now try the persistent fast daemon first when running, falling back unchanged when it isn't; end-to-end latency on a warm daemon drops from roughly 1-2.5s to ~0.25-0.35s per call
+- **Robot profile** — `_extract_ros2_control_config()` now also returns `joint_command_topics`, `imu_topics`, and `gps_topics` derived entirely from static controller-manager YAML, so preflight/motion checks no longer need live graph discovery for these; `_SENSOR_LINK_PATTERNS` reordered so IMU/lidar/sonar/gps/gripper are checked before the generic camera bucket, and `"oak"`/`"luxonis"`/`"depthai"` added as camera keywords
+- **`doctor --exclude-packages`** — now also skips `PlatformCheck` (distro-support lookup), which is network-bound the same way `PackageCheck` is but didn't match the old name-substring filter
+
+### Fixes (2026-07-07)
+
+- **Camera auto-rotation** — `topics capture-image` was not applying the expected rotation for cameras whose URDF mount joint only encodes the REP-103 optical-frame convention; fixed via the new `set-camera-rotation` override mechanism above
+- **`tf lookup` / `tf echo` / `tf monitor`** — replaced a single fixed `spin_once` with spin-until-found (matching `tf list`'s already-correct pattern); switched `node.get_clock().now()` to `rclpy.time.Time()` to avoid extrapolation errors; fixed an operator-precedence bug in `tf monitor`'s reference-frame auto-discovery that could pick up a nested `parent:` line instead of a top-level frame name
+- **`tf static`** — was completely non-functional: missing the `ros2 run tf2_ros` executable prefix (confirmed via `which`), and its session was untracked/unkillable; both fixed
+- **`nav2 costmap-clear`** — was calling the wrong hardcoded service type (`std_srvs/srv/Empty`); the real type is `nav2_msgs/srv/ClearEntireCostmap` (confirmed via `ros2 service type`); fixed and verified live
+- **`nav2 status`** — `collision_monitor: null` was ambiguous (couldn't distinguish "not running" from "running but no recent state-change message"); added `collision_monitor_publisher_present` and an explanatory `collision_monitor_note`
+- **Robot profile** — fixed a crash in `_extract_ros2_control_config()` on Nav2's integer `type: 0` controller-manager field (missing type guard, hit on live scans)
+
+### Security (2026-07-07)
+
+- **Command injection** — `launch new`, `run new`, `component standalone`, `foxglove start`, and `tf static` built their tmux/bash commands via nested shell-string interpolation (tmux single-quote wrapping a `bash -c` double-quoted string, itself inside a `shell=True` call); a value containing an embedded single quote could break out and run arbitrary commands. Confirmed exploitable with a crafted `map_name:=x'; touch /tmp/PWNED; echo '` payload. Fixed universally by writing the command to a script file (`.launch_scripts/`) and executing it by path instead of interpolating strings — `shlex.quote()`/`shlex.join()` alone does not fix this, since it's correct for one shell-parsing pass but the string here is parsed twice
+
+### Performance (2026-07-07)
+
+- **Persistent fast daemon** (`ros2_fastd.py`, new) — a long-lived background process holding one warm rclpy node and a persistent TF buffer, reachable over a Unix domain socket; used automatically (with safe fallback) by the ten commands listed above
+- **Lazy rclpy import** — `ros2_utils.py` previously imported `rclpy`/`Node`/qos types unconditionally at module load time (~0.9s), paid by every single CLI invocation regardless of whether the fast daemon handled the request; now deferred to first actual use. `ros2_cli.py`'s dispatch table was similarly changed from eager `from ros2_X import ...` for all ~25 command modules to lazy `importlib`-based resolution of only the one module a given command needs. Net effect: `ros2_cli.py`'s own import time dropped from ~0.72s to ~0.10s
+- **Internal** — consolidated five duplicate wait/call/retry service-call loops (`ros2_control`, `ros2_param`, `ros2_nav2`, `ros2_lifecycle`, `ros2_service`) into one shared `call_ros_service()` in `ros2_utils.py`
 
 ---
 
