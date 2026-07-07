@@ -2,7 +2,7 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [1.0.8] - 2026-05-20 (updated 2026-07-07)
+## [1.0.8] - 2026-05-20 (updated 2026-07-08)
 
 Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map lifecycle, and several quality-of-life improvements. **Note:** foxglove, system, and nav2 map/mode/localize commands are implemented and unit-tested but not validated on real hardware.
 
@@ -109,6 +109,7 @@ Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map
 - **Internal** — consolidated five duplicate wait/call/retry service-call loops (`ros2_control`, `ros2_param`, `ros2_nav2`, `ros2_lifecycle`, `ros2_service`) into one shared `call_ros_service()` in `ros2_utils.py`
 - **`nodes kill`** — replaced `pkill -f`, which hangs indefinitely on this host, with a direct `/proc` scan + `os.kill()`; also capped the lifecycle-shutdown probe at 2s (was up to the full `--timeout`, default 10s) and made the post-kill verify loop reuse one rclpy session (or the fast daemon) instead of re-initializing per poll
 - **`tf monitor`** — fixed an unhandled exception from `all_frames_as_yaml()` crashing the whole command instead of returning a clean error
+- **`launch kill` / `run kill` / `component kill` / `foxglove stop`** — `kill_session()` used a bare `tmux kill-session`, which sends SIGHUP; `ros2 launch` only handles SIGINT/SIGTERM to run its shutdown sequence, so hardware interface cleanup (e.g. releasing servo torque) was silently skipped, leaving motors locked after a kill. Now sends Ctrl-C (SIGINT) first and waits up to 10s for graceful exit before falling back to a hard kill. Confirmed live on hardware.
 
 ---
 
