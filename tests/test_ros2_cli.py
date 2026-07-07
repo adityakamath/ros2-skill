@@ -26,6 +26,35 @@ def check_rclpy_available():
         return False
 
 
+def resolve_dispatch_target(handler):
+    """Resolve a DISPATCH value to its underlying callable.
+
+    ros2_cli.DISPATCH values are either a direct callable (the handful of
+    commands defined in ros2_cli.py itself: cmd_version, cmd_context,
+    cmd_nav2_map, cmd_nav2_mode) or a ``(module_name, function_name)``
+    string pair resolved lazily via importlib in main() — used for every
+    command implemented in a domain module, so that module's import (and
+    any rclpy submodules it pulls in) isn't paid until that specific
+    command actually runs. This helper resolves either form to a real
+    callable so tests can validate the target exists without caring which
+    form a given entry takes.
+    """
+    if callable(handler):
+        return handler
+    import importlib
+    module_name, func_name = handler
+    module = importlib.import_module(module_name)
+    return getattr(module, func_name)
+
+
+def dispatch_targets_equal(a, b):
+    """True if two DISPATCH values (callable or (module, func) tuple) refer
+    to the same underlying function — used for alias checks instead of
+    ``assertIs``, since two equal-content tuple literals aren't guaranteed
+    to be the same object."""
+    return resolve_dispatch_target(a) is resolve_dispatch_target(b)
+
+
 # ---------------------------------------------------------------------------
 # Gap 1 — rclpy mock infrastructure
 #
@@ -245,6 +274,13 @@ MINIMAL_ARGS = [
     ("daemon",   "status",   ["daemon", "status"]),
     ("daemon",   "start",    ["daemon", "start"]),
     ("daemon",   "stop",     ["daemon", "stop"]),
+    # daemon-fast
+    ("daemon-fast", "start",  ["daemon-fast", "start"]),
+    ("daemon-fast", "stop",   ["daemon-fast", "stop"]),
+    ("daemon-fast", "status", ["daemon-fast", "status"]),
+    # preflight
+    ("preflight", "motion",         ["preflight", "motion", "--controller", "c", "--odom-topic", "/odom"]),
+    ("preflight", "joint-command",  ["preflight", "joint-command", "--controller", "c"]),
     # profile
     ("profile",  "scan",     ["profile", "scan"]),
     ("profile",  "show",     ["profile", "show"]),
@@ -252,6 +288,7 @@ MINIMAL_ARGS = [
     ("profile",  "list",     ["profile", "list"]),
     ("profile",  "ls",       ["profile", "ls"]),
     ("profile",  "annotate", ["profile", "annotate", "test annotation"]),
+    ("profile",  "set-camera-rotation", ["profile", "set-camera-rotation", "oak", "90"]),
     # nav2
     ("nav2", "go",           ["nav2", "go", "1.0", "2.0"]),
     ("nav2", "rotate",       ["nav2", "rotate", "90"]),
@@ -344,7 +381,7 @@ class TestDispatchTable(unittest.TestCase):
     def test_dispatch_table(self):
         # All keys callable
         for k, h in self.ros2_cli.DISPATCH.items():
-            self.assertTrue(callable(h), f"{k} not callable")
+            self.assertTrue(callable(resolve_dispatch_target(h)), f"{k} not callable or resolvable")
         
         # Spot check key groups
         D = self.ros2_cli.DISPATCH
@@ -360,12 +397,12 @@ class TestDispatchTable(unittest.TestCase):
         self.assertIn(("run", "new"), D)
         
         # Verify specific aliases
-        self.assertIs(D[("lifecycle", "ls")], D[("lifecycle", "list")])
-        self.assertIs(D[("interface", "ls")], D[("interface", "list")])
-        self.assertIs(D[("tf", "ls")], D[("tf", "list")])
-        self.assertIs(D[("tf", "get")], D[("tf", "lookup")])
-        self.assertIs(D[("launch", "ls")], D[("launch", "list")])
-        self.assertIs(D[("run", "ls")], D[("run", "list")])
+        self.assertTrue(dispatch_targets_equal(D[("lifecycle", "ls")], D[("lifecycle", "list")]))
+        self.assertTrue(dispatch_targets_equal(D[("interface", "ls")], D[("interface", "list")]))
+        self.assertTrue(dispatch_targets_equal(D[("tf", "ls")], D[("tf", "list")]))
+        self.assertTrue(dispatch_targets_equal(D[("tf", "get")], D[("tf", "lookup")]))
+        self.assertTrue(dispatch_targets_equal(D[("launch", "ls")], D[("launch", "list")]))
+        self.assertTrue(dispatch_targets_equal(D[("run", "ls")], D[("run", "list")]))
 
 
 
@@ -463,8 +500,8 @@ class TestDoctorParsing(unittest.TestCase):
         
         # Dispatch identity
         D = self.ros2_cli.DISPATCH
-        self.assertIs(D[("wtf", None)], D[("doctor", None)])
-        self.assertIs(D[("wtf", "hello")], D[("doctor", "hello")])
+        self.assertTrue(dispatch_targets_equal(D[("wtf", None)], D[("doctor", None)]))
+        self.assertTrue(dispatch_targets_equal(D[("wtf", "hello")], D[("doctor", "hello")]))
 
 
 
@@ -492,7 +529,7 @@ class TestInterfaceParsing(unittest.TestCase):
         
         # dispatch
         D = self.ros2_cli.DISPATCH
-        self.assertIs(D[("interface", "ls")], D[("interface", "list")])
+        self.assertTrue(dispatch_targets_equal(D[("interface", "ls")], D[("interface", "list")]))
         self.assertIsNot(D[("params", "preset-save")], D[("params", "preset-load")])
 
 
@@ -532,8 +569,8 @@ class TestDiagnosticsParsing(unittest.TestCase):
         self.assertEqual(args.max_messages, 20)
         # Dispatch
         D = self.ros2_cli.DISPATCH
-        self.assertTrue(callable(D[("topics", "diag-list")]))
-        self.assertTrue(callable(D[("topics", "diag")]))
+        self.assertTrue(callable(resolve_dispatch_target(D[("topics", "diag-list")])))
+        self.assertTrue(callable(resolve_dispatch_target(D[("topics", "diag")])))
         self.assertIsNot(D[("topics", "diag-list")], D[("topics", "diag")])
         # Constants
         self.assertIn("diagnostic_msgs/msg/DiagnosticArray", self.ros2_topic.DIAG_TYPES)
@@ -583,8 +620,8 @@ class TestBatteryParsing(unittest.TestCase):
         self.assertEqual(args.duration, 3.5)
         self.assertEqual(args.max_messages, 5)
         D = self.ros2_cli.DISPATCH
-        self.assertTrue(callable(D[("topics", "battery-list")]))
-        self.assertTrue(callable(D[("topics", "battery")]))
+        self.assertTrue(callable(resolve_dispatch_target(D[("topics", "battery-list")])))
+        self.assertTrue(callable(resolve_dispatch_target(D[("topics", "battery")])))
         self.assertIn("sensor_msgs/msg/BatteryState", self.ros2_topic.BATTERY_TYPES)
         for code, name in [(1, "CHARGING"), (2, "DISCHARGING")]:
             self.assertEqual(self.ros2_topic._parse_battery_state({"power_supply_status": code})["status_name"], name)
@@ -681,10 +718,10 @@ class TestTFParsing(unittest.TestCase):
         self.assertEqual(p.parse_args(["tf", "ls"]).subcommand, "ls")
         self.assertEqual(p.parse_args(["tf", "get", "s", "t"]).subcommand, "get")
         D = self.ros2_cli.DISPATCH
-        self.assertIs(D[("tf", "ls")], D[("tf", "list")])
-        self.assertIs(D[("tf", "get")], D[("tf", "lookup")])
+        self.assertTrue(dispatch_targets_equal(D[("tf", "ls")], D[("tf", "list")]))
+        self.assertTrue(dispatch_targets_equal(D[("tf", "get")], D[("tf", "lookup")]))
         for key in [k for k in D if k[0] == "tf"]:
-            self.assertTrue(callable(D[key]))
+            self.assertTrue(callable(resolve_dispatch_target(D[key])))
 
 
 class TestLaunchParsing(unittest.TestCase):
@@ -710,9 +747,9 @@ class TestLaunchParsing(unittest.TestCase):
         self.assertEqual(p.parse_args(["launch", "restart", "s"]).session, "s")
         self.assertEqual(p.parse_args(["launch", "foxglove", "9000"]).port, 9000)
         D = self.ros2_cli.DISPATCH
-        self.assertIs(D[("launch", "ls")], D[("launch", "list")])
+        self.assertTrue(dispatch_targets_equal(D[("launch", "ls")], D[("launch", "list")]))
         for key in [k for k in D if k[0] == "launch"]:
-            self.assertTrue(callable(D[key]))
+            self.assertTrue(callable(resolve_dispatch_target(D[key])))
 
 class TestRunParsing(unittest.TestCase):
     """Parser argument and DISPATCH wiring tests for the run subcommands."""
@@ -736,9 +773,9 @@ class TestRunParsing(unittest.TestCase):
         self.assertEqual(p.parse_args(["run", "kill", "s"]).session, "s")
         self.assertEqual(p.parse_args(["run", "restart", "s"]).session, "s")
         D = self.ros2_cli.DISPATCH
-        self.assertIs(D[("run", "ls")], D[("run", "list")])
+        self.assertTrue(dispatch_targets_equal(D[("run", "ls")], D[("run", "list")]))
         for key in [k for k in D if k[0] == "run"]:
-            self.assertTrue(callable(D[key]))
+            self.assertTrue(callable(resolve_dispatch_target(D[key])))
 
 
 class TestPublishUntilParsing(unittest.TestCase):
@@ -779,7 +816,7 @@ class TestPublishUntilParsing(unittest.TestCase):
         # Dispatch
         key = ("topics", "publish-until")
         self.assertIn(key, self.ros2_cli.DISPATCH)
-        self.assertTrue(callable(self.ros2_cli.DISPATCH[key]))
+        self.assertTrue(callable(resolve_dispatch_target(self.ros2_cli.DISPATCH[key])))
 
 
 class TestRotationMath(unittest.TestCase):
@@ -829,8 +866,8 @@ class TestControlParsing(unittest.TestCase):
         self.assertEqual(p.parse_args(["control", "load", "c"]).name, "c")
         self.assertEqual(p.parse_args(["control", "unload", "c"]).name, "c")
         D = self.ros2_cli.DISPATCH
-        self.assertIs(D[("control", "load")], D[("control", "load-controller")])
-        self.assertIs(D[("control", "unload")], D[("control", "unload-controller")])
+        self.assertTrue(dispatch_targets_equal(D[("control", "load")], D[("control", "load-controller")]))
+        self.assertTrue(dispatch_targets_equal(D[("control", "unload")], D[("control", "unload-controller")]))
         self.assertTrue(p.parse_args(["control", "reload-controller-libraries", "--force-kill"]).force_kill)
         self.assertEqual(p.parse_args(["control", "set-controller-state", "c", "active"]).state, "active")
         self.assertEqual(
@@ -845,7 +882,7 @@ class TestControlParsing(unittest.TestCase):
         self.assertEqual(args3.output, "o.pdf")
         self.assertEqual(args3.channel_id, "1")
         for key in [k for k in D if k[0] == "control"]:
-            self.assertTrue(callable(D[key]))
+            self.assertTrue(callable(resolve_dispatch_target(D[key])))
 
 
 class TestBagParsing(unittest.TestCase):
@@ -871,7 +908,7 @@ class TestBagParsing(unittest.TestCase):
         )
         D = self.ros2_cli.DISPATCH
         self.assertIn(("bag", "info"), D)
-        self.assertTrue(callable(D[("bag", "info")]))
+        self.assertTrue(callable(resolve_dispatch_target(D[("bag", "info")])))
 
 
 class TestBagMetadataLogic(unittest.TestCase):
@@ -962,7 +999,7 @@ class TestComponentParsing(unittest.TestCase):
                     ("component", "load"), ("component", "unload"),
                     ("component", "kill"), ("component", "standalone")]:
             self.assertIn(key, D, f"Missing dispatch entry: {key}")
-            self.assertTrue(callable(D[key]))
+            self.assertTrue(callable(resolve_dispatch_target(D[key])))
         args = self.parser.parse_args([
             "component", "load", "/my_container", "demo_nodes_cpp", "demo_nodes_cpp::Talker"
         ])
@@ -1026,7 +1063,7 @@ class TestPkgParsing(unittest.TestCase):
         for subcommand in ("list", "ls", "prefix", "executables", "xml"):
             with self.subTest(subcommand=subcommand):
                 self.assertIn(("pkg", subcommand), D)
-                self.assertTrue(callable(D[("pkg", subcommand)]))
+                self.assertTrue(callable(resolve_dispatch_target(D[("pkg", subcommand)])))
 
 
 class TestPkgLogic(unittest.TestCase):
@@ -1382,10 +1419,10 @@ class TestArgumentIntrospection(unittest.TestCase):
         # core command spot-checks
         self._assert_missing_required_fails("topics", "type")
         self._assert_missing_required_fails("params", "set")
-        # all dispatch handlers must be callable
+        # all dispatch handlers must resolve to a callable
         for key, handler in self.ros2_cli.DISPATCH.items():
-            self.assertTrue(callable(handler),
-                            f"DISPATCH[{key!r}] is not callable: {handler!r}")
+            self.assertTrue(callable(resolve_dispatch_target(handler)),
+                            f"DISPATCH[{key!r}] does not resolve to a callable: {handler!r}")
 
 
 class TestErrorOutputStructure(unittest.TestCase):
@@ -2975,8 +3012,13 @@ class TestControlCommandPaths(unittest.TestCase):
 
     def test_control_command_paths(self):
         """list/load success+failure; _call_cm_service unavailable→error+destroy; retries honoured."""
+        # try_fastd patched to None throughout: cmd_control_list_controllers
+        # tries the persistent daemon first, and this test must exercise the
+        # local _call_cm_service path being mocked below regardless of
+        # whether a real daemon happens to be running on the test host.
         with patch.object(self.mod, 'ros2_context', MagicMock()), \
              patch.object(self.mod, 'ROS2CLI', MagicMock()), \
+             patch.object(self.mod, 'try_fastd', return_value=None), \
              patch.object(self.mod, '_call_cm_service',
                           return_value=(None, {"error": "service not available"})), \
              self._stdout() as buf, self.assertRaises(SystemExit):
@@ -2986,6 +3028,7 @@ class TestControlCommandPaths(unittest.TestCase):
         mock_result.controller = []
         with patch.object(self.mod, 'ros2_context', MagicMock()), \
              patch.object(self.mod, 'ROS2CLI', MagicMock()), \
+             patch.object(self.mod, 'try_fastd', return_value=None), \
              patch.object(self.mod, '_call_cm_service', return_value=(mock_result, None)), \
              self._stdout() as buf:
             self.mod.cmd_control_list_controllers(self._args())
@@ -3322,7 +3365,7 @@ class TestParamsFindParsing(unittest.TestCase):
         self.assertEqual(p.parse_args(["params", "find", "all"]).pattern, "all")
         D = self.ros2_cli.DISPATCH
         self.assertIn(("params", "find"), D)
-        self.assertTrue(callable(D[("params", "find")]))
+        self.assertTrue(callable(resolve_dispatch_target(D[("params", "find")])))
 
 
 class TestTFNewCommandsParsing(unittest.TestCase):
@@ -3348,8 +3391,8 @@ class TestTFNewCommandsParsing(unittest.TestCase):
         D = self.ros2_cli.DISPATCH
         self.assertIn(("tf", "tree"), D)
         self.assertIn(("tf", "validate"), D)
-        self.assertTrue(callable(D[("tf", "tree")]))
-        self.assertTrue(callable(D[("tf", "validate")]))
+        self.assertTrue(callable(resolve_dispatch_target(D[("tf", "tree")])))
+        self.assertTrue(callable(resolve_dispatch_target(D[("tf", "validate")])))
 
 
 class TestQosCheckParsing(unittest.TestCase):
@@ -3373,7 +3416,7 @@ class TestQosCheckParsing(unittest.TestCase):
             self.parser.parse_args(["topics", "qos-check", "/odom", "--timeout", "10"]).timeout, 10.0)
         D = self.ros2_cli.DISPATCH
         self.assertIn(("topics", "qos-check"), D)
-        self.assertTrue(callable(D[("topics", "qos-check")]))
+        self.assertTrue(callable(resolve_dispatch_target(D[("topics", "qos-check")])))
 
 
 # ---------------------------------------------------------------------------
@@ -4499,7 +4542,7 @@ class TestExhaustiveParser(unittest.TestCase):
                                      f"Expected subcommand={sub!r}, got {args.subcommand!r}")
                 self.assertIn((cmd, sub), D,
                               f"DISPATCH missing ({cmd!r}, {sub!r})")
-                self.assertTrue(callable(D[(cmd, sub)]),
+                self.assertTrue(callable(resolve_dispatch_target(D[(cmd, sub)])),
                                 f"DISPATCH[({cmd!r}, {sub!r})] is not callable")
         # Bidirectional symmetry: every MINIMAL_ARGS key is in DISPATCH and vice-versa
         covered = {(cmd, sub) for cmd, sub, _ in MINIMAL_ARGS}
@@ -5235,7 +5278,7 @@ class TestFoxglove(unittest.TestCase):
         self.assertIn(("foxglove", "status"), DISPATCH)
         # backward compat
         self.assertIn(("launch", "foxglove"), DISPATCH)
-        self.assertIs(DISPATCH[("launch", "foxglove")], DISPATCH[("foxglove", "start")])
+        self.assertTrue(dispatch_targets_equal(DISPATCH[("launch", "foxglove")], DISPATCH[("foxglove", "start")]))
 
     def test_stop_parser_port_optional(self):
         """foxglove stop accepts --port or no args."""
@@ -6515,7 +6558,7 @@ class TestTopicsClassify(unittest.TestCase):
         with patch("ros2_cli.ros2_context"), \
              patch("ros2_cli.ROS2CLI", return_value=mock_node), \
              patch("ros2_cli.output", side_effect=lambda d: captured.update(d)), \
-             patch("ros2_cli._expand_fields", side_effect=fake_expand):
+             patch("ros2_interface._expand_fields", side_effect=fake_expand):
             cmd_context(args)
 
         self.assertIn("std_msgs/msg/String", captured.get("schemas", {}))

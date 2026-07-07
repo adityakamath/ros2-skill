@@ -350,7 +350,14 @@ def cmd_tf_monitor(args):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.2)
-            if tf_buffer.all_frames_as_yaml():
+            try:
+                if tf_buffer.all_frames_as_yaml():
+                    break
+            except Exception:
+                # Treat as "nothing usable yet" rather than crashing the
+                # whole command — the auto-discovery block below already
+                # handles this same failure mode via its own try/except
+                # and returns a clean error if reference_frame stays None.
                 break
 
         # Auto-discover reference frame if not specified
