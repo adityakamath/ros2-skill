@@ -29,25 +29,31 @@ All commands output JSON. See [`COMMANDS.md`](COMMANDS.md) for the full referenc
 
 | Category | Commands |
 | -------- | -------- |
-| Connection | `version` |
-| Topics | `list`, `type`, `details`, `message`, `subscribe`, `publish`, `publish-sequence`, `publish-until`, `hz`, `bw`, `delay`, `find`, `capture-image`, `diag-list`, `diag`, `battery-list`, `battery`, `qos-check` |
-| Services | `list`, `type`, `details`, `call`, `find`, `echo` |
-| Nodes | `list`, `details` |
-| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete`, `preset-save`, `preset-load`, `preset-list`, `preset-delete`, `find` |
-| Actions | `list`, `details`, `type`, `send`, `cancel`, `echo`, `find` |
+| Core | `version`, `context`, `estop` |
+| Topics | `list`, `type`, `details`, `message`, `subscribe`, `echo-once`, `publish`, `publish-sequence`, `publish-until`, `hz`, `bw`, `delay`, `find`, `capture-image`, `depth-point`, `classify`, `diag-list`, `diag`, `battery-list`, `battery`, `qos-check` |
+| Services | `list`, `type`, `details`, `call`, `find`, `echo`, `info` |
+| Nodes | `list`, `details`, `kill` |
+| Parameters | `list`, `get`, `set`, `describe`, `dump`, `load`, `delete`, `find`, `exists`, `get-all-nodes`, `preset-save`, `preset-load`, `preset-list`, `preset-delete` |
+| Actions | `list`, `details`, `type`, `send`, `cancel`, `echo`, `find`, `status` |
 | Lifecycle | `nodes`, `list`, `get`, `set` |
 | Control | `list-controller-types`, `list-controllers`, `list-hardware-components`, `list-hardware-interfaces`, `load-controller`, `unload-controller`, `configure-controller`, `reload-controller-libraries`, `set-controller-state`, `set-hardware-component-state`, `switch-controllers`, `view-controller-chains` |
 | TF | `list`, `lookup`, `echo`, `monitor`, `static`, `euler-from-quaternion`, `quaternion-from-euler`, `transform-point`, `transform-vector`, `tree`, `validate` |
-| Doctor | `check`, `hello` |
+| Nav2 | `go`, `go-waypoints`, `cancel`, `status`, `rotate`, `move-timed`, `costmap-clear`, `initial-pose`, `localize`, `mode`, `map`, `diagnose` |
+| System | `battery`, `shutdown`, `reboot` |
+| Foxglove | `start`, `stop`, `status` |
+| Profile | `scan`, `show`, `rescan`, `list`, `annotate`, `set-camera-rotation` |
+| Preflight | `motion`, `joint-command` |
+| Doctor/Wtf | `doctor`, `doctor hello`, `doctor diagnostics`, `wtf` |
 | Multicast | `send`, `receive` |
 | Interface | `list`, `show`, `proto`, `packages`, `package` |
 | Bag | `info` |
+| Logs | `list-runs`, `query`, `tail`, `node-summary` |
 | Component | `types`, `list`, `ls`, `load`, `unload`, `kill`, `standalone` |
-| Pkg | `list`, `prefix`, `executables`, `xml` |
+| Pkg | `list`, `prefix`, `executables`, `xml`, `create` |
 | Daemon | `status`, `start`, `stop` |
+| Daemon-fast | `status`, `start`, `stop` |
 | Launch | `new`, `list`, `kill`, `restart`, `foxglove` |
 | Run | `new`, `list`, `kill`, `restart` |
-| Emergency Stop | `estop` |
 
 ---
 

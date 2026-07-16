@@ -8,86 +8,38 @@ Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map
 
 ### New Commands
 
-- `foxglove start [--port PORT]` — launch `foxglove_bridge` in a tmux session; checks for apt install; default port 8765; output: `{started, session, port, pid}`
-- `foxglove stop` — kill the `foxglove_bridge` tmux session; noop if not running; output: `{stopped, was_running}`
-- `foxglove status` — check if session alive and report port + PID; output: `{running, session, port, pid}`
-- `system battery [--topic T] [--threshold N] [--warn N] [--timeout 5]` — one-shot subscribe to any `sensor_msgs/BatteryState` topic; returns `{voltage, percentage, power_supply_status, health}` where health is `ok` / `warning` / `critical` (thresholds: 30% warn, 20% critical)
-- `system shutdown [--confirm] [--timeout 10]` — requires `--confirm`; attempts `/shutdown` ROS service first, falls back to `sudo shutdown now`; output includes `method`
-- `system reboot [--confirm] [--timeout 10]` — same pattern as shutdown; falls back to `sudo reboot`
-- `nav2 go <x> <y> [--yaw DEG] [--frame map] [--timeout 120] [--feedback] [--action NAME]` — send a `NavigateToPose` goal and block until SUCCEEDED / ABORTED / timeout; `--feedback` streams per-step messages; `--yaw` sets goal heading
-- `nav2 cancel [--action NAME] [--timeout 10]` — cancel all active `NavigateToPose` goals, then publish three zero-velocity messages; call before every new navigation goal
-- `nav2 status [--timeout 5]` — report Nav2 active state, one feedback message (2 s window), and `/collision_monitor_state`; output: `{nav2_available, action_server, active_goal, collision_monitor}`
-- `nav2 go-waypoints x1,y1 x2,y2 ... [--yaw DEG] [--frame map] [--timeout 120] [--no-stop-on-failure]` — chain `NavigateToPose` calls through a sequence of waypoints; stops on first failure by default; output includes `total_waypoints`, `completed`, `succeeded`, `failed`, `stopped_early`
-- `nav2 initial-pose <x> <y> [--yaw DEG] [--frame map]` — publish `PoseWithCovarianceStamped` to `/initialpose` three times to re-localise AMCL
-- `nav2 map list [--maps-dir DIR]` — list slam_toolbox `.yaml` map files; output: `{maps: [{name, path, size_kb}], count, maps_dir}`
-- `nav2 map save [--name NAME] [--timeout 30]` — call slam_toolbox `SerializePoseGraph`; name defaults to ISO timestamp; output: `{saved, name, path}`
-- `nav2 map load <name> [--timeout 15]` — call `map_server/load_map` with the named map's `.yaml`; output: `{loaded, map_url, result_code}`
-- `nav2 map delete <name> [--maps-dir DIR] [--confirm]` — requires `--confirm`; removes `.yaml` + `.pgm`/`.png` files; output: `{deleted, name, files_removed}`
-- `nav2 mode get [--timeout 3]` — infer slam mode from slam_toolbox and amcl lifecycle states: `mapping` / `navigation` / `mapfree` / `unknown`
-- `nav2 mode set <mapfree|mapping|navigation> [--timeout 30]` — perform lifecycle transitions to activate/deactivate slam_toolbox and amcl; output: `{mode, transitions_performed}`
-- `nav2 localize [--service S] [--timeout 5]` — call `std_srvs/srv/Empty` on `/reinitialize_global_localization` to spread AMCL particles globally; output: `{localized, service_called, amcl_running}`
-- `params exists /node:param [--timeout 5]` — check whether a parameter exists without fetching its value; `type == 0` (NOT_SET) means absent; output: `{exists, node, param, name}`
-- `actions status <action> [--timeout 3]` — subscribe once to `/<action>/_action/status` and return goal list with human-readable status names; output: `{action, goal_statuses: [{goal_id, status, status_name, active}], active_count}`
-- `topics classify` — classify all topic names and types into seven semantic roles (`motion`, `sensor`, `camera`, `diagnostics`, `tf`, `battery`, `other`); output includes `by_role` dict and `capabilities` flags (`has_camera`, `has_depth`, `has_laser`, `has_pointcloud`, `has_odom`, `has_imu`, `has_joint_states`, `has_battery`)
-- `params get-all-nodes <param_name>` — query every running node for a single parameter name; returns `{param, nodes: {node: value}, count, not_set: []}`
-- `services info --verbose` — on Lyrical+, appends `servers` and `clients` QoS detail; degrades gracefully with `verbose_note` on earlier distros
-- `topics bw` — extended: zero or more topic names; `--all` monitors every published topic; multi-topic uses `MultiThreadedExecutor`; output: `{topics: {name: {bw, bytes_per_msg, rate, samples}}, no_data: [...], count: N}`
-- `params set` — extended: multiple `node:param value` pairs in one call; `--type {bool,int,float,str}` forces coercion; multi-pair output: `{results: [...]}`
+- `foxglove start/stop/status` — tmux lifecycle management for `foxglove_bridge`
+- `system battery` / `system shutdown` / `system reboot` — battery health check plus confirmed power lifecycle commands
+- `nav2 go` / `cancel` / `status` / `go-waypoints` / `initial-pose` / `rotate` / `move-timed` / `costmap-clear` — higher-level motion, status, and recovery utilities
+- `nav2 map list/save/load/delete` — map artifact lifecycle helpers for Nav2 workflows
+- `nav2 mode get/set` and `nav2 localize` — SLAM/AMCL mode orchestration and relocalization
+- `params exists` and `params get-all-nodes` — parameter existence and cross-node lookup helpers
+- `actions status` — one-shot action status inspection with readable state names
+- `doctor diagnostics` — structured hardware diagnostics view from `/diagnostics_agg`
+- `topics classify` — semantic topic-role classification with capability flags
+- `daemon-fast start/stop/status` — persistent rclpy fast path for lower-latency hot commands
+- `preflight motion` and `preflight joint-command` — combined runtime readiness checks before movement/joint commands
+- `profile set-camera-rotation` — camera rotation override mapping for image capture
+- `services info --verbose` — richer service introspection on supported distros
+- `topics bw` — multi-topic bandwidth monitoring, including `--all`
+- `nodes kill` — confirmed node termination with lifecycle-first shutdown and fallback
 
 ### Changes
 
-- **`topics subscribe` / `topics echo` — `--max-bytes N`:** stop duration-mode collection when JSON output reaches N bytes; output adds `bytes_collected` and `capped_bytes`
-- **`topics subscribe` / `topics echo` — `--throttle-rate-ms N`:** drop messages within N ms of the previous accepted message; useful for high-rate topics
-- **`topics subscribe` / `topics echo` — capped output fields:** adds `capped: bool` and `messages_dropped: int` to duration-mode output
-- **`topics capture-image --inline`:** adds `image_base64` and `image_encoding` to output for direct VLM consumption
-- **`actions cancel --goal-id UUID`:** cancel a specific goal by UUID; without `--goal-id` the all-goals behaviour is unchanged
-- **`actions list` — `has_active_goals`:** `None` when status topic exists but state is indeterminate; `False` when topic absent
-- **`interface show --depth N`:** recursively expand composite field types up to N levels; default 0 preserves existing flat behaviour; output adds `"depth": N`
-- **Version detection helpers** (`ros2_utils`): `get_ros_distro()`, `_distro_rank()`, `is_at_least(distro)`; alphabetical fallback for future distros
-- **Python 3.9 compatibility:** replaced `X | None` union syntax with `Optional[X]` in `ros2_foxglove.py`, `ros2_nav2.py`, `ros2_profile.py`
-- **`AGENTS.md` — Step 8 (Battery Pre-flight):** call `system battery` before any multi-step task when a battery topic is present; block on critical (< 20%), warn on low (< 30%)
-- **`AGENTS.md` — Rule T10 (Spatial Observation Memory):** tag observed objects with current pose; format: `observed=<object> x=N y=N frame=map ts=T`
-- **`AGENTS.md` + `COMMANDS.md`:** Nav2 command group workflow, pre-goal `nav2 cancel` rule, `topics bw` multi-topic syntax, `params set` multi-pair / `--type`, `params get-all-nodes` section, Lyrical launch substitution and env var notes
-
-### New Commands (2026-06-18)
-
-- `nav2 rotate <degrees> [--timeout 30]` — rotate in place via `nav2_msgs/action/Spin`; obstacle-aware (Nav2 aborts if path is blocked); positive = CCW; output: `{success, status, degrees, target_yaw_rad}`
-- `doctor diagnostics [--level ok|warn|error|stale] [--topic T] [--timeout 5]` — subscribe to `/diagnostics_agg`, report per-component hardware health (OK/WARN/ERROR/STALE) with optional level filter; output: `{components_total, components_shown, filter_level, summary, components}`
-
-### Changes (2026-06-18)
-
-- **`topics publish` / `publish-sequence` / `publish-until` — `--dry-run`:** resolve topic type and validate JSON payload without publishing; `publish-until` also resolves monitor topic type; output: `{dry_run: true, topic, msg_type, payload}`
-- **`profile scan` — `--name` default fixed:** changed from `"robot"` to `None`; prevented spurious `pkg_filter="robot"` that matched zero packages and returned empty safety limits
-- **`profile scan` — URDF `<param>` velocity extraction:** scans `<ros2_control><joint><param>` blocks for velocity keys (`max_vel_x`, `max_velocity`, etc.); feeds into `safety_limits`
-- **`profile scan` — joint position limits and homing offsets:** extracts `lower`/`upper` from URDF `<limit>` elements and `position_center_steps`/`homing_offset` from `<ros2_control>` params; YAML `joint_limits` block also parsed for `min_position`/`max_position`
-- **`profile scan` — joint limits deduplication:** `_resolve_joint_limits()` merges per-model per-source data into a single flat `{joint_name: {fields}}` dict; YAML values override URDF `<limit>` attributes for fields present in both; hardware params (center steps, offsets) kept additively; joints with unresolved xacro substitutions (`${…}`) dropped
-
-### New Commands (2026-07-05)
-
-- `nav2 move-timed [--duration S] [--speed M/S] [--direction forward|backward]` — publish constant velocity on `/cmd_vel` for a fixed duration then zero-burst stop
-- `nav2 costmap-clear [--layer local|global|both]` — call Nav2 `clear_local_costmap` / `clear_global_costmap` services
-- `nodes kill <node> [--confirm] [--timeout 5]` — lifecycle shutdown with pkill fallback and 3 s graph verification; requires `--confirm`
-
-### Changes (2026-07-05)
-
-- **`context --include-schemas`:** new opt-in flag; appends `schemas: {type_str: fields_dict}` to context output for every unique topic message type
-- **agentskills.io compliance:** `SKILL.md` trimmed to < 500 lines; `references/PROFILE.md` extracted for progressive disclosure; `evals/evals.json` added (8 agent-behaviour scenarios); `evals/eval_queries.json` added (22 trigger/no-trigger test cases)
-- **Exit codes:** `output()` now calls `sys.exit(1)` when the result contains an `"error"` key; exit 0 / 1 / 2 semantics documented in `--help`
-
-### New Commands (2026-07-07)
-
-- `daemon-fast start` / `daemon-fast stop` / `daemon-fast status` — manage the skill's own persistent rclpy node (`ros2_fastd.py`), distinct from the built-in `ros2 daemon`; accelerates hot-path commands by avoiding a fresh `rclpy.init()`/`shutdown()` (and RMW discovery) per call; always falls back safely to the normal per-process path when not running
-- `preflight motion --controller C --odom-topic T` — combined controller-active + odom-stationary check in a single node spin, replacing separate `control list-controllers` + `topics subscribe` calls before a motion command
-- `preflight joint-command --controller C --joint-state-topic T [--joints ...]` — same pattern for joint/pan-tilt/arm commands: controller-active + current joint positions in one spin
-- `profile set-camera-rotation <match> <degrees> [--note N]` — store a structured image-rotation override for a camera, keyed by a substring match against its capture topic; used by `topics capture-image` ahead of the URDF-derived heuristic, which is often wrong or absent for cameras whose mount joint only encodes the REP-103 optical-frame rotation
-
-### Changes (2026-07-07)
-
-- **`estop --verify-odom-topic T [--verify-timeout] [--velocity-threshold]`**, **`control switch-controllers --verify`**, **`lifecycle set --verify`**, **`params set --verify`** — each confirms its own post-action result (odom zero / controller states / lifecycle state / parameter readback) in the same node/process instead of requiring a second CLI call
-- **`topics capture-image`** — checks `camera_rotation_overrides` from the profile before falling back to the URDF `sensor_mounts` heuristic; output adds `rotation_source`
-- **`control list-controllers`**, **`topics subscribe`** (single-message case), **`services call`** (single attempt), **`params get`**, **`tf lookup`**, **`lifecycle get`**, **`lifecycle set`**, **`nodes list`**, **`nodes details`**, **`actions status`** — all now try the persistent fast daemon first when running, falling back unchanged when it isn't; end-to-end latency on a warm daemon drops from roughly 1-2.5s to ~0.25-0.35s per call
-- **Robot profile** — `_extract_ros2_control_config()` now also returns `joint_command_topics`, `imu_topics`, and `gps_topics` derived entirely from static controller-manager YAML, so preflight/motion checks no longer need live graph discovery for these; `_SENSOR_LINK_PATTERNS` reordered so IMU/lidar/sonar/gps/gripper are checked before the generic camera bucket, and `"oak"`/`"luxonis"`/`"depthai"` added as camera keywords
-- **`doctor --exclude-packages`** — now also skips `PlatformCheck` (distro-support lookup), which is network-bound the same way `PackageCheck` is but didn't match the old name-substring filter
+- **Topic I/O ergonomics:** `topics subscribe`/`echo` gained `--max-bytes`, `--throttle-rate-ms`, and capped-output fields.
+- **Image capture:** `topics capture-image --inline` adds base64 payload output; profile-driven rotation overrides are now applied first and reported via `rotation_source`.
+- **Actions and interfaces:** `actions cancel` supports `--goal-id`; `actions list` clarifies indeterminate active-goal state; `interface show` adds recursive depth expansion.
+- **Publishing safety:** `topics publish`, `publish-sequence`, and `publish-until` gained `--dry-run` validation.
+- **Parameter workflows:** `params set` supports multi-pair updates and type coercion; `params get-all-nodes` and `params exists` were added.
+- **Profile scan quality:** fixed `--name` default handling and expanded limit extraction (URDF params, joint limits, homing offsets) with deduplicated merge behavior.
+- **Context output:** `context --include-schemas` optionally appends per-type field schemas.
+- **Service and bandwidth tooling:** `services info --verbose` and `topics bw` were extended for richer diagnostics.
+- **Fast-path execution:** hot commands can use the persistent fast daemon first, with unchanged fallback when unavailable.
+- **Pre/post-action verification:** `estop`, `control switch-controllers`, `lifecycle set`, and `params set` can verify outcomes in-process.
+- **Robot profile enrichment:** scan output now includes static `joint_command_topics`, `imu_topics`, and `gps_topics`; sensor keyword detection was expanded.
+- **`doctor --exclude-packages`:** now also skips `PlatformCheck`.
+- **Compatibility and internals:** added distro helper utilities, Python 3.9 typing compatibility, and standardized non-zero exit on JSON `error` responses.
+- **Docs and compliance:** AGENTS/COMMANDS guidance was refreshed (battery preflight, spatial memory, Nav2 workflow), and agentskills.io packaging/eval artifacts were added.
 
 ### Fixes (2026-07-07)
 

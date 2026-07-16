@@ -251,6 +251,7 @@ BenchmarkDotNet.Artifacts/
 project.lock.json
 project.fragment.lock.json
 .artifacts/
+.profiles/
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt

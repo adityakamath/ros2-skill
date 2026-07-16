@@ -16,6 +16,8 @@ import sys
 import time
 from contextlib import contextmanager
 
+
+
 # rclpy itself costs ~0.9s to import (dominant per-command latency, measured
 # independently of the fast-daemon). Every domain module imports this file,
 # so rclpy is loaded lazily on first actual use (ros2_context, ROS2CLI(),
@@ -684,7 +686,7 @@ def list_packages(force_refresh=False):
         for pkg in packages:
             _package_cache[pkg] = True
         _package_cache_initialized = True
-    
+
     return _package_cache
 
 
@@ -739,20 +741,18 @@ def session_exists(session_name):
 def kill_session(session_name, graceful_timeout=10.0):
     """Kill a tmux session gracefully, then fall back to a hard kill.
 
-    `tmux kill-session` alone sends SIGHUP to the pane's process group.
-    `ros2 launch` (and many other long-running ROS 2 processes) only
-    registers signal handlers for SIGINT/SIGTERM to run its shutdown
-    sequence — lifecycle deactivation, hardware interface cleanup (e.g.
-    releasing servo torque), node destructors, etc. SIGHUP is not one of
-    those, so a bare `kill-session` tears down the whole process tree
-    before any of that cleanup runs, silently skipping it.
+    Shutdown sequence:
+      1. Ctrl-C (SIGINT) — what an operator would press; ROS 2 registers a
+         SIGINT handler that runs lifecycle deactivation, hardware interface
+         cleanup (e.g. disabling servo torque), and node destructors.
+      2. SIGTERM (to the pane's process group) — a second graceful signal,
+         also handled by ROS 2, used if SIGINT didn't cause the process to
+         exit within `graceful_timeout` seconds.
+      3. `tmux kill-session` (hard kill) — last resort only; skips all
+         cleanup, so it should never be reached during normal operation.
 
-    This sends Ctrl-C (SIGINT) to the pane first — exactly what an
-    operator would press if attached to the session — and gives the
-    process up to `graceful_timeout` seconds to exit and run its own
-    cleanup. Only if it's still alive after that does it fall back to a
-    hard `tmux kill-session`, which is now just a safety net rather than
-    the primary mechanism.
+    SIGHUP (sent by a bare `tmux kill-session`) and SIGKILL are never used
+    as the primary mechanism — both bypass ROS 2's shutdown handlers.
     """
     run_cmd(f"tmux send-keys -t {shlex.quote(session_name)} C-c")
     deadline = time.time() + graceful_timeout
@@ -762,6 +762,23 @@ def kill_session(session_name, graceful_timeout=10.0):
         if not check_session_alive(session_name):
             break
         time.sleep(0.3)
+
+    if not session_exists(session_name):
+        return True
+
+    # SIGINT wasn't enough — try SIGTERM before resorting to a hard kill.
+    pid_cmd = f"tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -1"
+    pid_out, _, _ = run_cmd(pid_cmd)
+    if pid_out.strip():
+        run_cmd(f"kill -TERM -{pid_out.strip()} 2>/dev/null || kill -TERM {pid_out.strip()} 2>/dev/null")
+        sigterm_deadline = time.time() + 5.0
+        while time.time() < sigterm_deadline:
+            if not session_exists(session_name):
+                return True
+            if not check_session_alive(session_name):
+                break
+            time.sleep(0.3)
+
     kill_cmd = f"tmux kill-session -t {shlex.quote(session_name)}"
     stdout, stderr, rc = run_cmd(kill_cmd)
     return rc == 0

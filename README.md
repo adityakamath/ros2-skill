@@ -19,7 +19,7 @@ The long-term goal is full parity with the `ros2` CLI — every command availabl
 **ros2-skill** is tool-agnostic: any AI agent/runtime that can load and execute [Agent Skills](https://agentskills.io) can use ros2-skill to control ROS 2 robots.
 
 Common deployment pattern:
-- Run the agent session on the robot computer (for example nanobot, Claude, or Claude Code) and load `SKILL.md` + `references/AGENT-OPERATIONS.md`
+- Run the agent session on the robot computer (for example nanobot, Claude, or Claude Code) and load `SKILL.md` + the rules in `references/RULES-*.md`
 - If needed, connect to that on-robot agent session remotely via your connector/messaging layer; the remote client talks to the agent session, and that session executes ros2-skill locally on the robot
 
 Once configured, you can talk to your robot naturally:
@@ -39,7 +39,7 @@ Once configured, you can talk to your robot naturally:
 
 No user clarification needed. The agent uses ros2-skill tools to answer its own discovery and verification questions, including finding and launching the robot stack if it is not already running.
 
-For any deployment, load both `SKILL.md` (command reference) and [`references/AGENT-OPERATIONS.md`](references/AGENT-OPERATIONS.md) (operational rules and safety constraints) into the agent's system prompt. The full rule set is in [`references/RULES.md`](references/RULES.md).
+For any deployment, load `SKILL.md` (command reference) plus the operational rules under [`references/RULES.md`](references/RULES.md).
 
 > **Note:** `ros2_cli.py` is intended for debugging and development only. Normal usage is through the chat interface or messaging gateway of your agent platform. See [`references/CLI.md`](references/CLI.md) for the full command list.
 
@@ -150,7 +150,7 @@ Commands that produce file artifacts write to subdirectories of the skill instal
 }
 ```
 
-See [`references/AGENT-OPERATIONS.md`](references/AGENT-OPERATIONS.md) for the full Discord image-sending workflow.
+See [`references/RULES-REFERENCE.md`](references/RULES-REFERENCE.md) for the full Discord image-sending workflow.
 
 ## Testing
 
