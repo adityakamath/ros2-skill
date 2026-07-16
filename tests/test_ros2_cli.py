@@ -941,6 +941,9 @@ class TestControlParsing(unittest.TestCase):
         args3 = p.parse_args(["control", "view-controller-chains", "--output", "o.pdf", "--channel-id", "1"])
         self.assertEqual(args3.output, "o.pdf")
         self.assertEqual(args3.channel_id, "1")
+        self.assertIsNone(args3.config)
+        args4 = p.parse_args(["control", "view-controller-chains", "--config", "~/.config/ros2-skill/discord_tools.json"])
+        self.assertEqual(args4.config, "~/.config/ros2-skill/discord_tools.json")
         for key in [k for k in D if k[0] == "control"]:
             self.assertTrue(callable(resolve_dispatch_target(D[key])))
 

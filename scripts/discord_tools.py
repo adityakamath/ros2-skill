@@ -3,20 +3,22 @@
 CLI tool for Discord integration: send images to a Discord channel.
 
 Usage:
-  python3 scripts/discord_tools.py send-image --path <image_path> --channel-id <channel_id> --config <config_path> [--delete]
+    python3 scripts/discord_tools.py send-image --path <image_path> --channel-id <channel_id> [--config <config_path>] [--delete]
 
 Config file structure:
-  {
-    "channels": {
-      "discord": {
-        "token": "YOUR_DISCORD_BOT_TOKEN"
-      }
+    {
+        "channels": {
+            "discord": {
+                "token": "YOUR_DISCORD_BOT_TOKEN"
+            }
+        }
     }
-  }
 
 Arguments:
-  --config: Path to nanobot config file (e.g., ~/.nanobot/config.json)
-  --channel-id: Discord channel ID (provided by nanobot agent dynamically)
+    --config: Optional path to a Discord config file. When omitted, the tool
+                        checks ~/.nanobot/config.json first and then
+                        ~/.config/ros2-skill/discord_tools.json.
+    --channel-id: Discord channel ID.
 """
 import argparse
 import json
@@ -24,13 +26,36 @@ import os
 import sys
 import requests
 
+DEFAULT_NANOBOT_CONFIG = os.path.expanduser("~/.nanobot/config.json")
+DEFAULT_STANDALONE_CONFIG = os.path.expanduser("~/.config/ros2-skill/discord_tools.json")
+
+
+def _fail(message):
+    print(f"Error: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def resolve_config_path(config_path=None):
+    """Return the first usable config path, or fail with a clear message."""
+    if config_path:
+        expanded = os.path.expanduser(config_path)
+        if os.path.exists(expanded):
+            return expanded
+        _fail(f"Config file not found at {expanded}")
+
+    for candidate in (DEFAULT_NANOBOT_CONFIG, DEFAULT_STANDALONE_CONFIG):
+        if os.path.exists(candidate):
+            return candidate
+
+    _fail(
+        "No Discord config file found. Tried ~/.nanobot/config.json and "
+        "~/.config/ros2-skill/discord_tools.json. Create one with "
+        '{"channels": {"discord": {"token": "YOUR_DISCORD_BOT_TOKEN"}}}'
+    )
+
 def load_config(config_path):
-    """Load nanobot config from the specified config file path."""
-    config_path = os.path.expanduser(config_path)
-    
-    if not os.path.exists(config_path):
-        print(f"Error: Config file not found at {config_path}", file=sys.stderr)
-        sys.exit(1)
+    """Load and validate the Discord config from the resolved config path."""
+    config_path = resolve_config_path(config_path)
     
     try:
         with open(config_path, 'r') as f:
@@ -105,7 +130,14 @@ def main():
     send_parser = subparsers.add_parser("send-image", help="Send image to Discord channel")
     send_parser.add_argument("--path", required=True, help="Path to image file")
     send_parser.add_argument("--channel-id", required=True, help="Discord channel ID (provided by agent)")
-    send_parser.add_argument("--config", required=True, help="Path to nanobot config file (e.g., ~/.nanobot/config.json)")
+    send_parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Path to a Discord config file. If omitted, checks "
+            "~/.nanobot/config.json then ~/.config/ros2-skill/discord_tools.json"
+        ),
+    )
     send_parser.add_argument("--delete", action="store_true", help="Delete image after sending")
 
     args = parser.parse_args()

@@ -25,7 +25,8 @@ This applies to every case where an image, photo, or file must be delivered to t
    - If a robot profile is loaded and the URDF shows the camera is mounted at a non-upright angle, the image is **automatically rotated** before being saved — no extra step required.
    - The output JSON confirms this: `{"success": true, "path": "...", "profile_applied": true, "image_rotated_deg": 180}`.
    - If the auto-rotation is wrong for a specific capture, re-run with `--no-profile` to bypass it.
-2. Send it: `python3 scripts/discord_tools.py send-image --path .artifacts/image.jpg --channel-id <CHANNEL_ID> --config ~/.nanobot/config.json --delete`
+2. Send it: `python3 scripts/discord_tools.py send-image --path .artifacts/image.jpg --channel-id <CHANNEL_ID> --delete`
+   - Add `--config <PATH>` only if you want to override auto-detection.
 
 The `--delete` flag removes the local file after a successful send. Always include it unless the user explicitly asks to keep the file.
 

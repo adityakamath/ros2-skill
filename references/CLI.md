@@ -76,7 +76,7 @@ Capabilities beyond standard `ros2` CLI parity — designed specifically for AI 
 | **TF graph tools** | `tf tree`, `tf validate` | Visualise the full TF frame hierarchy; detect cycles and multiple-parent errors |
 | **Launch files** | `launch new/list/kill/restart/foxglove` | Run launch files in tmux sessions, list/kill/restart running sessions, launch foxglove_bridge |
 | **Run executables** | `run new/list/kill/restart` | Run executables in tmux sessions, list/kill/restart running sessions |
-| **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token |
+| **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token; auto-detects nanobot or standalone config |
 
 ---
 

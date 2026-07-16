@@ -137,10 +137,16 @@ Commands that produce file artifacts write to subdirectories of the skill instal
 
 ## Discord Setup
 
-`discord_tools.py send-image` reads its bot token from a config file — the same one used by nanobot:
+`discord_tools.py send-image` can use the same config as nanobot, or a standalone config if you are using another tool.
+
+Config resolution order:
+1. An explicit `--config <PATH>` argument
+2. `~/.nanobot/config.json` if it exists
+3. `~/.config/ros2-skill/discord_tools.json` if it exists
+
+Use the same JSON schema in either location:
 
 ```json
-// ~/.nanobot/config.json
 {
   "channels": {
     "discord": {
@@ -149,6 +155,9 @@ Commands that produce file artifacts write to subdirectories of the skill instal
   }
 }
 ```
+
+If you already use nanobot, no extra setup is needed. If you use another tool,
+create `~/.config/ros2-skill/discord_tools.json` with the same schema.
 
 See [`references/RULES-REFERENCE.md`](references/RULES-REFERENCE.md) for the full Discord image-sending workflow.
 

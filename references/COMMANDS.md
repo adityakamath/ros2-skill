@@ -221,13 +221,13 @@ Output (error):
 
 ## discord_tools.py send-image
 
-Send an image file to a Discord channel. The bot token is read from the config file specified by `--config` at `config["channels"]["discord"]["token"]`. Both the config path and channel ID must be provided as CLI arguments by the agent.
+Send an image file to a Discord channel. The bot token is read from `config["channels"]["discord"]["token"]`. If `--config` is omitted, the script checks `~/.nanobot/config.json` first and then `~/.config/ros2-skill/discord_tools.json`.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | --path | Yes | Path to image file (relative or absolute) |
 | --channel-id | Yes | Discord channel ID (provided by agent based on context) |
-| --config | Yes | Path to nanobot config file (e.g., ~/.nanobot/config.json) |
+| --config | No | Path to a Discord config file; if omitted, auto-detects nanobot or standalone config |
 | --delete | No | Delete image after sending |
 
 **Config file structure:**
@@ -241,8 +241,11 @@ Send an image file to a Discord channel. The bot token is read from the config f
 }
 ```
 
-Example:
+Examples:
 ```bash
+python3 scripts/discord_tools.py send-image --path .artifacts/test.jpg --channel-id 123456789012345678 --delete
+
+# Explicit config override
 python3 scripts/discord_tools.py send-image --path .artifacts/test.jpg --channel-id 123456789012345678 --config ~/.nanobot/config.json --delete
 ```
 
@@ -2794,7 +2797,7 @@ Requires graphviz: `sudo apt install graphviz`
 |--------|----------|-------------|
 | --output | No | Output PDF filename saved in .artifacts/ (default: controller_diagram.pdf) |
 | --channel-id | No | Discord channel ID; if provided, sends the PDF via discord_tools |
-| --config | No | Path to nanobot config for Discord (default: ~/.nanobot/config.json) |
+| --config | No | Path to a Discord config file; if omitted, auto-detects nanobot or standalone config |
 | --controller-manager | No | Controller manager node name (default: /controller_manager) |
 | --timeout | No | Service call timeout in seconds (default: 5.0) |
 

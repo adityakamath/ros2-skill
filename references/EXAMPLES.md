@@ -666,14 +666,19 @@ python3 scripts/ros2_cli.py topics capture-image \
 
 python3 scripts/discord_tools.py send-image \
   --path .artifacts/photo.jpg \
-  --channel-id <CHANNEL_ID> \
-  --config ~/.nanobot/config.json
+  --channel-id <CHANNEL_ID>
 
 # Send and delete the file after sending
 python3 scripts/discord_tools.py send-image \
   --path .artifacts/photo.jpg \
   --channel-id <CHANNEL_ID> \
-  --config ~/.nanobot/config.json \
+  --delete
+
+# Explicit config override (if you do not want auto-detection)
+python3 scripts/discord_tools.py send-image \
+  --path .artifacts/photo.jpg \
+  --channel-id <CHANNEL_ID> \
+  --config ~/.config/ros2-skill/discord_tools.json \
   --delete
 
 # Send a controller diagram to Discord
@@ -681,7 +686,6 @@ python3 scripts/ros2_cli.py control view-controller-chains --output diagram.pdf
 python3 scripts/discord_tools.py send-image \
   --path .artifacts/diagram.pdf \
   --channel-id <CHANNEL_ID> \
-  --config ~/.nanobot/config.json \
   --delete
 ```
 

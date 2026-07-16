@@ -390,7 +390,6 @@ def cmd_control_view_controller_chains(args):
         }
 
         if args.channel_id:
-            config_path = os.path.expanduser(args.config)
             if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
                 result_out["discord_error"] = "PDF file is empty or missing; not sent to Discord"
             else:
@@ -400,8 +399,9 @@ def cmd_control_view_controller_chains(args):
                     "python3", discord_script, "send-image",
                     "--path",       pdf_path,
                     "--channel-id", args.channel_id,
-                    "--config",     config_path,
                 ]
+                if args.config:
+                    cmd.extend(["--config", os.path.expanduser(args.config)])
                 try:
                     subprocess.run(cmd, check=True, capture_output=True)
                     result_out["discord_sent"] = True

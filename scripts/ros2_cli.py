@@ -620,8 +620,14 @@ def build_parser():
                    help="Output filename saved in .artifacts/ (default: controller_diagram.pdf)")
     p.add_argument("--channel-id", dest="channel_id", default=None,
                    help="Discord channel ID; if provided, sends the PDF via discord_tools")
-    p.add_argument("--config", default="~/.nanobot/config.json",
-                   help="Path to nanobot config for Discord (default: ~/.nanobot/config.json)")
+    p.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Path to a Discord config file; if omitted, discord_tools.py "
+            "will try ~/.nanobot/config.json and then ~/.config/ros2-skill/discord_tools.json"
+        ),
+    )
     _add_cm_args(p)
 
     # ------------------------------------------------------------------
