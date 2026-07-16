@@ -29,7 +29,7 @@ metadata:
       pip: ["rclpy"]
     category: "robotics"
     tags: ["ros2", "robotics", "rclpy"]
-  author: ["adityakamath", "lpigeon"]
+  author: ["adityakamath"]
 ---
 
 # ROS 2 Skill
