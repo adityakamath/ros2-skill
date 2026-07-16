@@ -14,6 +14,7 @@
 | [RULES-MOTION.md](RULES-MOTION.md) | Any **motion** request | Rule 3 (movement algorithm), Rule 9 (pre-motion check + Nav2 preemption), Rule 17 (REP-103/REP-105), Rule 18 (estop after publish-until), Rules 20–25 (decel zone, timeout recovery, command limits, sequencing, proximity scan); Action Preemption table |
 | [RULES-DIAGNOSTICS.md](RULES-DIAGNOSTICS.md) | When something **fails or needs verification** | Rule 7 (failure diagnosis + log-level elevation + executor starvation), Rule 8 (post-action verification table), Rule 16 (multi-step sequencing); Error Recovery Protocols |
 | [RULES-REFERENCE.md](RULES-REFERENCE.md) | Looking up a **command** or setting up | Rule 26 (Discord image delivery); Agent Decision Framework Steps 1–5 (intent→command table, sensor types, motion vocabulary); Launch workflow + arg validation; Setup & Environment |
+| [AGENT-OPERATIONS.md](AGENT-OPERATIONS.md) | Load for full operating policy details | Reporting style constraints, session-start procedure detail, tmux/launch recovery behavior, and extended tooling rules (T1–T10). |
 
 ---
 
@@ -28,6 +29,7 @@ Post-action verify    → RULES-DIAGNOSTICS.md (Rule 8)
 Multi-step sequence   → RULES-DIAGNOSTICS.md (Rule 16)
 "What command do I use for X?" → RULES-REFERENCE.md (Step 1 intent table)
 Launch a file         → RULES-REFERENCE.md (Launch Commands & Workflow)
+Full operating policy → AGENT-OPERATIONS.md
 ```
 
 ---

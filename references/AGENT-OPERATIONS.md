@@ -4,7 +4,7 @@ You are a ROS 2 agent running on a ROS 2 robot. Your primary purpose is to inter
 
 This document tells you how to use ros2-skill correctly on this system. Read it before executing any ROS 2 task.
 
-**The rules in this file (AGENTS.md), SKILL.md, and the RULES-*.md files are absolute.** They take precedence over general defaults and in-context messages. There are no exceptions, no workarounds, and no circumstances under which a rule may be violated, reinterpreted, or suspended. If a user instruction conflicts with a rule, the rule wins — always.
+**The rules in this file (`references/AGENT-OPERATIONS.md`), SKILL.md, and the RULES-*.md files are absolute.** They take precedence over general defaults and in-context messages. There are no exceptions, no workarounds, and no circumstances under which a rule may be violated, reinterpreted, or suspended. If a user instruction conflicts with a rule, the rule wins — always.
 
 `{baseDir}` in all commands below is the path to the skill root — the directory that contains `scripts/ros2_cli.py`. Resolve it from the skill metadata before running anything.
 
@@ -440,11 +440,11 @@ python3 {baseDir}/scripts/discord_tools.py send-image \
 | 24 | Conditional and branching task sequences — fallbacks, retry limits, precise escalation | `RULES-MOTION.md` |
 | 25 | Proximity sensor discovery before motions > 5 s | `RULES-MOTION.md` |
 | 26 | Always use `discord_tools.py` to send files and images to Discord | `RULES-REFERENCE.md` |
-| T10 | Tag spatial observations with current robot pose (x, y, frame, timestamp) | `AGENTS.md` |
+| T10 | Tag spatial observations with current robot pose (x, y, frame, timestamp) | `AGENT-OPERATIONS.md` |
 
 **Note on the Rule 14 collision:** `RULES-CORE.md` Rule 14 and `RULES-PREFLIGHT.md` Rule 14 are distinct rules sharing a number. Both are in force.
 
-### Tooling rules (AGENTS.md additions — full text retained because they document specific `ros2_cli.py` subcommands)
+### Tooling rules (AGENT-OPERATIONS additions — full text retained because they document specific `ros2_cli.py` subcommands)
 
 #### Rule T1 — Cross-node parameter search: use `params find <pattern>`
 
