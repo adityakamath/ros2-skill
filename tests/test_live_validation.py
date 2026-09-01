@@ -39,9 +39,14 @@ def run_cli(*args, timeout=10.0):
         # Parse JSON output if possible
         output = proc.stdout.strip()
         try:
-            data = json.loads(output.split('\n')[-1])  # Last line should be JSON
-        except (json.JSONDecodeError, IndexError):
-            data = {"raw_output": output}
+            # Try to parse the entire output as JSON
+            data = json.loads(output)
+        except (json.JSONDecodeError, ValueError):
+            # If that fails, try to find JSON on the last line
+            try:
+                data = json.loads(output.split('\n')[-1])
+            except (json.JSONDecodeError, IndexError, ValueError):
+                data = {"raw_output": output}
         
         return {
             "returncode": proc.returncode,
@@ -122,9 +127,9 @@ class TestLiveVelocityCommands(unittest.TestCase):
         """Test publishing zero velocity (safe stop)."""
         result = run_cli(
             "topics", "publish", "/cmd_vel",
+            '{"linear": {"x": 0.0, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}',
             "--msg-type", "geometry_msgs/msg/Twist",
-            "--data", '{"linear": {"x": 0.0, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}',
-            "--once",
+            "--duration", "0.1",
             timeout=5.0
         )
         self.assertEqual(result["returncode"], 0, f"Zero velocity publish failed: {result['stderr']}")
@@ -134,9 +139,9 @@ class TestLiveVelocityCommands(unittest.TestCase):
         """Test publishing small velocity (safe on platform)."""
         result = run_cli(
             "topics", "publish", "/cmd_vel",
+            '{"linear": {"x": 0.1, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}',
             "--msg-type", "geometry_msgs/msg/Twist",
-            "--data", '{"linear": {"x": 0.1, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}',
-            "--once",
+            "--duration", "0.1",
             timeout=5.0
         )
         
@@ -185,9 +190,9 @@ class TestLiveSafetyEnforcement(unittest.TestCase):
         """Test that excessive velocity is blocked."""
         result = run_cli(
             "topics", "publish", "/cmd_vel",
+            '{"linear": {"x": 10.0, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}',
             "--msg-type", "geometry_msgs/msg/Twist",
-            "--data", '{"linear": {"x": 10.0, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}',
-            "--once",
+            "--duration", "0.1",
             timeout=5.0
         )
         
