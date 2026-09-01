@@ -19,8 +19,13 @@ Nav2 lifecycle state IDs (lifecycle_msgs/msg/State):
 
 import json
 import math
+import os
+import pathlib
+import subprocess
+import sys
 import threading
 import time
+import uuid
 from typing import Optional
 
 import rclpy
@@ -35,6 +40,9 @@ _NAV2_ACTION = "/navigate_to_pose"
 
 # Default timeout for navigation goals (navigation can take minutes).
 _NAV_TIMEOUT = 120.0
+
+_MISSION_DIR = pathlib.Path(__file__).resolve().parent.parent / ".artifacts" / "missions"
+_PLACE_DIR = pathlib.Path(__file__).resolve().parent.parent / ".artifacts" / "places"
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +204,146 @@ def _publish_zero_burst(node):
                 rclpy.spin_once(node, timeout_sec=0.02)
     except Exception:
         pass
+
+
+def _mission_path(mission_id: str) -> pathlib.Path:
+    _MISSION_DIR.mkdir(parents=True, exist_ok=True)
+    safe_id = "".join(ch for ch in mission_id if ch.isalnum() or ch in ("-", "_")) or "mission"
+    return _MISSION_DIR / f"{safe_id}.json"
+
+
+def _load_mission_state(mission_id: str) -> Optional[dict]:
+    path = _mission_path(mission_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _save_mission_state(state: dict) -> pathlib.Path:
+    state = dict(state)
+    state["updated_at"] = time.time()
+    path = _mission_path(state["mission_id"])
+    path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def _mission_summary(state: dict) -> dict:
+    history = state.get("history", []) if isinstance(state.get("history"), list) else []
+    return {
+        "mission_id": state.get("mission_id"),
+        "name": state.get("name"),
+        "status": state.get("status"),
+        "current_step": state.get("current_step", -1),
+        "step_count": len(state.get("steps", [])) if isinstance(state.get("steps"), list) else 0,
+        "history_count": len(history),
+        "runner_pid": state.get("runner_pid"),
+        "failure_reason": state.get("failure_reason"),
+    }
+
+
+def _place_path(place_name: str) -> pathlib.Path:
+    _PLACE_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = "".join(ch for ch in place_name if ch.isalnum() or ch in ("-", "_")) or "place"
+    return _PLACE_DIR / f"{safe_name}.json"
+
+
+def _load_place(place_name: str) -> Optional[dict]:
+    path = _place_path(place_name)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _save_place(place: dict) -> pathlib.Path:
+    path = _place_path(place["name"])
+    payload = dict(place)
+    payload["updated_at"] = time.time()
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def _list_places() -> list[dict]:
+    if not _PLACE_DIR.exists():
+        return []
+    places = []
+    for path in sorted(_PLACE_DIR.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict) and data.get("name"):
+            places.append(data)
+    return places
+
+
+def _current_pose_from_topic(topic_name: str, timeout: float) -> Optional[dict]:
+    msg_type = None
+    if topic_name.endswith("/amcl_pose"):
+        msg_type = "geometry_msgs/msg/PoseWithCovarianceStamped"
+    elif topic_name.endswith("/odom"):
+        msg_type = "nav_msgs/msg/Odometry"
+    else:
+        msg_type = None
+
+    msg_class = get_msg_type(msg_type) if msg_type else None
+    if not msg_class:
+        return None
+
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            received = []
+            done = threading.Event()
+
+            def _cb(msg):
+                received.append(msg_to_dict(msg))
+                done.set()
+
+            node.create_subscription(msg_class, topic_name, _cb, 10)
+            end = time.time() + timeout
+            while time.time() < end and not done.is_set():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+        if not received:
+            return None
+
+        msg = received[0]
+        if "pose" in msg and isinstance(msg["pose"], dict):
+            pose = msg["pose"]
+            if "pose" in pose and isinstance(pose["pose"], dict):
+                pose = pose["pose"]
+        elif "pose" in msg and isinstance(msg["pose"], dict):
+            pose = msg["pose"]
+        else:
+            return None
+
+        position = pose.get("position", {}) if isinstance(pose, dict) else {}
+        orientation = pose.get("orientation", {}) if isinstance(pose, dict) else {}
+        return {
+            "x": float(position.get("x", 0.0)),
+            "y": float(position.get("y", 0.0)),
+            "yaw_deg": _yaw_from_quaternion(orientation),
+            "frame": "map" if topic_name.endswith("/amcl_pose") else "odom",
+            "source_topic": topic_name,
+        }
+    except Exception:
+        return None
+
+
+def _yaw_from_quaternion(quat: dict) -> float:
+    x = float(quat.get("x", 0.0))
+    y = float(quat.get("y", 0.0))
+    z = float(quat.get("z", 0.0))
+    w = float(quat.get("w", 1.0))
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    return math.degrees(math.atan2(siny_cosp, cosy_cosp))
 
 
 # ---------------------------------------------------------------------------
@@ -1202,7 +1350,8 @@ def cmd_nav2_localize(args):
 def cmd_nav2_move_timed(args):
     """Publish velocity commands for a fixed duration then stop.
 
-    Auto-discovers the first ``cmd_vel``-style Twist topic on the graph.
+        Auto-discovers a ``cmd_vel``-style topic on the graph, preferring topics
+        that have active subscribers.
     Directions map to Twist fields:
       fwd/back → linear.x (±speed m/s)
       left/right → angular.z (±speed rad/s)
@@ -1218,38 +1367,84 @@ def cmd_nav2_move_timed(args):
     speed = args.speed
 
     try:
-        from geometry_msgs.msg import Twist  # noqa: PLC0415
+        from geometry_msgs.msg import Twist, TwistStamped  # noqa: PLC0415
 
         with ros2_context():
             node = ROS2CLI()
 
             topics = node.get_topic_names_and_types()
-            vel_topic = None
-            for name, types in topics:
-                for t in types:
-                    if "Twist" in t and "cmd_vel" in name.lower():
-                        vel_topic = name
-                        break
-                if vel_topic:
-                    break
+            requested_topic = getattr(args, "topic", None)
 
-            if not vel_topic:
+            # Keep preference deterministic when multiple cmd_vel-like topics exist.
+            # Favour the normal ingress path first, but never pick a topic with
+            # zero subscribers when a subscribed option exists.
+            preference_order = [
+                "/cmd_vel_raw",
+                "/cmd_vel",
+                "/cmd_vel_smoothed",
+                "/cmd_vel_presafety",
+                "/cmd_vel_teleop",
+                "/base_controller/cmd_vel",
+            ]
+            preference_rank = {name: i for i, name in enumerate(preference_order)}
+
+            candidates = []
+            for name, types in topics:
+                if "cmd_vel" not in name.lower():
+                    continue
+                for t in types:
+                    if t in ("geometry_msgs/msg/Twist", "geometry_msgs/msg/TwistStamped"):
+                        sub_count = int(node.count_subscribers(name))
+                        candidates.append({
+                            "topic": name,
+                            "type": t,
+                            "subscribers": sub_count,
+                            "rank": preference_rank.get(name, len(preference_order)),
+                        })
+
+            chosen = None
+            if requested_topic:
+                for c in candidates:
+                    if c["topic"] == requested_topic:
+                        chosen = c
+                        break
+                if not chosen:
+                    return output({
+                        "error": f"Requested topic '{requested_topic}' is not a cmd_vel Twist/TwistStamped topic",
+                        "available_cmd_vel_topics": [c["topic"] for c in sorted(candidates, key=lambda x: x["topic"])],
+                    })
+            else:
+                # Prefer subscribed topics first, then preference rank.
+                candidates.sort(key=lambda c: (c["subscribers"] <= 0, c["rank"], c["topic"]))
+                if candidates:
+                    chosen = candidates[0]
+
+            if not chosen:
                 return output({
                     "error": "No cmd_vel Twist topic found on the graph",
                     "hint": "Ensure the robot's velocity controller is running",
                 })
 
-            pub = node.create_publisher(Twist, vel_topic, 10)
+            vel_topic = chosen["topic"]
+            vel_type = chosen["type"]
 
-            msg = Twist()
+            if vel_type == "geometry_msgs/msg/TwistStamped":
+                pub = node.create_publisher(TwistStamped, vel_topic, 10)
+                msg = TwistStamped()
+                twist = msg.twist
+            else:
+                pub = node.create_publisher(Twist, vel_topic, 10)
+                msg = Twist()
+                twist = msg
+
             if direction == "fwd":
-                msg.linear.x = speed
+                twist.linear.x = speed
             elif direction == "back":
-                msg.linear.x = -speed
+                twist.linear.x = -speed
             elif direction == "left":
-                msg.angular.z = speed
+                twist.angular.z = speed
             else:  # right
-                msg.angular.z = -speed
+                twist.angular.z = -speed
 
             end = time.time() + duration
             while time.time() < end:
@@ -1261,6 +1456,8 @@ def cmd_nav2_move_timed(args):
         return output({
             "moved": True,
             "topic": vel_topic,
+            "msg_type": vel_type,
+            "topic_subscribers": chosen["subscribers"],
             "direction": direction,
             "speed": speed,
             "duration_s": duration,
@@ -1373,3 +1570,238 @@ def cmd_nav2_diagnose(args):
 
     except Exception as e:
         output({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Mission control — pause / resume / cancel / status
+# ---------------------------------------------------------------------------
+
+def _normalize_mission_steps(raw_steps):
+    if isinstance(raw_steps, str):
+        raw_steps = json.loads(raw_steps)
+    if not isinstance(raw_steps, list) or not raw_steps:
+        raise ValueError("mission steps must be a non-empty JSON list")
+    steps = []
+    for step in raw_steps:
+        if not isinstance(step, dict):
+            raise ValueError("each mission step must be a JSON object")
+        step_type = str(step.get("type", "")).strip().lower()
+        if not step_type:
+            raise ValueError("each mission step needs a 'type'")
+        steps.append(dict(step))
+    return steps
+
+
+def _mission_runner_script() -> pathlib.Path:
+    return pathlib.Path(__file__).resolve().parent / "ros2_mission.py"
+
+
+def cmd_nav2_mission_run(args):
+    """Start a detached file-backed mission runner."""
+    mission_name = getattr(args, "name", None) or "mission"
+    mission_id = getattr(args, "mission_id", None) or f"{mission_name}-{int(time.time())}"
+
+    raw_steps = getattr(args, "steps", None)
+    steps_file = getattr(args, "file", None)
+    if raw_steps is None and steps_file is None:
+        return output({"error": "Provide --steps or --file"})
+
+    try:
+        if steps_file:
+            raw_steps = pathlib.Path(steps_file).read_text(encoding="utf-8", errors="replace")
+        steps = _normalize_mission_steps(raw_steps)
+    except Exception as exc:
+        return output({"error": f"Invalid mission steps: {exc}"})
+
+    state = {
+        "mission_id": mission_id,
+        "name": mission_name,
+        "status": "queued",
+        "steps": steps,
+        "current_step": -1,
+        "history": [],
+        "created_at": time.time(),
+    }
+    state_path = _save_mission_state(state)
+    log_path = state_path.with_suffix(".log")
+
+    runner_script = _mission_runner_script()
+    if not runner_script.exists():
+        return output({"error": f"Mission runner not found: {runner_script}"})
+
+    with open(log_path, "a", encoding="utf-8") as log_file:
+        proc = subprocess.Popen(
+            [sys.executable, str(runner_script), "--mission-id", mission_id],
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+        )
+
+    state["runner_pid"] = proc.pid
+    _save_mission_state(state)
+
+    return output({
+        "started": True,
+        "mission_id": mission_id,
+        "mission_name": mission_name,
+        "state_file": str(state_path),
+        "log_file": str(log_path),
+        "steps": len(steps),
+        "runner_pid": proc.pid,
+        "hint": "Use 'nav2 mission pause|resume|cancel|status' with the mission_id.",
+    })
+
+
+def _update_mission_status(mission_id: str, status: str):
+    state = _load_mission_state(mission_id)
+    if state is None:
+        return None
+    state["status"] = status
+    _save_mission_state(state)
+    return state
+
+
+def cmd_nav2_mission_pause(args):
+    mission_id = getattr(args, "mission_id", None)
+    state = _update_mission_status(mission_id, "paused") if mission_id else None
+    if state is None:
+        return output({"error": f"Mission '{mission_id}' not found"})
+    return output({"paused": True, **_mission_summary(state)})
+
+
+def cmd_nav2_mission_resume(args):
+    mission_id = getattr(args, "mission_id", None)
+    state = _update_mission_status(mission_id, "running") if mission_id else None
+    if state is None:
+        return output({"error": f"Mission '{mission_id}' not found"})
+    return output({"resumed": True, **_mission_summary(state)})
+
+
+def cmd_nav2_mission_cancel(args):
+    mission_id = getattr(args, "mission_id", None)
+    state = _load_mission_state(mission_id) if mission_id else None
+    if state is None:
+        return output({"error": f"Mission '{mission_id}' not found"})
+
+    state["status"] = "canceling"
+    _save_mission_state(state)
+
+    # Best-effort local fail-safe if the runner is already gone.
+    pid = state.get("runner_pid")
+    if pid:
+        try:
+            os.kill(int(pid), 0)
+        except OSError:
+            try:
+                with ros2_context():
+                    node = ROS2CLI()
+                    _publish_zero_burst(node)
+            except Exception:
+                pass
+
+    return output({"cancel_requested": True, **_mission_summary(state)})
+
+
+def cmd_nav2_mission_status(args):
+    mission_id = getattr(args, "mission_id", None)
+    state = _load_mission_state(mission_id) if mission_id else None
+    if state is None:
+        return output({"error": f"Mission '{mission_id}' not found"})
+    return output({"mission": state, "summary": _mission_summary(state)})
+
+
+def cmd_nav2_place_save(args):
+    """Save the current robot pose as a named place."""
+    place_name = getattr(args, "name", None)
+    if not place_name:
+        return output({"error": "Place name is required"})
+
+    timeout = float(getattr(args, "timeout", 2.0) or 2.0)
+    frame = getattr(args, "frame", None) or "map"
+    topic_name = getattr(args, "topic", None) or ("/amcl_pose" if frame == "map" else "/odom")
+
+    x = getattr(args, "x", None)
+    y = getattr(args, "y", None)
+    yaw_deg = getattr(args, "yaw", None)
+    if x is None or y is None:
+        pose = _current_pose_from_topic(topic_name, timeout)
+        if pose is None:
+            return output({
+                "error": "Could not capture current pose",
+                "hint": "Provide --x/--y/--yaw explicitly or use a running /amcl_pose or /odom topic.",
+            })
+        x = pose["x"]
+        y = pose["y"]
+        yaw_deg = pose["yaw_deg"]
+        frame = pose.get("frame", frame)
+
+    place = {
+        "name": place_name,
+        "x": float(x),
+        "y": float(y),
+        "yaw_deg": float(yaw_deg or 0.0),
+        "frame": frame,
+        "source_topic": topic_name,
+        "created_at": time.time(),
+    }
+    saved_path = _save_place(place)
+    return output({"saved": True, "place": place, "file": str(saved_path)})
+
+
+def cmd_nav2_place_list(args):
+    """List stored named places."""
+    places = _list_places()
+    return output({"places": places, "count": len(places), "places_dir": str(_PLACE_DIR)})
+
+
+def cmd_nav2_place_go(args):
+    """Navigate to a stored place."""
+    place_name = getattr(args, "name", None)
+    if not place_name:
+        return output({"error": "Place name is required"})
+    place = _load_place(place_name)
+    if place is None:
+        return output({"error": f"Place '{place_name}' not found"})
+
+    action_name = getattr(args, "action", _NAV2_ACTION)
+    timeout = float(getattr(args, "timeout", _NAV_TIMEOUT) or _NAV_TIMEOUT)
+    action_class = get_action_type("nav2_msgs/action/NavigateToPose")
+    if not action_class:
+        return output({"error": "Cannot load nav2_msgs/action/NavigateToPose — is nav2_msgs installed and sourced?"})
+
+    goal_dict = _build_nav2_goal(place["x"], place["y"], place.get("yaw_deg"), place.get("frame", "map"))
+    try:
+        with ros2_context():
+            node = ROS2CLI()
+            success, status, result_dict, feedback_msgs = _send_navigate_to_pose(
+                node, action_class, action_name, goal_dict, timeout, bool(getattr(args, "feedback", False))
+            )
+
+        out = {
+            "action": action_name,
+            "success": success,
+            "status": status,
+            "status_name": _status_name(status),
+            "place": place,
+        }
+        if result_dict:
+            out["result"] = result_dict
+        if getattr(args, "feedback", False):
+            out["feedback_msgs"] = feedback_msgs
+        if not success:
+            out["error"] = f"Navigation {_status_name(status).lower()} (status {status})"
+        output(out)
+    except Exception as exc:
+        output({"error": str(exc)})
+
+
+def cmd_nav2_place_delete(args):
+    """Delete a stored place."""
+    place_name = getattr(args, "name", None)
+    if not place_name:
+        return output({"error": "Place name is required"})
+    path = _place_path(place_name)
+    if not path.exists():
+        return output({"error": f"Place '{place_name}' not found"})
+    path.unlink()
+    return output({"deleted": True, "name": place_name, "file": str(path)})

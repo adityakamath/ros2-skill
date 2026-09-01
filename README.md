@@ -12,7 +12,7 @@ Agent (LLM) -> ros2-skill -> rclpy -> ROS 2 robot
 
 An AI agent skill that lets agents control ROS 2 robots through natural language. The agent reads `SKILL.md`, understands available commands, and executes `ros2_cli.py` to interact with ROS 2 directly via rclpy. No rosbridge required.
 
-The long-term goal is full parity with the `ros2` CLI — every command available in a terminal, made accessible to an AI agent. Beyond that baseline, ros2-skill adds capabilities that only make sense in an agent context: goal-conditioned publishing, sensor image capture, system diagnostics, and external integrations like Discord reporting.
+The long-term goal is full parity with the `ros2` CLI — every command available in a terminal, made accessible to an AI agent. Beyond that baseline, ros2-skill adds capabilities that only make sense in an agent context: goal-conditioned publishing, sensor image capture, system diagnostics, external integrations like Discord reporting, mission orchestration with pause/resume/cancel semantics, and safety policy enforcement with geofencing and velocity limits.
 
 ## Quick Start
 
@@ -91,6 +91,9 @@ ros2-skill/
 │   ├── ros2_component.py      # Composable node utilities (types, list, load, unload, kill, standalone)
 │   ├── ros2_pkg.py            # Package utilities (list, prefix, executables, xml)
 │   ├── ros2_daemon.py         # ROS 2 daemon management
+│   ├── ros2_mission.py        # Mission runner with pause/resume/cancel control
+│   ├── ros2_safety.py         # Safety policy enforcement and heartbeat monitoring
+│   ├── ros2_watchdog.py       # Background safety watchdog process
 │   └── discord_tools.py       # Discord integration
 ├── references/
 │   ├── CLI.md                 # Supported commands, agent features, global options
@@ -105,6 +108,7 @@ ros2-skill/
 │   └── RULES-REFERENCE.md     # Reference-specific task rules
 ├── tests/
 │   ├── test_ros2_cli.py       # Unit tests for parser/dispatch/logic helpers
+│   ├── test_ros2_safety.py    # Safety policy validation tests
 │   ├── test_eval_assets.py    # Eval asset schema and quality checks
 │   └── evals/                 # Trigger and behavior evaluation corpora
 │       ├── evals.json
@@ -131,8 +135,8 @@ Commands that produce file artifacts write to subdirectories of the skill instal
 
 | Directory | Contents |
 |-----------|----------|
-| `.artifacts/` | Captured images, logs, and all other generated outputs |
-| `.presets/` | Saved parameter presets (`params preset-save` / `params preset-load`) |
+| `.artifacts/` | Captured images, logs, mission state files, and all other generated outputs |
+| `.presets/` | Saved parameter presets (`params preset-save` / `params preset-load`) and safety configuration |
 | `.profiles/` | Robot profiles |
 
 ## Discord Setup

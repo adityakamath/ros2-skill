@@ -155,6 +155,79 @@ def cmd_nav2_mode(args):
     output({"error": "Usage: nav2 mode <get|set>"})
 
 
+def cmd_nav2_mission(args):
+    """Route ``nav2 mission`` to the correct mission handler."""
+    from ros2_nav2 import (
+        cmd_nav2_mission_run, cmd_nav2_mission_pause,
+        cmd_nav2_mission_resume, cmd_nav2_mission_cancel,
+        cmd_nav2_mission_status,
+    )
+    sub = getattr(args, "mission_subcommand", None)
+    handlers = {
+        "run": cmd_nav2_mission_run,
+        "pause": cmd_nav2_mission_pause,
+        "resume": cmd_nav2_mission_resume,
+        "cancel": cmd_nav2_mission_cancel,
+        "status": cmd_nav2_mission_status,
+    }
+    h = handlers.get(sub)
+    if h:
+        return h(args)
+    output({"error": "Usage: nav2 mission <run|pause|resume|cancel|status>"})
+
+
+def cmd_nav2_place(args):
+    """Route ``nav2 place`` to the correct place-memory handler."""
+    from ros2_nav2 import (
+        cmd_nav2_place_save, cmd_nav2_place_list,
+        cmd_nav2_place_go, cmd_nav2_place_delete,
+    )
+    sub = getattr(args, "place_subcommand", None)
+    handlers = {
+        "save": cmd_nav2_place_save,
+        "list": cmd_nav2_place_list,
+        "go": cmd_nav2_place_go,
+        "delete": cmd_nav2_place_delete,
+    }
+    h = handlers.get(sub)
+    if h:
+        return h(args)
+    output({"error": "Usage: nav2 place <save|list|go|delete>"})
+
+
+def cmd_safety_geofence(args):
+    """Route safety geofence subcommands."""
+    from ros2_safety import cmd_safety_geofence_enable, cmd_safety_geofence_disable
+    sub = getattr(args, "geofence_subcommand", None)
+    handlers = {
+        "enable": cmd_safety_geofence_enable,
+        "disable": cmd_safety_geofence_disable,
+    }
+    h = handlers.get(sub)
+    if h:
+        return h(args)
+    output({"error": "Usage: safety geofence <enable|disable>"})
+
+
+def cmd_safety_heartbeat(args):
+    """Route safety heartbeat subcommands."""
+    from ros2_safety import (
+        cmd_safety_heartbeat_start, cmd_safety_heartbeat_stop,
+        cmd_safety_heartbeat_ping, cmd_safety_heartbeat_status,
+    )
+    sub = getattr(args, "heartbeat_subcommand", None)
+    handlers = {
+        "start": cmd_safety_heartbeat_start,
+        "stop": cmd_safety_heartbeat_stop,
+        "ping": cmd_safety_heartbeat_ping,
+        "status": cmd_safety_heartbeat_status,
+    }
+    h = handlers.get(sub)
+    if h:
+        return h(args)
+    output({"error": "Usage: safety heartbeat <start|stop|ping|status>"})
+
+
 # ---------------------------------------------------------------------------
 # Parser helpers
 # ---------------------------------------------------------------------------
@@ -1392,6 +1465,106 @@ def build_parser():
     p.add_argument("--name", default="robot", metavar="NAME",
                    help="Robot name (default: auto-detected from .profiles/)")
 
+    # set-safety-overlay
+    p = psub.add_parser(
+        "set-safety-overlay",
+        help="Store a structured per-robot safety overlay in the profile",
+    )
+    p.add_argument("--json", dest="json", default=None,
+                   help="JSON object containing the overlay to merge into the profile")
+    p.add_argument("--file", default=None,
+                   help="Path to a JSON file containing the overlay object")
+    p.add_argument("--clear", action="store_true",
+                   help="Clear the stored overlay before applying new values")
+    p.add_argument("--replace", action="store_true",
+                   help="Replace the stored overlay instead of merging")
+    p.add_argument("--name", default="robot", metavar="NAME",
+                   help="Robot name (default: auto-detected from .profiles/)")
+
+    # ------------------------------------------------------------------
+    # safety
+    # ------------------------------------------------------------------
+    safety = sub.add_parser("safety", help="Safety policy controls and validators")
+    safesub = safety.add_subparsers(dest="subcommand")
+
+    safesub.add_parser("show", help="Show the active safety configuration")
+    safesub.add_parser("enable", help="Enable all safety checks")
+    safesub.add_parser("disable", help="Disable all safety checks")
+
+    p = safesub.add_parser("set-velocity", help="Set velocity safety limits")
+    p.add_argument("--linear", type=float, default=None,
+                   help="Linear velocity norm limit in m/s")
+    p.add_argument("--angular", type=float, default=None,
+                   help="Angular velocity norm limit in rad/s")
+    p.add_argument("--axis", default=None,
+                   choices=[
+                       "linear_x_max", "linear_y_max", "linear_z_max",
+                       "angular_x_max", "angular_y_max", "angular_z_max",
+                   ],
+                   help="Optional per-axis limit key")
+    p.add_argument("--value", type=float, default=None,
+                   help="Per-axis limit value for --axis")
+    p.add_argument("--topic", default=None,
+                   help="Scope safety checks to this command topic (repeat with multiple calls)")
+
+    p = safesub.add_parser("set-geofence", help="Set geofence limits and enable geofence")
+    p.add_argument("--mode", choices=["circle", "rectangle"], required=True,
+                   help="Geofence shape")
+    p.add_argument("--frame", default="map",
+                   help="Reference frame for geofence coordinates (default: map)")
+    p.add_argument("--cx", type=float, default=0.0,
+                   help="Circle center x")
+    p.add_argument("--cy", type=float, default=0.0,
+                   help="Circle center y")
+    p.add_argument("--radius", type=float, default=10.0,
+                   help="Circle radius in meters")
+    p.add_argument("--xmin", type=float, default=-5.0,
+                   help="Rectangle min x")
+    p.add_argument("--xmax", type=float, default=5.0,
+                   help="Rectangle max x")
+    p.add_argument("--ymin", type=float, default=-5.0,
+                   help="Rectangle min y")
+    p.add_argument("--ymax", type=float, default=5.0,
+                   help="Rectangle max y")
+
+    p = safesub.add_parser("block", help="Add a command rule to blocklist")
+    p.add_argument("command_name", help="Top-level command name, e.g. topics")
+    p.add_argument("command_subname", nargs="?",
+                   help="Optional subcommand name, e.g. publish")
+
+    p = safesub.add_parser("unblock", help="Remove a command rule from blocklist")
+    p.add_argument("command_name", help="Top-level command name, e.g. topics")
+    p.add_argument("command_subname", nargs="?",
+                   help="Optional subcommand name, e.g. publish")
+
+    p = safesub.add_parser("validate", help="Dry-run safety validation of a publish payload")
+    p.add_argument("--topic", required=True,
+                   help="Publish topic to validate")
+    p.add_argument("--msg", required=True,
+                   help="JSON payload to validate")
+    p.add_argument("--msg-type", dest="msg_type", default="geometry_msgs/msg/Twist",
+                   help="Message type for payload validation")
+
+    p = safesub.add_parser("reset", help="Reset safety configuration to defaults")
+    p.add_argument("--yes", action="store_true",
+                   help="Required confirmation flag")
+
+    geofence = safesub.add_parser("geofence", help="Enable or disable geofence checks")
+    geofencesub = geofence.add_subparsers(dest="geofence_subcommand")
+    geofencesub.add_parser("enable", help="Enable geofence checks")
+    geofencesub.add_parser("disable", help="Disable geofence checks")
+
+    heartbeat = safesub.add_parser("heartbeat", help="Manage safety heartbeat watchdog")
+    hsub = heartbeat.add_subparsers(dest="heartbeat_subcommand")
+    p = hsub.add_parser("start", help="Start the heartbeat watchdog")
+    p.add_argument("--timeout", type=int, default=None,
+                   help="Staleness timeout in seconds")
+    p.add_argument("--poll", type=int, default=None,
+                   help="Polling interval in seconds")
+    hsub.add_parser("stop", help="Stop the heartbeat watchdog")
+    hsub.add_parser("ping", help="Touch the heartbeat sentinel")
+    hsub.add_parser("status", help="Show heartbeat watchdog status")
+
     # -------------------------------------------------------------------------
     # nav2 — Nav2 navigation stack commands
     # -------------------------------------------------------------------------
@@ -1440,16 +1613,16 @@ def build_parser():
                    help="Desired heading at each waypoint in degrees (omit for no constraint)")
     p.add_argument("--frame", default="map",
                    help="Coordinate frame for all waypoints (default: map)")
-    p.add_argument("--timeout", type=float, default=_NAV2_TIMEOUT_DEFAULT,
-                   help=f"Seconds to wait per waypoint (default: {_NAV2_TIMEOUT_DEFAULT})")
+    p.add_argument("--timeout", type=float, default=120.0,
+                   help="Seconds to wait per waypoint (default: 120)")
     p.add_argument("--stop-on-failure", dest="stop_on_failure",
                    action="store_true", default=True,
                    help="Stop waypoint sequence on first failure (default: True)")
     p.add_argument("--no-stop-on-failure", dest="stop_on_failure",
                    action="store_false",
                    help="Continue waypoint sequence even after a failed waypoint")
-    p.add_argument("--action", default=_NAV2_ACTION_DEFAULT,
-                   help=f"Action server name (default: {_NAV2_ACTION_DEFAULT})")
+    p.add_argument("--action", default="/navigate_to_pose",
+                   help="Action server name (default: /navigate_to_pose)")
 
     # rotate
     p = nav2sub.add_parser("rotate",
@@ -1480,46 +1653,6 @@ def build_parser():
                    help="Which costmap layer to clear (default: both)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Service call timeout in seconds (default: 10)")
-
-    # ------------------------------------------------------------------
-    # foxglove — Foxglove Bridge management
-    # ------------------------------------------------------------------
-    foxglove = sub.add_parser(
-        "foxglove",
-        help="Manage the Foxglove Bridge WebSocket server",
-    )
-    fgsub = foxglove.add_subparsers(dest="subcommand")
-
-    # foxglove start [port]
-    p = fgsub.add_parser(
-        "start",
-        help="Launch foxglove_bridge on a given port (default: 8765)",
-    )
-    p.add_argument(
-        "port",
-        nargs="?",
-        type=int,
-        default=8765,
-        help="WebSocket port for Foxglove Studio to connect to (default: 8765)",
-    )
-
-    # foxglove stop [--port PORT]
-    p = fgsub.add_parser(
-        "stop",
-        help="Stop the running foxglove_bridge session",
-    )
-    p.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="Stop only the session on this port (required when multiple bridges are running)",
-    )
-
-    # foxglove status
-    fgsub.add_parser(
-        "status",
-        help="Show status of all running foxglove_bridge sessions",
-    )
 
     # ------------------------------------------------------------------
     # system — system-level health and lifecycle
@@ -1633,6 +1766,44 @@ def build_parser():
                    help="Target navigation mode")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Timeout for lifecycle transitions (default: 10)")
+
+    # nav2 mission
+    nav2mission = nav2sub.add_parser("mission", help="Mission control: run / pause / resume / cancel / status")
+    nav2missionsub = nav2mission.add_subparsers(dest="mission_subcommand")
+
+    p = nav2missionsub.add_parser("run", help="Run a detached file-backed mission")
+    p.add_argument("--name", default="mission", help="Mission display name")
+    p.add_argument("--mission-id", default=None, help="Explicit mission id (default: generated)")
+    p.add_argument("--steps", default=None, help="Mission steps as a JSON string")
+    p.add_argument("--file", dest="file", default=None, help="Path to a JSON file containing mission steps")
+
+    for _name in ("pause", "resume", "cancel", "status"):
+        p = nav2missionsub.add_parser(_name, help=f"{_name.title()} a mission")
+        p.add_argument("mission_id", help="Mission id")
+
+    # nav2 place
+    nav2place = nav2sub.add_parser("place", help="Place memory: save / list / go / delete")
+    nav2placesub = nav2place.add_subparsers(dest="place_subcommand")
+
+    p = nav2placesub.add_parser("save", help="Save the current pose as a named place")
+    p.add_argument("name", help="Place name")
+    p.add_argument("--topic", default=None, help="Pose topic to sample (default: /amcl_pose or /odom)")
+    p.add_argument("--frame", default="map", help="Reference frame for the place (default: map)")
+    p.add_argument("--x", type=float, default=None, help="Explicit x position")
+    p.add_argument("--y", type=float, default=None, help="Explicit y position")
+    p.add_argument("--yaw", type=float, default=None, help="Explicit yaw in degrees")
+    p.add_argument("--timeout", type=float, default=2.0, help="Pose capture timeout in seconds")
+
+    nav2placesub.add_parser("list", help="List stored places")
+
+    p = nav2placesub.add_parser("go", help="Navigate to a stored place")
+    p.add_argument("name", help="Place name")
+    p.add_argument("--action", default="/navigate_to_pose", help="NavigateToPose action name")
+    p.add_argument("--timeout", type=float, default=120.0, help="Action timeout in seconds")
+    p.add_argument("--feedback", action="store_true", default=False, help="Return feedback messages")
+
+    p = nav2placesub.add_parser("delete", help="Delete a stored place")
+    p.add_argument("name", help="Place name")
 
     # ------------------------------------------------------------------
     # initial-pose (nav2 continuation)
@@ -1865,6 +2036,19 @@ DISPATCH = {
     ("profile", "ls"):       ("ros2_profile", "cmd_profile_list"),
     ("profile", "annotate"): ("ros2_profile", "cmd_profile_annotate"),
     ("profile", "set-camera-rotation"): ("ros2_profile", "cmd_profile_set_camera_rotation"),
+    ("profile", "set-safety-overlay"): ("ros2_profile", "cmd_profile_set_safety_overlay"),
+    # safety
+    ("safety", "show"):         ("ros2_safety", "cmd_safety_show"),
+    ("safety", "enable"):       ("ros2_safety", "cmd_safety_enable"),
+    ("safety", "disable"):      ("ros2_safety", "cmd_safety_disable"),
+    ("safety", "set-velocity"): ("ros2_safety", "cmd_safety_set_velocity"),
+    ("safety", "set-geofence"): ("ros2_safety", "cmd_safety_set_geofence"),
+    ("safety", "block"):        ("ros2_safety", "cmd_safety_block"),
+    ("safety", "unblock"):      ("ros2_safety", "cmd_safety_unblock"),
+    ("safety", "validate"):     ("ros2_safety", "cmd_safety_validate"),
+    ("safety", "reset"):        ("ros2_safety", "cmd_safety_reset"),
+    ("safety", "geofence"):      cmd_safety_geofence,
+    ("safety", "heartbeat"):     cmd_safety_heartbeat,
     # foxglove
     ("foxglove", "start"):  ("ros2_foxglove", "cmd_foxglove_start"),
     ("foxglove", "stop"):   ("ros2_foxglove", "cmd_foxglove_stop"),
@@ -1933,6 +2117,24 @@ def main():
 
     command = args.command
     subcommand = getattr(args, "subcommand", None)
+
+    # Command-level safety filter (fast path; config-only, no ROS graph calls).
+    try:
+        from ros2_safety import check_command
+        allowed, reason, detail = check_command(command, subcommand)
+        if not allowed:
+            output({
+                "error": "Command blocked by safety configuration",
+                "blocked": True,
+                "command": f"{command} {subcommand or ''}".strip(),
+                "reason": reason,
+                "detail": detail,
+                "hint": "Run 'safety show' to inspect policy, or 'safety unblock <command> [subcommand]' to remove a block.",
+            })
+            sys.exit(1)
+    except Exception:
+        # Never break command execution if safety policy code fails to load.
+        pass
 
     key = (command, subcommand)
     handler = DISPATCH.get(key)

@@ -10,6 +10,7 @@ import json
 import pathlib
 import sys
 import os
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 from io import StringIO
@@ -281,6 +282,18 @@ MINIMAL_ARGS = [
     # preflight
     ("preflight", "motion",         ["preflight", "motion", "--controller", "c", "--odom-topic", "/odom"]),
     ("preflight", "joint-command",  ["preflight", "joint-command", "--controller", "c"]),
+    # safety
+    ("safety",   "show",            ["safety", "show"]),
+    ("safety",   "enable",          ["safety", "enable"]),
+    ("safety",   "disable",         ["safety", "disable"]),
+    ("safety",   "set-velocity",    ["safety", "set-velocity", "--linear", "0.4"]),
+    ("safety",   "set-geofence",    ["safety", "set-geofence", "--mode", "circle", "--radius", "1.0"]),
+    ("safety",   "block",           ["safety", "block", "topics", "publish"]),
+    ("safety",   "unblock",         ["safety", "unblock", "topics", "publish"]),
+    ("safety",   "validate",        ["safety", "validate", "--topic", "/cmd_vel", "--msg", "{}"]),
+    ("safety",   "reset",           ["safety", "reset", "--yes"]),
+    ("safety",   "geofence",        ["safety", "geofence", "enable"]),
+    ("safety",   "heartbeat",       ["safety", "heartbeat", "status"]),
     # profile
     ("profile",  "scan",     ["profile", "scan"]),
     ("profile",  "show",     ["profile", "show"]),
@@ -289,6 +302,7 @@ MINIMAL_ARGS = [
     ("profile",  "ls",       ["profile", "ls"]),
     ("profile",  "annotate", ["profile", "annotate", "test annotation"]),
     ("profile",  "set-camera-rotation", ["profile", "set-camera-rotation", "oak", "90"]),
+    ("profile",  "set-safety-overlay", ["profile", "set-safety-overlay", "--json", "{}"]),
     # nav2
     ("nav2", "go",           ["nav2", "go", "1.0", "2.0"]),
     ("nav2", "rotate",       ["nav2", "rotate", "90"]),
@@ -366,8 +380,14 @@ class TestBuildParser(unittest.TestCase):
         self.assertEqual(self.parser.parse_args(["lifecycle", "set", "/n", "configure"]).transition, "configure")
         self.assertEqual(self.parser.parse_args(["lifecycle", "set", "/n", "3", "--timeout", "10"]).timeout, 10.0)
         
+        # Safety
+        self.assertEqual(self.parser.parse_args(["safety", "show"]).subcommand, "show")
+        self.assertEqual(self.parser.parse_args(["safety", "set-velocity", "--linear", "0.4"]).linear, 0.4)
+        self.assertEqual(self.parser.parse_args(["safety", "heartbeat", "status"]).heartbeat_subcommand, "status")
+
         # Misc
         self.assertEqual(self.parser.parse_args(["estop", "--topic", "/e"]).topic, "/e")
+        self.assertEqual(self.parser.parse_args(["profile", "set-safety-overlay", "--json", "{}"]).subcommand, "set-safety-overlay")
 
 
 class TestDispatchTable(unittest.TestCase):
@@ -395,6 +415,8 @@ class TestDispatchTable(unittest.TestCase):
         self.assertIn(("control", "list-controllers"), D)
         self.assertIn(("launch", "new"), D)
         self.assertIn(("run", "new"), D)
+        self.assertIn(("safety", "show"), D)
+        self.assertIn(("profile", "set-safety-overlay"), D)
         
         # Verify specific aliases
         self.assertTrue(dispatch_targets_equal(D[("lifecycle", "ls")], D[("lifecycle", "list")]))
@@ -403,6 +425,37 @@ class TestDispatchTable(unittest.TestCase):
         self.assertTrue(dispatch_targets_equal(D[("tf", "get")], D[("tf", "lookup")]))
         self.assertTrue(dispatch_targets_equal(D[("launch", "ls")], D[("launch", "list")]))
         self.assertTrue(dispatch_targets_equal(D[("run", "ls")], D[("run", "list")]))
+
+
+class TestProfileSafetyOverlay(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_safety
+        cls.ros2_safety = ros2_safety
+
+    def test_profile_overlay_merges_into_runtime_safety_config(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            profiles_dir = pathlib.Path(tempdir) / ".profiles"
+            profiles_dir.mkdir(parents=True, exist_ok=True)
+            profile_path = profiles_dir / "robot_profile.json"
+            profile_path.write_text(json.dumps({
+                "summary": {"robot_type": "mobile_base"},
+                "safety_overrides": {
+                    "enabled": True,
+                    "velocity_limits": {
+                        "linear_max_norm": 0.25,
+                        "per_axis": {"linear_x_max": 0.15},
+                    },
+                },
+            }), encoding="utf-8")
+
+            cfg = self.ros2_safety.load_config(base_dir=tempdir)
+
+        self.assertTrue(cfg["enabled"])
+        self.assertEqual(cfg["velocity_limits"]["linear_max_norm"], 0.25)
+        self.assertEqual(cfg["velocity_limits"]["per_axis"]["linear_x_max"], 0.15)
 
 
 
@@ -648,6 +701,61 @@ class TestDiagnosticsParsing(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["level_name"], "OK")
         self.assertEqual(result[1]["level_name"], "ERROR")
+
+
+class TestFastDaemonIntrospection(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not check_rclpy_available():
+            raise unittest.SkipTest("rclpy not available - requires ROS 2 environment")
+        import ros2_cli
+        import ros2_topic
+        import ros2_service
+        import ros2_action
+        cls.ros2_cli = ros2_cli
+        cls.ros2_topic = ros2_topic
+        cls.ros2_service = ros2_service
+        cls.ros2_action = ros2_action
+
+    def test_topic_and_service_fast_paths(self):
+        from types import SimpleNamespace
+        with patch.object(self.ros2_topic, "try_fastd", return_value={
+            "topics": ["/t"], "types": ["std_msgs/msg/String"], "count": 1,
+        }), patch.object(self.ros2_topic, "ros2_context") as mock_ctx, patch.object(self.ros2_topic, "output") as mock_output:
+            self.ros2_topic.cmd_topics_list(SimpleNamespace())
+            mock_ctx.assert_not_called()
+            mock_output.assert_called_once()
+
+        with patch.object(self.ros2_service, "try_fastd", return_value={
+            "services": ["/s"], "types": ["std_srvs/srv/Empty"], "count": 1,
+        }), patch.object(self.ros2_service, "ros2_context") as mock_ctx, patch.object(self.ros2_service, "output") as mock_output:
+            self.ros2_service.cmd_services_list(SimpleNamespace())
+            mock_ctx.assert_not_called()
+            mock_output.assert_called_once()
+
+    def test_topic_and_service_detail_fast_paths(self):
+        from types import SimpleNamespace
+        with patch.object(self.ros2_topic, "try_fastd", return_value={
+            "topic": "/t", "type": "std_msgs/msg/String", "publishers": ["/p"], "subscribers": ["/c"],
+        }), patch.object(self.ros2_topic, "ros2_context") as mock_ctx, patch.object(self.ros2_topic, "output") as mock_output:
+            self.ros2_topic.cmd_topics_details(SimpleNamespace(topic="/t"))
+            mock_ctx.assert_not_called()
+            mock_output.assert_called_once()
+
+        with patch.object(self.ros2_service, "try_fastd", return_value={
+            "service": "/s", "type": "std_srvs/srv/Empty", "request": {}, "response": {},
+        }), patch.object(self.ros2_service, "ros2_context") as mock_ctx, patch.object(self.ros2_service, "output") as mock_output:
+            self.ros2_service.cmd_services_details(SimpleNamespace(service="/s"))
+            mock_ctx.assert_not_called()
+            mock_output.assert_called_once()
+
+    def test_action_fast_paths_use_list_topics(self):
+        from types import SimpleNamespace
+        topics = {"topics": ["/navigate_to_pose/_action/feedback"], "types": ["nav2_msgs/action/NavigateToPose_FeedbackMessage"]}
+        with patch.object(self.ros2_action, "try_fastd", return_value=topics), patch.object(self.ros2_action, "ros2_context") as mock_ctx, patch.object(self.ros2_action, "output") as mock_output:
+            self.ros2_action.cmd_actions_type(SimpleNamespace(action="/navigate_to_pose"))
+            mock_ctx.assert_not_called()
+            mock_output.assert_called_once()
 
 
 class TestBatteryParsing(unittest.TestCase):

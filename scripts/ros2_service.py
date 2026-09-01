@@ -16,6 +16,9 @@ from ros2_topic import TopicSubscriber
 
 
 def cmd_services_list(args):
+    daemon_resp = try_fastd("list_services", {})
+    if daemon_resp is not None and "error" not in daemon_resp:
+        return output(daemon_resp)
     try:
         with ros2_context():
             node = ROS2CLI()
@@ -31,6 +34,9 @@ def cmd_services_list(args):
 
 
 def cmd_services_type(args):
+    daemon_resp = try_fastd("service_type", {"service_name": args.service})
+    if daemon_resp is not None and "error" not in daemon_resp:
+        return output(daemon_resp)
     try:
         with ros2_context():
             node = ROS2CLI()
@@ -46,6 +52,9 @@ def cmd_services_type(args):
 
 
 def cmd_services_details(args):
+    daemon_resp = try_fastd("service_details", {"service_name": args.service})
+    if daemon_resp is not None and "error" not in daemon_resp:
+        return output(daemon_resp)
     try:
         with ros2_context():
             node = ROS2CLI()

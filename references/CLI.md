@@ -39,6 +39,8 @@ All commands output JSON. See [`COMMANDS.md`](COMMANDS.md) for the full referenc
 | Control | `list-controller-types`, `list-controllers`, `list-hardware-components`, `list-hardware-interfaces`, `load-controller`, `unload-controller`, `configure-controller`, `reload-controller-libraries`, `set-controller-state`, `set-hardware-component-state`, `switch-controllers`, `view-controller-chains` |
 | TF | `list`, `lookup`, `echo`, `monitor`, `static`, `euler-from-quaternion`, `quaternion-from-euler`, `transform-point`, `transform-vector`, `tree`, `validate` |
 | Nav2 | `go`, `go-waypoints`, `cancel`, `status`, `rotate`, `move-timed`, `costmap-clear`, `initial-pose`, `localize`, `mode`, `map`, `diagnose` |
+| Mission | `start`, `pause`, `resume`, `cancel`, `status`, `list` |
+| Safety | `config`, `check-velocity`, `check-position`, `heartbeat`, `watchdog` |
 | System | `battery`, `shutdown`, `reboot` |
 | Foxglove | `start`, `stop`, `status` |
 | Profile | `scan`, `show`, `rescan`, `list`, `annotate`, `set-camera-rotation` |
@@ -76,6 +78,8 @@ Capabilities beyond standard `ros2` CLI parity — designed specifically for AI 
 | **TF graph tools** | `tf tree`, `tf validate` | Visualise the full TF frame hierarchy; detect cycles and multiple-parent errors |
 | **Launch files** | `launch new/list/kill/restart/foxglove` | Run launch files in tmux sessions, list/kill/restart running sessions, launch foxglove_bridge |
 | **Run executables** | `run new/list/kill/restart` | Run executables in tmux sessions, list/kill/restart running sessions |
+| **Mission control** | `mission start/pause/resume/cancel/status/list` | Multi-step navigation with pause/resume/cancel semantics and file-backed state persistence |
+| **Safety policy** | `safety config/check-velocity/check-position/heartbeat/watchdog` | Velocity limits, geofencing, command filtering, and heartbeat monitoring with automatic estop |
 | **Discord integration** | `discord_tools.py send-image` | Send images (or PDFs) to a Discord channel via bot token; auto-detects nanobot or standalone config |
 
 ---

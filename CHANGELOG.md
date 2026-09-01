@@ -2,6 +2,43 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
+## [Unreleased] - 2026-09-01
+
+Mission primitives, safety policy enforcement, and watchdog monitoring. Addresses core roadmap items for deterministic mission execution, fail-safe behavior, and operator intervention paths.
+
+### New Commands
+
+- **Mission Control:**
+  - `mission start` — begin a multi-step navigation mission from a JSON spec with pause/resume/cancel semantics
+  - `mission pause` / `mission resume` / `mission cancel` — runtime mission lifecycle control
+  - `mission status` — inspect current mission state, progress, and step history
+  - `mission list` — show all active and completed missions
+  
+- **Safety Policy:**
+  - `safety config show` / `safety config set` / `safety config reset` — view, modify, or restore default safety policy
+  - `safety check-velocity` — validate velocity commands against configured limits before publishing
+  - `safety check-position` — validate position against geofence boundaries
+  - `safety heartbeat start` / `safety heartbeat stop` / `safety heartbeat ping` — heartbeat monitoring with automatic estop on timeout
+  - `safety watchdog start` / `safety watchdog stop` / `safety watchdog status` — persistent background safety monitor
+
+### Changes
+
+- **Mission execution:** file-backed state machine for pause/resume/cancel; fail-closed on state corruption (calls Nav2 cancel + zero-velocity burst)
+- **Safety enforcement:** velocity limits (per-axis and norm), geofence (circle/rectangle), command filter (block/allowlist), heartbeat timeout monitoring
+- **Nav2 integration:** mission runner orchestrates `nav2 go` with step-level result reporting and deterministic retry behavior
+- **Fast daemon extensions:** added mission and safety command hot-paths for sub-second latency
+- **Action improvements:** enhanced status reporting and goal cancellation for mission step tracking
+- **Profile enrichment:** safety limits now extracted and stored in robot profiles for Path A usage
+- **Topic publishing:** safety checks integrated into `topics publish`, `publish-sequence`, and `publish-until` with `--skip-safety-check` override
+
+### Fixes
+
+- Mission state file locking and atomic updates prevent race conditions during concurrent control commands
+- Watchdog sentinel creation and mtime updates are now atomic to prevent false triggers
+- Safety config validation prevents invalid policy configurations from being saved
+
+---
+
 ## [1.0.8] - 2026-05-20 (updated 2026-07-08)
 
 Nav2 navigation, Foxglove Bridge management, robot power lifecycle commands, map lifecycle, and several quality-of-life improvements. **Note:** foxglove, system, and nav2 map/mode/localize commands are implemented and unit-tested but not validated on real hardware.

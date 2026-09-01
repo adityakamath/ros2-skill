@@ -93,6 +93,21 @@ python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler --help
 python3 {baseDir}/scripts/ros2_cli.py tf transform-point --help
 python3 {baseDir}/scripts/ros2_cli.py tf transform-vector --help
 
+# mission
+python3 {baseDir}/scripts/ros2_cli.py mission start --help
+python3 {baseDir}/scripts/ros2_cli.py mission pause --help
+python3 {baseDir}/scripts/ros2_cli.py mission resume --help
+python3 {baseDir}/scripts/ros2_cli.py mission cancel --help
+python3 {baseDir}/scripts/ros2_cli.py mission status --help
+python3 {baseDir}/scripts/ros2_cli.py mission list --help
+
+# safety
+python3 {baseDir}/scripts/ros2_cli.py safety config --help
+python3 {baseDir}/scripts/ros2_cli.py safety check-velocity --help
+python3 {baseDir}/scripts/ros2_cli.py safety check-position --help
+python3 {baseDir}/scripts/ros2_cli.py safety heartbeat --help
+python3 {baseDir}/scripts/ros2_cli.py safety watchdog --help
+
 # other
 python3 {baseDir}/scripts/ros2_cli.py estop --help
 python3 {baseDir}/scripts/ros2_cli.py doctor --help

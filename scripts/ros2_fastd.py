@@ -77,6 +77,140 @@ def _handle_list_controllers(node, params):
     return {"controllers": [msg_to_dict(c) for c in result.controller]}
 
 
+def _handle_list_topics(node, params):
+    topics = node.get_topic_names_and_types()
+    topic_list = []
+    type_list = []
+    for name, types in topics:
+        topic_list.append(name)
+        type_list.append(types[0] if types else "")
+    return {"topics": topic_list, "types": type_list, "count": len(topic_list)}
+
+
+def _handle_get_topic_type(node, params):
+    topic_name = params["topic_name"]
+    for name, types in node.get_topic_names_and_types():
+        if name == topic_name:
+            return {"topic": topic_name, "type": types[0] if types else ""}
+    return {"topic": topic_name, "type": ""}
+
+
+def _handle_get_topic_details(node, params):
+    topic_name = params["topic_name"]
+    result = {"topic": topic_name, "type": "", "publishers": [], "subscribers": []}
+    for name, types in node.get_topic_names_and_types():
+        if name == topic_name:
+            result["type"] = types[0] if types else ""
+            break
+    try:
+        pub_info = node.get_publishers_info_by_topic(topic_name)
+        result["publishers"] = [f"{i.node_namespace.rstrip('/')}/{i.node_name}" for i in pub_info]
+    except Exception:
+        pass
+    try:
+        sub_info = node.get_subscriptions_info_by_topic(topic_name)
+        result["subscribers"] = [f"{i.node_namespace.rstrip('/')}/{i.node_name}" for i in sub_info]
+    except Exception:
+        pass
+    return result
+
+
+def _handle_list_services(node, params):
+    services = node.get_service_names()
+    service_list = []
+    type_list = []
+    for name, types in services:
+        service_list.append(name)
+        type_list.append(types[0] if types else "")
+    return {"services": service_list, "types": type_list, "count": len(service_list)}
+
+
+def _handle_get_service_type(node, params):
+    service_name = params["service_name"]
+    for name, types in node.get_service_names():
+        if name == service_name:
+            return {"service": service_name, "type": types[0] if types else ""}
+    return {"service": service_name, "type": ""}
+
+
+def _handle_get_service_details(node, params):
+    from ros2_utils import get_srv_type, msg_to_dict
+
+    service_name = params["service_name"]
+    result = {"service": service_name, "type": "", "request": {}, "response": {}}
+    for name, types in node.get_service_names():
+        if name == service_name:
+            result["type"] = types[0] if types else ""
+            break
+    if result["type"]:
+        srv_class = get_srv_type(result["type"])
+        if srv_class:
+            try:
+                result["request"] = msg_to_dict(srv_class.Request())
+            except Exception:
+                pass
+            try:
+                result["response"] = msg_to_dict(srv_class.Response())
+            except Exception:
+                pass
+    return result
+
+
+def _handle_list_controller_types(node, params):
+    from controller_manager_msgs.srv import ListControllerTypes
+    from ros2_control import _call_cm_service
+
+    cm_name = params.get("controller_manager", "/controller_manager")
+    timeout = float(params.get("timeout", 5.0))
+    result, err = _call_cm_service(
+        node, ListControllerTypes, cm_name, "list_controller_types",
+        ListControllerTypes.Request(), timeout, 1,
+    )
+    if err:
+        return err
+    return {
+        "controller_types": [
+            {"type": t, "base_class": b}
+            for t, b in zip(list(result.types), list(result.base_classes))
+        ]
+    }
+
+
+def _handle_list_hardware_components(node, params):
+    from controller_manager_msgs.srv import ListHardwareComponents
+    from ros2_control import _call_cm_service
+    from ros2_utils import msg_to_dict
+
+    cm_name = params.get("controller_manager", "/controller_manager")
+    timeout = float(params.get("timeout", 5.0))
+    result, err = _call_cm_service(
+        node, ListHardwareComponents, cm_name, "list_hardware_components",
+        ListHardwareComponents.Request(), timeout, 1,
+    )
+    if err:
+        return err
+    return {"hardware_components": [msg_to_dict(c) for c in result.component]}
+
+
+def _handle_list_hardware_interfaces(node, params):
+    from controller_manager_msgs.srv import ListHardwareInterfaces
+    from ros2_control import _call_cm_service
+    from ros2_utils import msg_to_dict
+
+    cm_name = params.get("controller_manager", "/controller_manager")
+    timeout = float(params.get("timeout", 5.0))
+    result, err = _call_cm_service(
+        node, ListHardwareInterfaces, cm_name, "list_hardware_interfaces",
+        ListHardwareInterfaces.Request(), timeout, 1,
+    )
+    if err:
+        return err
+    return {
+        "command_interfaces": [msg_to_dict(i) for i in result.command_interfaces],
+        "state_interfaces": [msg_to_dict(i) for i in result.state_interfaces],
+    }
+
+
 class _PersistentSubscriber:
     """Long-lived subscription that keeps only the most recent message.
 
@@ -290,6 +424,15 @@ def _handle_node_details(node, params):
 
 _HANDLERS = {
     "list_controllers": _handle_list_controllers,
+    "list_topics": _handle_list_topics,
+    "topic_type": _handle_get_topic_type,
+    "topic_details": _handle_get_topic_details,
+    "list_services": _handle_list_services,
+    "service_type": _handle_get_service_type,
+    "service_details": _handle_get_service_details,
+    "list_controller_types": _handle_list_controller_types,
+    "list_hardware_components": _handle_list_hardware_components,
+    "list_hardware_interfaces": _handle_list_hardware_interfaces,
     "subscribe_once": _handle_subscribe_once,
     "call_service": _handle_call_service,
     "get_parameters": _handle_get_parameters,

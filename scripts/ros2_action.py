@@ -11,6 +11,7 @@ import rclpy
 from ros2_utils import (
     ROS2CLI, get_action_type, msg_to_dict, dict_to_msg, output, ros2_context, try_fastd,
 )
+from ros2_safety import check_geofence, heartbeat_touch, load_config
 from ros2_topic import TopicSubscriber
 
 
@@ -24,11 +25,25 @@ def _get_action_type_str(node, action):
     return None
 
 
+def _get_action_type_str_from_topics(topics, action):
+    """Return the action type string from a pre-fetched topics list."""
+    for name, types in topics:
+        if name == action + "/_action/feedback":
+            for t in types:
+                if '/action/' in t:
+                    return re.sub(r'_FeedbackMessage$', '', t)
+    return None
+
+
 def cmd_actions_list(args):
     try:
-        with ros2_context():
-            node = ROS2CLI()
-            topics = node.get_topic_names_and_types()
+        daemon_resp = try_fastd("list_topics", {})
+        if daemon_resp is not None and "error" not in daemon_resp:
+            topics = list(zip(daemon_resp.get("topics", []), [[t] if t else [] for t in daemon_resp.get("types", [])]))
+        else:
+            with ros2_context():
+                node = ROS2CLI()
+                topics = node.get_topic_names_and_types()
         actions = []
         seen = set()
         status_topics = set()
@@ -53,6 +68,21 @@ def cmd_actions_details(args):
     if not args.action:
         return output({"error": "action argument is required"})
     try:
+        daemon_resp = try_fastd("list_topics", {})
+        if daemon_resp is not None and "error" not in daemon_resp:
+            topics = list(zip(daemon_resp.get("topics", []), [[t] if t else [] for t in daemon_resp.get("types", [])]))
+            action_type_str = _get_action_type_str_from_topics(topics, args.action)
+            if action_type_str is not None:
+                result = {"action": args.action, "action_type": action_type_str or "",
+                          "goal": {}, "result": {}, "feedback": {}}
+                action_class = get_action_type(action_type_str)
+                if action_class:
+                    for attr in ("Goal", "Result", "Feedback"):
+                        try:
+                            result[attr.lower()] = msg_to_dict(getattr(action_class, attr)())
+                        except Exception:
+                            pass
+                return output(result)
         with ros2_context():
             node = ROS2CLI()
             action_type_str = _get_action_type_str(node, args.action)
@@ -77,6 +107,31 @@ def cmd_actions_send(args):
         goal_data = json.loads(args.goal)
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         return output({"error": f"Invalid JSON goal: {e}"})
+
+    # Geofence gate for NavigateToPose-shaped goals.
+    cfg = load_config()
+    try:
+        x = goal_data["pose"]["pose"]["position"]["x"]
+        y = goal_data["pose"]["pose"]["position"]["y"]
+        ok, reason, detail = check_geofence(float(x), float(y), config=cfg)
+        if not ok:
+            mode = (cfg.get("geofence", {}) or {}).get("on_violation", "reject")
+            if mode == "reject":
+                return output({
+                    "error": "Action goal blocked by geofence",
+                    "blocked": True,
+                    "goal_position": {"x": float(x), "y": float(y)},
+                    "reason": reason,
+                    "geofence": cfg.get("geofence"),
+                    "detail": detail,
+                })
+    except Exception:
+        pass
+
+    try:
+        heartbeat_touch()
+    except Exception:
+        pass
 
     try:
         from rclpy.action import ActionClient
@@ -171,6 +226,12 @@ def cmd_actions_type(args):
 
     action = args.action.rstrip('/')
     try:
+        daemon_resp = try_fastd("list_topics", {})
+        if daemon_resp is not None and "error" not in daemon_resp:
+            topics = list(zip(daemon_resp.get("topics", []), [[t] if t else [] for t in daemon_resp.get("types", [])]))
+            action_type_str = _get_action_type_str_from_topics(topics, action)
+            if action_type_str is not None:
+                return output({"action": action, "type": action_type_str})
         with ros2_context():
             node = ROS2CLI()
             action_type_str = _get_action_type_str(node, action)

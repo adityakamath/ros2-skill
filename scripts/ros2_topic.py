@@ -18,6 +18,7 @@ from ros2_utils import (
     msg_to_dict, dict_to_msg, output, resolve_field, _get_service_event_qos,
     resolve_output_path, ros2_context, resolve_topic_type, try_fastd,
 )
+from ros2_safety import heartbeat_touch, validate_publish
 
 # ---------------------------------------------------------------------------
 # Velocity message types used to identify velocity command topics.
@@ -197,6 +198,9 @@ def cmd_estop(args):
 # ---------------------------------------------------------------------------
 
 def cmd_topics_list(args):
+    daemon_resp = try_fastd("list_topics", {})
+    if daemon_resp is not None and "error" not in daemon_resp:
+        return output(daemon_resp)
     try:
         with ros2_context():
             node = ROS2CLI()
@@ -221,6 +225,9 @@ def cmd_topics_list(args):
 
 
 def cmd_topics_type(args):
+    daemon_resp = try_fastd("topic_type", {"topic_name": args.topic})
+    if daemon_resp is not None and "error" not in daemon_resp:
+        return output(daemon_resp)
     try:
         with ros2_context():
             node = ROS2CLI()
@@ -236,6 +243,9 @@ def cmd_topics_type(args):
 
 
 def cmd_topics_details(args):
+    daemon_resp = try_fastd("topic_details", {"topic_name": args.topic})
+    if daemon_resp is not None and "error" not in daemon_resp:
+        return output(daemon_resp)
     try:
         with ros2_context():
             node = ROS2CLI()
@@ -1001,6 +1011,27 @@ def cmd_topics_publish(args):
     max_vel = getattr(args, 'max_vel', None)
     max_ang = getattr(args, 'max_ang', None)
     msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
+
+    ok, safety_action, modified_msg, safety_detail = validate_publish(
+        args.topic, msg_data, args.msg_type or ""
+    )
+    if not ok:
+        return output({
+            "error": "Publish blocked by safety validator",
+            "blocked": True,
+            "reason": "; ".join(safety_detail.get("violations", [])) if isinstance(safety_detail.get("violations"), list) else safety_detail.get("violations"),
+            "limits": safety_detail.get("limits"),
+            "actual": safety_detail.get("actual"),
+        })
+    if safety_action == "cap" and isinstance(modified_msg, dict):
+        msg_data = modified_msg
+    safety_warning = "; ".join(safety_detail.get("violations", [])) if safety_action == "warn" else None
+
+    try:
+        heartbeat_touch()
+    except Exception:
+        pass
+
     dry_run = getattr(args, 'dry_run', False)
 
     try:
@@ -1021,6 +1052,10 @@ def cmd_topics_publish(args):
                 result = {"dry_run": True, "topic": topic, "msg_type": msg_type, "payload": msg_data}
                 if clamp_notices:
                     result["velocity_clamped"] = clamp_notices
+                if safety_action == "cap":
+                    result["safety_capped"] = True
+                if safety_warning:
+                    result["safety_warning"] = safety_warning
                 return output(result)
 
             publisher = TopicPublisher(topic, msg_type)
@@ -1054,6 +1089,10 @@ def cmd_topics_publish(args):
                           "stopped_by": stopped_by}
                 if clamp_notices:
                     result["velocity_clamped"] = clamp_notices
+                if safety_action == "cap":
+                    result["safety_capped"] = True
+                if safety_warning:
+                    result["safety_warning"] = safety_warning
                 output(result)
             else:
                 publisher.pub.publish(msg)
@@ -1061,6 +1100,10 @@ def cmd_topics_publish(args):
                 result = {"success": True, "topic": topic, "msg_type": msg_type}
                 if clamp_notices:
                     result["velocity_clamped"] = clamp_notices
+                if safety_action == "cap":
+                    result["safety_capped"] = True
+                if safety_warning:
+                    result["safety_warning"] = safety_warning
                 output(result)
     except Exception as e:
         output({"error": str(e)})
@@ -1085,6 +1128,11 @@ def cmd_topics_publish_sequence(args):
     dry_run = getattr(args, 'dry_run', False)
 
     try:
+        heartbeat_touch()
+    except Exception:
+        pass
+
+    try:
         with ros2_context():
             topic = args.topic
             temp_node = ROS2CLI("temp")
@@ -1102,8 +1150,21 @@ def cmd_topics_publish_sequence(args):
                 max_vel = getattr(args, 'max_vel', None)
                 max_ang = getattr(args, 'max_ang', None)
                 clamped = [_clamp_velocity(m, max_vel, max_ang)[0] for m in messages]
+                checked = []
+                for idx, payload in enumerate(clamped):
+                    ok, action, modified_msg, detail = validate_publish(topic, payload, msg_type)
+                    if not ok:
+                        return output({
+                            "error": f"Publish sequence blocked at message index {idx}",
+                            "blocked": True,
+                            "index": idx,
+                            "reason": "; ".join(detail.get("violations", [])) if isinstance(detail.get("violations"), list) else detail.get("violations"),
+                            "limits": detail.get("limits"),
+                            "actual": detail.get("actual"),
+                        })
+                    checked.append(modified_msg if action == "cap" and isinstance(modified_msg, dict) else payload)
                 return output({"dry_run": True, "topic": topic, "msg_type": msg_type,
-                               "steps": [{"payload": m, "duration": d} for m, d in zip(clamped, durations)]})
+                               "steps": [{"payload": m, "duration": d} for m, d in zip(checked, durations)]})
 
             publisher = TopicPublisher(topic, msg_type)
 
@@ -1116,13 +1177,36 @@ def cmd_topics_publish_sequence(args):
             max_vel = getattr(args, 'max_vel', None)
             max_ang = getattr(args, 'max_ang', None)
             all_clamp_notices = []
+            any_safety_capped = False
+            safety_warnings = []
+
+            staged_messages = []
+            for idx, raw_msg in enumerate(messages):
+                candidate, clamp_notices = _clamp_velocity(raw_msg, max_vel, max_ang)
+                all_clamp_notices.extend(clamp_notices)
+                ok, action, modified_msg, detail = validate_publish(topic, candidate, msg_type)
+                if not ok:
+                    return output({
+                        "error": f"Publish sequence blocked at message index {idx}",
+                        "blocked": True,
+                        "index": idx,
+                        "reason": "; ".join(detail.get("violations", [])) if isinstance(detail.get("violations"), list) else detail.get("violations"),
+                        "limits": detail.get("limits"),
+                        "actual": detail.get("actual"),
+                    })
+                if action == "cap" and isinstance(modified_msg, dict):
+                    candidate = modified_msg
+                    any_safety_capped = True
+                elif action == "warn":
+                    warn = "; ".join(detail.get("violations", [])) if isinstance(detail.get("violations"), list) else detail.get("violations")
+                    if warn:
+                        safety_warnings.append(str(warn))
+                staged_messages.append(candidate)
 
             total_published = 0
-            last_msg_data = messages[0] if messages else {}
+            last_msg_data = staged_messages[0] if staged_messages else {}
             try:
-                for msg_data, dur in zip(messages, durations):
-                    msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
-                    all_clamp_notices.extend(clamp_notices)
+                for msg_data, dur in zip(staged_messages, durations):
                     last_msg_data = msg_data
                     msg = dict_to_msg(msg_class, msg_data)
                     if dur > 0:
@@ -1157,6 +1241,11 @@ def cmd_topics_publish_sequence(args):
                 seen = set()
                 unique_notices = [n for n in all_clamp_notices if not (n in seen or seen.add(n))]
                 result["velocity_clamped"] = unique_notices
+            if any_safety_capped:
+                result["safety_capped"] = True
+            if safety_warnings:
+                seen = set()
+                result["safety_warning"] = "; ".join([w for w in safety_warnings if not (w in seen or seen.add(w))])
             output(result)
     except Exception as e:
         output({"error": str(e)})
@@ -1224,6 +1313,27 @@ def cmd_topics_publish_until(args):
     max_vel = getattr(args, 'max_vel', None)
     max_ang = getattr(args, 'max_ang', None)
     msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
+
+    ok, safety_action, modified_msg, safety_detail = validate_publish(
+        args.topic, msg_data, args.msg_type or ""
+    )
+    if not ok:
+        return output({
+            "error": "Publish-until blocked by safety validator",
+            "blocked": True,
+            "reason": "; ".join(safety_detail.get("violations", [])) if isinstance(safety_detail.get("violations"), list) else safety_detail.get("violations"),
+            "limits": safety_detail.get("limits"),
+            "actual": safety_detail.get("actual"),
+        })
+    if safety_action == "cap" and isinstance(modified_msg, dict):
+        msg_data = modified_msg
+    safety_warning = "; ".join(safety_detail.get("violations", [])) if safety_action == "warn" else None
+
+    try:
+        heartbeat_touch()
+    except Exception:
+        pass
+
     dry_run = getattr(args, 'dry_run', False)
 
     try:
@@ -1243,6 +1353,10 @@ def cmd_topics_publish_until(args):
                           "payload": msg_data, "monitor": args.monitor, "monitor_msg_type": mon_msg_type}
                 if clamp_notices:
                     result["velocity_clamped"] = clamp_notices
+                if safety_action == "cap":
+                    result["safety_capped"] = True
+                if safety_warning:
+                    result["safety_warning"] = safety_warning
                 return output(result)
 
             pub_msg_class = get_msg_type(pub_msg_type)
@@ -1395,6 +1509,11 @@ def cmd_topics_publish_until(args):
                     }
 
                 clamp_extra = {"velocity_clamped": clamp_notices} if clamp_notices else {}
+                safety_extra = {}
+                if safety_action == "cap":
+                    safety_extra["safety_capped"] = True
+                if safety_warning:
+                    safety_extra["safety_warning"] = safety_warning
                 if condition_met:
                     output({**base,
                             "success": True,
@@ -1402,14 +1521,16 @@ def cmd_topics_publish_until(args):
                             "decel_zone": decel_meta,
                             "start_msg": monitor.start_msg,
                             "end_msg": monitor.end_msg,
-                            **clamp_extra})
+                            **clamp_extra,
+                            **safety_extra})
                 else:
                     output({**base,
                             "success": False,
                             "condition_met": False,
                             "decel_zone": decel_meta,
                             "error": f"Timeout after {timeout}s: condition not met",
-                            **clamp_extra})
+                            **clamp_extra,
+                            **safety_extra})
 
     except Exception as e:
         output({"error": str(e)})

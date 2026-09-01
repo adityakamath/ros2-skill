@@ -30,6 +30,15 @@ def cmd_control_list_controller_types(args):
     """List available controller types and their base classes."""
     try:
         from controller_manager_msgs.srv import ListControllerTypes
+        if args.controller_manager == "/controller_manager" and getattr(args, 'retries', 1) == 1:
+            daemon_resp = try_fastd("list_controller_types", {
+                "controller_manager": args.controller_manager, "timeout": args.timeout,
+            })
+            if daemon_resp is not None:
+                if "error" in daemon_resp:
+                    return output(daemon_resp)
+                entries = daemon_resp.get("controller_types", [])
+                return output({"controller_types": entries, "count": len(entries)})
         with ros2_context():
             node = ROS2CLI()
             result, err = _call_cm_service(
@@ -83,6 +92,15 @@ def cmd_control_list_hardware_components(args):
     """List available hardware components."""
     try:
         from controller_manager_msgs.srv import ListHardwareComponents
+        if args.controller_manager == "/controller_manager" and getattr(args, 'retries', 1) == 1:
+            daemon_resp = try_fastd("list_hardware_components", {
+                "controller_manager": args.controller_manager, "timeout": args.timeout,
+            })
+            if daemon_resp is not None:
+                if "error" in daemon_resp:
+                    return output(daemon_resp)
+                components = daemon_resp.get("hardware_components", [])
+                return output({"hardware_components": components, "count": len(components)})
         with ros2_context():
             node = ROS2CLI()
             result, err = _call_cm_service(
@@ -101,6 +119,17 @@ def cmd_control_list_hardware_interfaces(args):
     """List available command and state interfaces."""
     try:
         from controller_manager_msgs.srv import ListHardwareInterfaces
+        if args.controller_manager == "/controller_manager" and getattr(args, 'retries', 1) == 1:
+            daemon_resp = try_fastd("list_hardware_interfaces", {
+                "controller_manager": args.controller_manager, "timeout": args.timeout,
+            })
+            if daemon_resp is not None:
+                if "error" in daemon_resp:
+                    return output(daemon_resp)
+                return output({
+                    "command_interfaces": daemon_resp.get("command_interfaces", []),
+                    "state_interfaces": daemon_resp.get("state_interfaces", []),
+                })
         with ros2_context():
             node = ROS2CLI()
             result, err = _call_cm_service(

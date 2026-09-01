@@ -3480,6 +3480,17 @@ def _strip_nulls(obj):
     return obj
 
 
+def _deep_merge_dicts(base, override):
+    """Recursively merge two dicts and return the merged copy."""
+    result = dict(base or {})
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge_dicts(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def _build_profile(robot_name, workspace, distro, scan_result):
     """Assemble the final tiered profile dict from a scan result."""
     sr = scan_result
@@ -3489,6 +3500,9 @@ def _build_profile(robot_name, workspace, distro, scan_result):
         "robot_name": robot_name,
         "workspace": workspace,
         "ros_distro": distro,
+        # safety_overrides: structured per-robot policy tweaks layered on top
+        # of the global safety defaults when ros2-skill loads config.
+        "safety_overrides": {},
         # pkg_filter: patterns used to scope the scan to a specific robot's
         # packages (e.g. ["lekiwi"]).  Stored here so rescan can reuse it
         # without the user having to repeat --packages on every rescan.
@@ -3610,6 +3624,8 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             # primary package.  Derived from package.xml exec_depend tags;
             # useful for understanding runtime requirements at a glance.
             "package_dependencies": sr["package_dependencies"],
+            # safety_overrides: persisted per-robot safety policy overlay.
+            "safety_overrides": sr.get("safety_overrides", {}),
         }),
         # ------------------------------------------------------------------ #
         # DETAIL — per launch file; load on demand via --section <filename>.  #
@@ -3700,6 +3716,14 @@ def cmd_profile_scan(args):
         distro=distro,
         scan_result=scan_result,
     )
+
+    existing = _load_profile(robot_name)
+    if existing:
+        for field in ("annotations", "camera_rotation_overrides", "safety_overrides"):
+            if field in existing:
+                profile[field] = existing[field]
+        profile["summary"]["safety_overrides"] = profile.get("safety_overrides", {})
+
     profile_file = _save_profile(profile, name=robot_name)
 
     output({
@@ -3783,6 +3807,9 @@ def cmd_profile_show(args):
             # camera_rotation_overrides: structured corrections added via
             # 'profile set-camera-rotation', applied by 'topics capture-image'.
             "camera_rotation_overrides": profile.get("camera_rotation_overrides", []),
+            # safety_overrides: structured per-robot policy overlay applied by
+            # ros2_safety.load_config() when the profile is active.
+            "safety_overrides": profile.get("safety_overrides", {}),
             "detail_sections": list(profile.get("detail", {}).keys()),
             "hint": "Use --section <launch-filename> to load a launch file's full detail.",
         }
@@ -3928,6 +3955,69 @@ def cmd_profile_set_camera_rotation(args):
     })
 
 
+def cmd_profile_set_safety_overlay(args):
+    """Persist a structured per-robot safety overlay in the profile JSON."""
+    robot_name = getattr(args, "name", None) or "robot"
+    overlay_text = getattr(args, "json", None)
+    overlay_file = getattr(args, "file", None)
+    clear = getattr(args, "clear", False)
+    replace = getattr(args, "replace", False)
+
+    existing = _load_profile(robot_name)
+    if existing is None:
+        if _PROFILES_DIR.exists():
+            profiles = sorted(_PROFILES_DIR.glob("*_profile.json"))
+            if len(profiles) == 1:
+                robot_name = profiles[0].name.replace("_profile.json", "")
+                existing = _load_profile(robot_name)
+
+    if existing is None:
+        output({
+            "error": "No profile found to update.",
+            "hint": "Run: python3 ros2_cli.py profile scan [--workspace PATH]",
+        })
+        return
+
+    if clear:
+        overlay = {}
+    else:
+        raw_text = None
+        if overlay_file:
+            raw_text = pathlib.Path(overlay_file).read_text(encoding="utf-8", errors="replace")
+        elif overlay_text:
+            raw_text = overlay_text
+        if raw_text is None:
+            output({
+                "error": "Provide --json, --file, or --clear.",
+                "hint": "Example: profile set-safety-overlay --json '{\"velocity_limits\": {\"linear_max_norm\": 0.25}}'",
+            })
+            return
+        try:
+            overlay = json.loads(raw_text)
+        except Exception as exc:
+            output({"error": f"Invalid safety overlay JSON: {exc}"})
+            return
+
+    if not isinstance(overlay, dict):
+        output({"error": "Safety overlay must be a JSON object."})
+        return
+
+    current = existing.get("safety_overrides", {})
+    if not isinstance(current, dict):
+        current = {}
+    merged = overlay if replace else _deep_merge_dicts(current, overlay)
+    existing["safety_overrides"] = merged
+    _save_profile(existing, name=robot_name)
+
+    output({
+        "success": True,
+        "robot_name": robot_name,
+        "replaced": replace,
+        "safety_overrides": merged,
+        "hint": "Run 'safety show' to see the merged runtime policy.",
+    })
+
+
 def load_camera_rotation_overrides():
     """Return the list of camera rotation overrides for the best available profile.
 
@@ -4024,13 +4114,16 @@ def cmd_profile_rescan(args):
 
     # Re-inject annotations and camera rotation overrides into the freshly
     # written profile (if any exist).
-    if preserved_annotations or preserved_camera_overrides:
+    if preserved_annotations or preserved_camera_overrides or (existing or {}).get("safety_overrides"):
         refreshed = _load_profile(robot_name)
         if refreshed is not None:
             if preserved_annotations:
                 refreshed["annotations"] = preserved_annotations
             if preserved_camera_overrides:
                 refreshed["camera_rotation_overrides"] = preserved_camera_overrides
+            if existing and isinstance(existing.get("safety_overrides"), dict):
+                refreshed["safety_overrides"] = existing["safety_overrides"]
+                refreshed.get("summary", {})["safety_overrides"] = existing["safety_overrides"]
             _save_profile(refreshed, name=robot_name)
 
 

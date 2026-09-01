@@ -488,6 +488,80 @@ python3 {baseDir}/scripts/ros2_cli.py nav2 initial-pose 1.0 2.0 --yaw 45
 
 ---
 
+## Mission Control
+
+Multi-step navigation missions with pause/resume/cancel semantics. Mission state is file-backed (`.artifacts/missions/<id>.json`) for persistence across failures.
+
+```bash
+# Start a mission (runs detached in background)
+python3 {baseDir}/scripts/ros2_cli.py mission start '<mission_json>' [--timeout 300]
+# Example mission_json: {"id": "patrol_1", "steps": [{"type": "nav2_go", "x": 1.0, "y": 0.0, "yaw": 0}, {"type": "nav2_go", "x": 0.0, "y": 1.0}]}
+
+# Runtime control
+python3 {baseDir}/scripts/ros2_cli.py mission pause <mission_id>
+python3 {baseDir}/scripts/ros2_cli.py mission resume <mission_id>
+python3 {baseDir}/scripts/ros2_cli.py mission cancel <mission_id>
+
+# Inspection
+python3 {baseDir}/scripts/ros2_cli.py mission status <mission_id>
+python3 {baseDir}/scripts/ros2_cli.py mission list [--active-only]
+```
+
+**Mission state flow:** `pending` → `running` → `paused` (if paused) → `completed` / `failed` / `canceled`.
+**Fail-safe:** if the mission state file becomes unreadable or disappears during execution, the runner calls `nav2 cancel` and sends a zero-velocity burst before exiting.
+**Step types:** `nav2_go`, `nav2_rotate`, `wait` (duration in seconds), `service_call` (custom service invocation).
+
+---
+
+## Safety Policy
+
+Velocity limits, geofencing, command filtering, and heartbeat monitoring. Policy is stored in `.presets/safety.json` and enforced before publishing or sending goals.
+
+```bash
+# View and configure policy
+python3 {baseDir}/scripts/ros2_cli.py safety config show
+python3 {baseDir}/scripts/ros2_cli.py safety config set --velocity-limits-enabled true --linear-max-norm 0.5 --angular-max-norm 1.0
+python3 {baseDir}/scripts/ros2_cli.py safety config set --geofence-enabled true --geofence-mode circle --geofence-radius 10.0
+python3 {baseDir}/scripts/ros2_cli.py safety config set --command-filter-enabled true --command-filter-mode blocklist --blocklist "system shutdown,system reboot"
+python3 {baseDir}/scripts/ros2_cli.py safety config reset [--confirm]
+
+# Manual validation (dry-run before actual command)
+python3 {baseDir}/scripts/ros2_cli.py safety check-velocity '<twist_json>'
+python3 {baseDir}/scripts/ros2_cli.py safety check-position --x 1.0 --y 2.0 [--frame-id map]
+
+# Heartbeat monitoring (automatic estop on timeout)
+python3 {baseDir}/scripts/ros2_cli.py safety heartbeat start [--timeout 5] [--on-timeout estop]
+python3 {baseDir}/scripts/ros2_cli.py safety heartbeat stop
+python3 {baseDir}/scripts/ros2_cli.py safety heartbeat ping    # keep alive
+
+# Background watchdog (runs in tmux session)
+python3 {baseDir}/scripts/ros2_cli.py safety watchdog start [--timeout 5] [--poll 1]
+python3 {baseDir}/scripts/ros2_cli.py safety watchdog stop
+python3 {baseDir}/scripts/ros2_cli.py safety watchdog status
+```
+
+**Velocity limits:** enforced before `topics publish`, `publish-sequence`, `publish-until`, and `nav2 go`. Violations are rejected or clamped (configurable via `on_violation`).
+**Geofence:** circle (center x/y + radius) or rectangle (x_min/max, y_min/max). Goals outside the boundary are rejected.
+**Command filter:** blocklist (reject listed commands) or allowlist (reject all except listed). Applied before dispatch.
+**Heartbeat:** expects `safety heartbeat ping` at least once per `timeout_s`. If no ping arrives, fires estop and exits. The watchdog runs in a detached tmux session and monitors a sentinel file; suitable for remote-control scenarios where the operator's connection may drop.
+**Override:** pass `--skip-safety-check` to bypass velocity/geofence checks for a single command (logged).
+
+**Default policy** (when `.presets/safety.json` does not exist):
+- Velocity limits: enabled, reject on violation, `linear_max_norm=0.5`, `angular_max_norm=1.0`
+- Geofence: disabled
+- Command filter: disabled
+- Heartbeat: disabled
+
+---
+
+**Before `nav2 go`:** run `nav2 cancel` first if a previous goal may still be active (Rule 9). Use `nav2 status` to confirm no active goal.
+**`nav2 rotate` vs `publish-until`:** prefer `nav2 rotate` when Nav2 is active — obstacle-aware; fall back to `publish-until` only when Nav2 is not running.
+**Output (`nav2 go`):** `success` (bool), `status` (4=SUCCEEDED), `goal {x,y,frame}`.
+**`nav2 move-timed`:** publishes `/cmd_vel` for fixed duration then auto-stops via zero-velocity burst.
+**`nav2 costmap-clear`:** calls Nav2 clear-costmap services (std_srvs/Empty).
+
+---
+
 ## Commands Without a Live Graph
 
 | Command | Purpose |
