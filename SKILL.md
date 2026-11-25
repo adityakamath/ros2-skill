@@ -64,7 +64,7 @@ Before the first action that the fast path does not cover, read these from `refe
 
 ## Hard constraints
 
-1. **Processes are the user's.** Never run `launch new|restart|kill`, `run new` or `component standalone`. Give the user the exact command and continue when they say it is up. Reading (`launch list`, `profile show`) is fine.
+1. **Processes are the user's.** Never run `launch new|restart|kill|foxglove`, `run new|restart|kill`, `component standalone|kill`, `foxglove start|stop` or `nodes kill`. Give the user the exact command and continue when they say it is done. Reading (`launch list`, `run list`, `foxglove status`, `profile show`) is fine, as is `component load|unload` in a running container.
 2. **Motion** uses closed loop (`publish-until`) when odometry is usable. Always pass `--max-vel` / `--max-ang` from the profile's safety limits. Run `preflight motion` first, and `stop --verify-odom-topic <ODOM>` after every `publish-until` / `publish-sequence` (`estop` instead after a timeout or error). Details are in RULES-MOTION.md.
 3. **Never invent a command or flag.** Check `--help`.
 4. **Fix failures yourself** (introspect, correct, retry) before reporting. Report outcomes in one line.

@@ -54,7 +54,7 @@ The user's message is the approval. Do not ask "shall I proceed?" or narrate and
 
 "Move forward" with no qualifier is open-ended: use `publish-sequence` (Rule 3).
 
-**Exception — processes: launching, running and killing nodes.** The user does this themselves. Do not run `launch new|restart|kill`, `run new` or `component standalone`. Give the exact command and say what to check afterwards. Reading (`launch list`, `profile show`) is fine. Once the user says the launch is up, continue (Rule 0.6 applies).
+**Exception — processes: starting, restarting and killing them.** The user does this themselves. SKILL.md hard constraint 1 lists the commands. Give the exact command and say what to check afterwards. Once the user says a launch is up, continue (Rule 0.6 applies).
 
 ## Rule 6 — Minimal reporting
 

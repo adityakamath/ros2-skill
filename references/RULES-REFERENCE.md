@@ -60,8 +60,9 @@ Anything not listed: `CLI <group> --help`.
 | Controllers | `control list-controllers`, `load-controller`, `configure-controller`, `switch-controllers --activate X --deactivate Y --strictness STRICT`, `set-controller-state`, `view-controller-chains`, `list-controller-types` |
 | Hardware | `control list-hardware-components`, `list-hardware-interfaces`, `set-hardware-component-state` |
 | Lifecycle | `lifecycle nodes|get|set <node> configure|activate|deactivate|cleanup|shutdown` (verify each with `get`) |
-| Launch / run | **User runs it.** Give them `launch new <pkg> <file> [name:=value ...]`, `launch restart|kill <session>`, `run new <pkg> <exe>`; `launch list [keyword]` and `launch list` are read-only |
-| Foxglove | Give the user `launch foxglove` |
+| Launch / run | **User runs it** (SKILL.md hard constraint 1). Give them `launch new <pkg> <file> [name:=value ...]`, `run new <pkg> <exe>`, or `launch|run restart|kill <session>`; `launch list [keyword]` and `run list` are read-only |
+| Standalone component, node kill | **User runs it.** Give them `component standalone <pkg> <plugin>`, `component kill <session>` or `nodes kill <node> --confirm` |
+| Foxglove | **User runs it.** Give them `launch foxglove` (or `foxglove start`) and `foxglove stop`; `foxglove status` is read-only |
 | Bag | `bag info <file>`. Recording/playback has no CLI command; give the user `ros2 bag record|play` |
 | Logs | `logs list-runs|query|tail|node-summary` (works without a live graph) |
 | Packages | `pkg list|prefix|executables|xml|create` |

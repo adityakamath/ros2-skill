@@ -310,12 +310,9 @@ python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
   --monitor <ODOM_TOPIC> --rotate -90 --degrees --timeout 30
 ```
 
-### Drive until a LiDAR range drops below 0.5 m
-```bash
-python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
-  --monitor <SCAN_TOPIC> --field ranges.0 --below 0.5 --timeout 60
-```
+### Stopping near an obstacle
+
+Not supported. `--above` / `--below` watch a single field, such as one LiDAR beam, so they are not an obstacle stop (RULES-MOTION.md Rule 25). Drive a fixed distance, or send a Nav2 goal.
 
 ### Open-loop fallback (no odometry available)
 ```bash
@@ -600,7 +597,7 @@ python3 scripts/ros2_cli.py topics battery --topic <BATTERY_TOPIC>
 
 ## 13. Launch Management
 
-> Under Claude, the agent does not run `new`, `restart` or `kill` itself: it gives the user the command (RULES-CORE.md Rule 5). `list` is read-only.
+> Under Claude, the user starts, restarts and kills processes: the agent gives them the command (SKILL.md hard constraint 1). `list` is read-only.
 
 ```bash
 # List running launch sessions
@@ -632,7 +629,7 @@ python3 scripts/ros2_cli.py launch foxglove 9000
 
 ## 14. Run Management
 
-> Under Claude, the agent does not run `new`, `restart` or `kill` itself: it gives the user the command (RULES-CORE.md Rule 5). `list` is read-only.
+> Under Claude, the user starts, restarts and kills processes: the agent gives them the command (SKILL.md hard constraint 1). `list` is read-only.
 
 ```bash
 # List running run sessions
@@ -696,7 +693,7 @@ component load /my_container demo_nodes_cpp demo_nodes_cpp::Talker --node-name m
 component unload /my_container 1
 ```
 
-**Standalone** (start container + load in one command):
+**Standalone** (start container + load in one command). The user runs these two commands (SKILL.md hard constraint 1):
 ```bash
 python3 scripts/ros2_cli.py component standalone demo_nodes_cpp demo_nodes_cpp::Talker
 # → starts /standalone_talker container in tmux, loads Talker, returns session + unique_id
