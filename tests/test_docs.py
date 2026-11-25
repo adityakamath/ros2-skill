@@ -37,6 +37,7 @@ def _tree(parser):
 
 @unittest.skipIf(_IMPORT_ERROR, f"ros2_cli not importable: {_IMPORT_ERROR}")
 class TestDocs(unittest.TestCase):
+    @unittest.skipIf(sys.version_info < (3, 10), "argparse help text differs before 3.10 (\"optional arguments:\"); the file is generated on 3.10+")
     def test_commands_md_is_current(self):
         current = (ROOT / "references" / "COMMANDS.md").read_text(encoding="utf-8")
         self.assertEqual(current, gen_commands_doc.render(),
