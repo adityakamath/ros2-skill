@@ -1,6 +1,6 @@
 # ros2-skill
 
-[![Tests](https://github.com/adityakamath/ros2-skill/actions/workflows/pytest.yml/badge.svg?branch=main)](https://github.com/adityakamath/ros2-skill/actions/workflows/pytest.yml) ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
+![Status](https://img.shields.io/badge/Status-Active-green) [![Tests](https://github.com/adityakamath/ros2-skill/actions/workflows/pytest.yml/badge.svg?branch=main)](https://github.com/adityakamath/ros2-skill/actions/workflows/pytest.yml) [![Blog](https://img.shields.io/badge/Blog-kamathrobotics.com-darkorange?style=flat&logo=hashnode&logoSize=auto)](https://kamathrobotics.com) [![Ask DeepWiki (Experimental)](https://deepwiki.com/badge.svg)](https://deepwiki.com/adityakamath/ros2-skill) ![Static Badge](https://img.shields.io/badge/License-Apache%202.0-blue)
 
 [Agent Skill](https://agentskills.io) that lets an AI agent (built for Claude Code) operate and inspect a ROS 2 robot through one JSON CLI on top of rclpy. No rosbridge.
 

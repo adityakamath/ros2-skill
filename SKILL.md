@@ -2,6 +2,8 @@
 name: ros2-skill
 description: Operate and inspect a live ROS 2 robot through a JSON CLI (ros2_cli.py). Use for topics (subscribe, publish, camera capture), services, actions, parameters, nodes, lifecycle, ros2_control controllers, closed-loop motion (publish-until), Nav2 (go, rotate, waypoints, places, missions), TF, diagnostics, battery, logs, bags, robot profiles and safety limits. Use whenever the user wants to drive, monitor or debug a robot, even if they don't say "ROS 2".
 allowed-tools: ["Bash", "Read"]
+metadata:
+  author: ["adityakamath"]
 ---
 
 # ROS 2 Skill
