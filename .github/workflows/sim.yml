@@ -50,7 +50,7 @@ jobs:
             ros-kilted-omni-wheel-drive-controller ros-kilted-robot-localization ros-kilted-robot-state-publisher \
             ros-kilted-ros2-control ros-kilted-ros2-controllers ros-kilted-slam-toolbox \
             ros-kilted-state-interfaces-broadcaster ros-kilted-teleop-twist-joy ros-kilted-teleop-twist-keyboard \
-            ros-kilted-xacro ros-kilted-mujoco-ros2-control-plugins ros-kilted-ament-cmake-gtest ros-kilted-ament-cmake-pytest
+            ros-kilted-xacro ros-kilted-mujoco-ros2-control ros-kilted-mujoco-ros2-control-plugins ros-kilted-mujoco-3d-lidar ros-kilted-ament-cmake-gtest ros-kilted-ament-cmake-pytest
           pip install --break-system-packages --ignore-installed pytest pyyaml
           pip install --break-system-packages --ignore-installed -r ws/src/lekiwi_ros2/lekiwi_mujoco/requirements.txt
           # lekiwi_bringup depends on lekiwi_audio, which needs its build requirements even though no audio runs here
