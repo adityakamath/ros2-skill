@@ -4,6 +4,99 @@ Practical, copy-ready examples for every command group. All commands output JSON
 
 ---
 
+## 0. Fast Path — State, Pictures, Plain Goals, Memory
+
+Start here for everyday requests. The fast daemon starts itself on the first command that benefits (see SKILL.md), so there is nothing to set up. Values below are from LeKiwi; yours come from your profile.
+
+```bash
+# "How's the battery / what's in front / is it level / is the e-stop on?" — one call, read-only
+python3 scripts/ros2_cli.py snapshot
+python3 scripts/ros2_cli.py snapshot --only battery,state          # a subset
+python3 scripts/ros2_cli.py snapshot --only scan,tof,depth         # "is the path ahead clear?"
+```
+
+Typical `snapshot --only battery,state` result (about 0.3 s once the daemon is up):
+
+```json
+{"battery": {"percent": 62.7, "voltage_v": 11.53, "status": "DISCHARGING"},
+ "service_state": {"/emergency_stop": false, "/twist_switch": false, "/waypoint_follow": false},
+ "source": "fast daemon"}
+```
+
+```bash
+# "What do you see?" — saves the colour frame (profile rotation applied); read the returned path
+python3 scripts/ros2_cli.py look
+# "Did anything move?" — second frame 3 s later, compared in code
+python3 scripts/ros2_cli.py look --diff 3          # -> {"changed": false, "changed_pixels_pct": 0.03, ...}
+```
+
+Plain goals: one call checks, moves, stops and verifies. Do not read the rules or the profile first.
+
+```bash
+python3 scripts/ros2_cli.py plan "move forward 1 m at top speed" --run
+python3 scripts/ros2_cli.py plan "strafe left 0.15 m at 0.1 m/s" --run
+python3 scripts/ros2_cli.py plan "turn around" --run
+# Chains: "then" / "and" / commas
+python3 scripts/ros2_cli.py plan "rotate 90 degrees then take a picture then rotate back" --run
+python3 scripts/ros2_cli.py plan "move forward 0.3 m, take a picture, and report the battery" --run
+python3 scripts/ros2_cli.py plan "move forward 0.2 m then undo that" --run
+# Compile without running: shows the exact commands and any warnings
+python3 scripts/ros2_cli.py plan "go to the kitchen and take a picture"
+```
+
+A successful report (one line to the user: `moved_m`, `ok`):
+
+```json
+{"goal": "move forward 0.1 m at 0.1 m/s", "ok": true, "moved_m": 0.111,
+ "steps": [{"text": "switch the twist switch to teleop input", "ok": true, "result": {"skipped": "already in teleop mode"}},
+           {"text": "move forward 0.1 m at 0.1 m/s", "ok": true,
+            "result": {"success": true, "euclidean_distance": 0.101, "duration": 1.7,
+                       "stopped": {"verified_stationary": true, "final_position": {"x": 0.11, "y": 0.0}}}}]}
+```
+
+Reports that need a decision (see RULES-DIAGNOSTICS.md, "Fields that explain a motion result"):
+
+```json
+// A limiter cut the speed: the robot is stopped normally, the e-stop is NOT latched. Do not retry blindly.
+{"ok": false, "cause": {"commanded_mps": 0.2, "executed_mps": 0.025, "limiter_node": "collision_monitor"},
+ "estop": "not latched: stopped normally (the move was limited downstream)"}
+
+// Finished, but a limiter was throttling it (0.2 m took 9.5 s): report it
+{"result": {"success": true, "slow": {"commanded_mps": 0.2, "average_mps": 0.021, "duration_s": 9.5}}}
+
+// Interrupted by estop, Ctrl-C or kill: velocity zeroed, nothing retried
+{"ok": false, "cancelled": true}
+
+// Part of the goal was not understood: NOTHING ran
+{"executed": false, "refused": "part of the goal was not compiled; nothing ran",
+ "warnings": ["'fly': not understood; supported: ..."]}
+```
+
+Memory that outlives the session and the profile:
+
+```bash
+python3 scripts/ros2_cli.py notes remember "dock is left of the door" --tag dock
+python3 scripts/ros2_cli.py notes recall dock                 # newest first; every word must match
+python3 scripts/ros2_cli.py notes forget 1
+python3 scripts/ros2_cli.py nav2 place save dock --snapshot   # pose plus a camera frame to look at later
+python3 scripts/ros2_cli.py plan "remember that the charger is behind the desk"
+python3 scripts/ros2_cli.py plan "what do you remember about the charger"
+```
+
+Calibration and control of the fast daemon:
+
+```bash
+# Once per robot, ON THE FLOOR (free wheels coast further and would give a wrong zone): moves about 0.8 m
+python3 scripts/ros2_cli.py braking measure
+python3 scripts/ros2_cli.py braking show                      # {"linear_mps2": 0.33, ...}
+python3 scripts/ros2_cli.py daemon-fast status                # running / reachable
+python3 scripts/ros2_cli.py daemon-fast stop                  # stops it; the next benefiting command starts it again
+ROS2_SKILL_NO_FASTD=1 python3 scripts/ros2_cli.py plan "move forward 0.1 m" --run   # same result, per-call path
+python3 scripts/ros2_cli.py estop                             # also halts a move hosted by the daemon
+```
+
+---
+
 ## 1. Graph Exploration — Topics, Nodes, Services, Actions
 
 **Path B (no profile) workflow — run these to map an unknown live system. In Path A (profile loaded), these commands are diagnostic-only; do NOT run them to resolve names the profile already provides (Rule 14).**
