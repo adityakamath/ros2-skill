@@ -91,7 +91,9 @@ Known fallbacks run without asking, but the user is told what failed and the acc
 
 ## Rule 25 — Proximity scan for long moves
 
-Only if the estimated duration is over 5 s, run `topics find` for `sensor_msgs/msg/LaserScan`, `Range` and `PointCloud2` in parallel (Path A: `summary.lidar_scan_topic`). Mention any hits in the report. Never warn about or block on a missing sensor. The CLI cannot enforce range-based stops, so do not approximate them with subscribe-then-publish loops.
+Only if the estimated duration is over 5 s, run `topics find` for `sensor_msgs/msg/LaserScan`, `Range` and `PointCloud2` in parallel (Path A: `summary.lidar_scan_topic`). Mention any hits in the report. Never warn about or block on a missing sensor.
+
+**The CLI has no obstacle stop.** `publish-until --above` / `--below` compares a single field. On a `LaserScan`, `ranges.<i>` is one beam (`ranges.0` is the beam at `angle_min`, which may not face forward), so an obstacle seen by any other beam does not stop the robot. Never use it as an obstacle stop, and do not approximate one with subscribe-then-publish loops. If asked to drive until something is close, say this is not supported and offer a fixed distance, or a Nav2 goal when Nav2 is running.
 
 ## Cancel vs estop
 

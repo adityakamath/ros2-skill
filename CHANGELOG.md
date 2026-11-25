@@ -42,6 +42,10 @@ All notable changes to ros2-skill will be documented in this file.
 - Removed the mock-only mission executor, result schemas, goal compiler and telemetry modules.
 
 ### Fixed
+- `nodes kill` fell back to signalling every process whose command line contained the node name (`/camera` also matched `camera_info`). It now requires the exact node name and namespace, and reports `killed: false` when no process matches, even if the node is not visible in the graph.
+- `_is_node_process` applied the `target:` prefix check to `__ns` remaps but not to `__node`/`__name` remaps, so a name remap targeted at a different node in the same process could be picked up. Both remap kinds now check the target the same way.
+- Docs: removed the `--field ranges.0 --below` "drive until an obstacle" example, which watched a single LiDAR beam; RULES-MOTION.md Rule 25 now says why there is no obstacle stop.
+- Docs: the commands reserved for the user were listed differently across files. SKILL.md hard constraint 1 now holds the full list (adds `run restart|kill`, `component kill`, `launch foxglove`, `foxglove start|stop`, `nodes kill`) and the other files point to it.
 - The fast daemon's cached odometry never expired: the pre-motion check could read a stale "stationary" message from a dead publisher. It now rejects readings older than 1 s.
 - `estop` interrupting a running command left the zero-velocity burst unsent: rclpy's own SIGINT handler had already invalidated the publisher ("publisher's context is invalid"). A background job started from a non-interactive shell also ignored SIGINT entirely.
 - A `nav2 rotate` / `nav2 go` that timed out left its goal running (the robot kept spinning); it now cancels the goal and zeroes velocity.

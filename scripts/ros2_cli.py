@@ -623,7 +623,7 @@ def build_parser():
     p.add_argument("node", help="Node name (e.g. /turtlesim)")
     p = nsub.add_parser("info", help="Alias for details (ros2 node info)")
     p.add_argument("node", help="Node name (e.g. /turtlesim)")
-    p = nsub.add_parser("kill", help="Terminate a node (lifecycle shutdown then pkill fallback)")
+    p = nsub.add_parser("kill", help="Terminate a node (lifecycle shutdown, else kill its process by exact name)")
     p.add_argument("node", help="Node name (e.g. /turtlesim)")
     p.add_argument("--confirm", action="store_true",
                    help="Safety interlock — must be set to actually kill the node")

@@ -10,7 +10,7 @@ Load when something fails, and for the post-action verification table. Related: 
 
 On any error (wrong subcommand, bad flag, type mismatch, timeout, odd output): introspect (`--help`, COMMANDS.md, `topics details`, `nodes list`), correct, retry. Then report briefly: what failed, what introspection showed, what was done. Don't ask the user to interpret an error, don't offer a menu, and don't write "you may need to…". Finish the investigation and act. Escalate only when introspection cannot resolve it (hardware fault, stack down), with one recommended next step.
 
-- **CLI `hint` field:** execute the suggested recovery. It is a directive, not a question.
+- **CLI `hint` field:** execute the suggested recovery. It is a directive, not a question. If it is a command reserved for the user (SKILL.md hard constraint 1), give it to them instead.
 - **Log elevation before escalating** when the cause is still unclear: `services find rcl_interfaces/srv/SetLoggerLevel`, then `services call <svc> '{"logger_name": "<node-or-empty>", "level": 10}'`, retry, read the output, and reset to 20.
 - **Stalled node** (listed, inputs publishing per `topics hz`, no output): suspect a `SingleThreadedExecutor` blocked by a long callback or a `ReentrantCallbackGroup`. Look in DEBUG logs for a callback that enters and never returns. If source is available, check the executor in `main()`. The fix is a `MultiThreadedExecutor` or a non-blocking callback.
 - **Commands sent, robot not moving** (odom ≈ 0 for more than 2 s). Do these in order, all before telling the user:
@@ -21,7 +21,7 @@ On any error (wrong subcommand, bad flag, type mismatch, timeout, odd output): i
 
 ### Session errors (tmux)
 
-Launch, run and component sessions are the user's to start and stop (see Rule 5 in RULES-CORE.md). Diagnose from the JSON, then give the user the exact recovery command:
+Launch, run and component sessions are the user's to start and stop (SKILL.md hard constraint 1). Diagnose from the JSON, then give the user the exact recovery command:
 
 | Condition | What to tell the user |
 |---|---|
