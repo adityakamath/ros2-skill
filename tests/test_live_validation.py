@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 
 # Only run if --live flag is provided
-LIVE_TESTS_ENABLED = "--live" in sys.argv or os.environ.get("ROS2_SKILL_LIVE_TESTS") == "1"
+LIVE_TESTS_ENABLED = os.environ.get("ROS2_LIVE_TESTS") == "1"
 
 SCRIPT_DIR = Path(__file__).parent.parent / "scripts"
 CLI_PATH = SCRIPT_DIR / "ros2_cli.py"
@@ -68,7 +68,7 @@ def run_cli(*args, timeout=10.0):
         }
 
 
-@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live flag)")
+@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live or ROS2_LIVE_TESTS=1)")
 class TestLiveConnectivity(unittest.TestCase):
     """Test basic ROS 2 connectivity and discovery."""
 
@@ -119,7 +119,7 @@ class TestLiveConnectivity(unittest.TestCase):
         print(f"✓ Nodes: Found {len(data['nodes'])} nodes (took {result['elapsed_s']:.2f}s)")
 
 
-@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live flag)")
+@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live or ROS2_LIVE_TESTS=1)")
 class TestLiveVelocityCommands(unittest.TestCase):
     """Test velocity commands on platform (safe since wheels can spin but robot won't move)."""
 
@@ -168,7 +168,7 @@ class TestLiveVelocityCommands(unittest.TestCase):
             print(f"⚠ Echo /cmd_vel: {result.get('stderr', 'unknown error')}")
 
 
-@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live flag)")
+@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live or ROS2_LIVE_TESTS=1)")
 class TestLiveSafetyEnforcement(unittest.TestCase):
     """Test safety policy enforcement on live system."""
 
@@ -206,7 +206,7 @@ class TestLiveSafetyEnforcement(unittest.TestCase):
             print(f"⚠ Excessive velocity not blocked - check safety config")
 
 
-@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live flag)")
+@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live or ROS2_LIVE_TESTS=1)")
 class TestLiveSystemCommands(unittest.TestCase):
     """Test system status and information commands."""
 
@@ -234,7 +234,7 @@ class TestLiveSystemCommands(unittest.TestCase):
             print(f"⚠ Params list-nodes: {result.get('stderr', 'failed')}")
 
 
-@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live flag)")
+@unittest.skipUnless(LIVE_TESTS_ENABLED, "Live tests disabled (use --live or ROS2_LIVE_TESTS=1)")
 class TestLiveTimingBenchmark(unittest.TestCase):
     """Benchmark command timing for optimization insights."""
 
@@ -280,7 +280,7 @@ class TestLiveTimingBenchmark(unittest.TestCase):
 
 if __name__ == '__main__':
     if not LIVE_TESTS_ENABLED:
-        print("Live tests disabled. Run with --live flag or set ROS2_SKILL_LIVE_TESTS=1")
+        print("Live tests disabled. Run with --live or set ROS2_LIVE_TESTS=1")
         print("Example: python3 -m pytest tests/test_live_validation.py -v --live")
         sys.exit(0)
     

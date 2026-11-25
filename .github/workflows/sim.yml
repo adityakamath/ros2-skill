@@ -1,0 +1,79 @@
+name: Sim smoke
+
+# Drives the real CLI (read-only commands, a closed-loop move, estop interrupting a move) against lekiwi_ros2 in
+# headless MuJoCo. Too slow for every push: runs nightly, on demand, and on changes to the motion path.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+  pull_request:
+    paths:
+      - "scripts/ros2_topic.py"
+      - "scripts/ros2_plan.py"
+      - "scripts/ros2_utils.py"
+      - "scripts/ros2_nav2.py"
+      - "scripts/ros2_mission.py"
+      - "scripts/ros2_motion_lock.py"
+      - "tests/test_sim_smoke.py"
+      - "tests/sim_ci.sh"
+
+jobs:
+  sim:
+    runs-on: ubuntu-latest
+    container: ros:kilted
+    timeout-minutes: 45
+    env:
+      ROS_DISTRO: kilted
+    steps:
+      - name: Checkout the skill
+        uses: actions/checkout@v4
+        with:
+          path: skill
+
+      - name: Checkout lekiwi_ros2
+        uses: actions/checkout@v4
+        with:
+          repository: adityakamath/lekiwi_ros2
+          submodules: true
+          path: ws/src/lekiwi_ros2
+
+      - name: Install dependencies
+        # Same package set as the lekiwi_ros2 CI job, plus pytest for the smoke tests.
+        run: |
+          echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
+          apt-get update && apt-get install -y --no-install-recommends \
+            python3-pip python3-pil python3-yaml git build-essential cmake \
+            ros-kilted-ament-index-python ros-kilted-cloudini-lib ros-kilted-cloudini-ros \
+            ros-kilted-controller-manager ros-kilted-diagnostic-aggregator ros-kilted-forward-command-controller \
+            ros-kilted-generate-parameter-library ros-kilted-imu-sensor-broadcaster ros-kilted-joint-state-broadcaster \
+            ros-kilted-joy-teleop ros-kilted-nav2-bringup ros-kilted-navigation2 ros-kilted-point-cloud-interfaces \
+            ros-kilted-omni-wheel-drive-controller ros-kilted-robot-localization ros-kilted-robot-state-publisher \
+            ros-kilted-ros2-control ros-kilted-ros2-controllers ros-kilted-slam-toolbox \
+            ros-kilted-state-interfaces-broadcaster ros-kilted-teleop-twist-joy ros-kilted-teleop-twist-keyboard \
+            ros-kilted-xacro ros-kilted-mujoco-ros2-control-plugins ros-kilted-ament-cmake-gtest ros-kilted-ament-cmake-pytest
+          pip install --break-system-packages --ignore-installed pytest pyyaml
+          pip install --break-system-packages --ignore-installed -r ws/src/lekiwi_ros2/lekiwi_mujoco/requirements.txt
+
+      - name: colcon build
+        working-directory: ws
+        run: |
+          . /opt/ros/kilted/setup.sh
+          colcon build --packages-select \
+            lekiwi_control lekiwi_navigation lekiwi_description lekiwi_mujoco lekiwi_bringup mujoco_ros2_plugins \
+            --packages-ignore orbbec_camera orbbec_camera_msgs orbbec_description \
+              sts_hardware_interface bno055_hardware_interface ldlidar_ros2 ina260_battery_monitor tof_imager_ros
+
+      - name: Smoke tests against the simulated robot
+        env:
+          MUJOCO_GL: egl
+        run: |
+          . /opt/ros/kilted/setup.sh
+          . ws/install/setup.sh
+          skill/tests/sim_ci.sh "$GITHUB_WORKSPACE/sim_launch.log"
+
+      - name: Upload the launch log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-launch-log
+          path: sim_launch.log

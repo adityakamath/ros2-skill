@@ -107,6 +107,18 @@ def _run_reports(exclude_packages=False):
 # Commands
 # ---------------------------------------------------------------------------
 
+def _qos_issues(reports, limit=20):
+    """Publisher/subscriber pairs whose QoS is not compatible or only partly so, from the QoS report."""
+    for report in reports:
+        if report["name"] != "QOS COMPATIBILITY LIST":
+            continue
+        items = report["items"]
+        rows = [items[i:i + 4] for i in range(0, len(items), 4)]
+        return [{"topic": r[0][1], "publisher": r[1][1], "subscriber": r[2][1], "status": r[3][1]}
+                for r in rows if len(r) == 4 and r[3][1] != "OK"][:limit]
+    return []
+
+
 def cmd_doctor_check(args):
     """Run ROS 2 system health checks and output a JSON summary."""
     try:
@@ -149,6 +161,11 @@ def cmd_doctor_check(args):
             },
             "checks": checks,
         }
+
+        if getattr(args, "issues", False):
+            qos = next((c for c in checks if c["name"] == "QoSCompatibilityCheck" and c["warnings"]), None)
+            if qos is not None:
+                qos["issues"] = _qos_issues(_run_reports(exclude_packages=True))
 
         if args.report or args.report_failed:
             reports = _run_reports(exclude_packages=args.exclude_packages)

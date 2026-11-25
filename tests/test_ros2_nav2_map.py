@@ -87,7 +87,7 @@ class TestNav2MapSave(unittest.TestCase):
     @patch('ros2_nav2.output')
     def test_save_with_slam_toolbox(self, mock_output, mock_call_service, mock_cli, mock_context):
         """Test saving map via slam_toolbox."""
-        mock_resp = Mock(result=True)
+        mock_resp = Mock(result=0)  # slam_toolbox RESULT_SUCCESS == 0
         mock_call_service.return_value = (mock_resp, None)
         
         args = Mock()
@@ -103,6 +103,19 @@ class TestNav2MapSave(unittest.TestCase):
         self.assertEqual(call_args['name'], 'test_map')
         self.assertIn('test_map.yaml', call_args['files'])
         self.assertIn('test_map.pgm', call_args['files'])
+
+    @patch('ros2_nav2.ros2_context')
+    @patch('ros2_nav2.ROS2CLI')
+    @patch('ros2_nav2._call_service')
+    @patch('ros2_nav2.output')
+    def test_slam_toolbox_nonzero_result_is_failure(self, mock_output, mock_call_service, mock_cli, mock_context):
+        mock_call_service.return_value = (Mock(result=3), None)
+        args = Mock()
+        args.name = "test_map"
+        args.timeout = 10.0
+        with patch.dict('sys.modules', {'slam_toolbox': Mock(), 'slam_toolbox.srv': Mock()}):
+            cmd_nav2_map_save(args)
+        self.assertFalse(mock_output.call_args[0][0]['success'])
 
     @patch('ros2_nav2.ros2_context')
     @patch('ros2_nav2.ROS2CLI')

@@ -232,12 +232,14 @@ class _PersistentSubscriber:
         self.lock = threading.Lock()
         self.event = threading.Event()
         self.latest = None
+        self.stamp = 0.0   # monotonic time of `latest`
         self.sub = self.node.create_subscription(msg_class, topic, self._callback, 10)
 
     def _callback(self, msg):
         from ros2_utils import msg_to_dict
         with self.lock:
             self.latest = msg_to_dict(msg)
+            self.stamp = time.monotonic()
         self.event.set()
 
 
@@ -283,9 +285,12 @@ def _handle_subscribe_once(node, params):
 
     # Already have a message from a prior request (or one arrived since) —
     # instant return, no wait at all.
+    max_age = params.get("max_age")  # a reading older than this is as good as none (a dead publisher must not look "stationary")
     with subscriber.lock:
-        if subscriber.latest is not None:
+        if subscriber.latest is not None and (max_age is None or time.monotonic() - subscriber.stamp <= float(max_age)):
             return {"msg": subscriber.latest, "msg_type": subscriber.msg_type_str}
+        if subscriber.latest is not None:
+            subscriber.event.clear()
 
     # First-ever message on this topic hasn't arrived yet — wait for the
     # background spin thread's callback to set it (Event.wait blocks
@@ -422,7 +427,25 @@ def _handle_node_details(node, params):
     return result
 
 
+_SNAPSHOT_STATE = {}
+
+
+def _handle_snapshot(node, params):
+    from ros2_snapshot import daemon_snapshot
+    return daemon_snapshot(node, params, _SNAPSHOT_STATE)
+
+
+_LOOK_STATE = {}
+
+
+def _handle_look(node, params):
+    from ros2_snapshot import daemon_look
+    return daemon_look(node, params, _LOOK_STATE)
+
+
 _HANDLERS = {
+    "snapshot": _handle_snapshot,
+    "look": _handle_look,
     "list_controllers": _handle_list_controllers,
     "list_topics": _handle_list_topics,
     "topic_type": _handle_get_topic_type,
@@ -442,6 +465,30 @@ _HANDLERS = {
 }
 
 
+_MOTION_OPS = frozenset({"move", "stop", "cancel_motion", "preflight_motion"})
+
+
+_LAST_REQUEST = [time.monotonic()]
+
+
+def _idle_watchdog(limit_s):
+    """Exit (as if interrupted, so the socket and pid files are removed) after *limit_s* without a request."""
+    import signal
+    while True:
+        time.sleep(30)
+        try:
+            import ros2_motionhost
+            busy = ros2_motionhost._MOVE_LOCK.locked()
+        except Exception:
+            busy = False
+        if busy:
+            _LAST_REQUEST[0] = time.monotonic()
+        elif time.monotonic() - _LAST_REQUEST[0] > limit_s:
+            print(f"[ros2-skill fastd] idle for {limit_s}s: exiting", file=sys.stderr)
+            os.kill(os.getpid(), signal.SIGINT)
+            return
+
+
 def _serve_one(node, conn, rclpy_lock):
     """Service one connection: read its request, run the handler, reply.
 
@@ -453,6 +500,7 @@ def _serve_one(node, conn, rclpy_lock):
     multiple threads simultaneously, so only the socket I/O around it
     gained concurrency here, not the ROS interaction itself.
     """
+    _LAST_REQUEST[0] = time.monotonic()
     try:
         conn.settimeout(30.0)
         data = b""
@@ -467,7 +515,29 @@ def _serve_one(node, conn, rclpy_lock):
         op = request.get("op")
         params = request.get("params", {}) or {}
         handler = _HANDLERS.get(op)
-        if handler is None:
+        if op in _MOTION_OPS:  # long-running or time-critical: never queued behind rclpy_lock
+            import ros2_motionhost
+            conn.settimeout(None)
+            try:
+                if op == "move":
+                    response = ros2_motionhost.run_move(node, params, conn)
+                elif op == "stop":
+                    response = ros2_motionhost.run_stop(node, params)
+                elif op == "preflight_motion":
+                    import ros2_preflight
+
+                    def _locked(fn):
+                        def call(p):
+                            with rclpy_lock:
+                                return fn(node, p)
+                        return call
+                    response = ros2_preflight.preflight_in_daemon(params, _locked(_handle_list_controllers),
+                                                                  _locked(_handle_subscribe_once))
+                else:
+                    response = ros2_motionhost.cancel_motion()
+            except Exception as e:
+                response = {"error": str(e), "type": type(e).__name__}
+        elif handler is None:
             response = {"error": f"Unknown fastd op: {op}"}
         else:
             try:
@@ -533,6 +603,9 @@ def main():
     # connection handling is now concurrent.
     rclpy_lock = threading.Lock()
 
+    idle_s = int(os.environ.get("ROS2_SKILL_FASTD_IDLE_S", "0") or 0)
+    if idle_s > 0:
+        threading.Thread(target=_idle_watchdog, args=(idle_s,), daemon=True).start()
     try:
         while True:
             conn, _ = sock.accept()

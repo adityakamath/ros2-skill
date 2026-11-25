@@ -14,9 +14,10 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_system_default, qos_profile_sensor_data, ReliabilityPolicy
 
 from ros2_utils import (
+    call_ros_service,
     ROS2CLI, get_msg_type, get_msg_error, get_msg_fields,
     msg_to_dict, dict_to_msg, output, resolve_field, _get_service_event_qos,
-    resolve_output_path, ros2_context, resolve_topic_type, try_fastd,
+    resolve_output_path, ros2_context, resolve_topic_type, try_fastd, uninterruptible,
 )
 from ros2_safety import heartbeat_touch, validate_publish
 
@@ -54,139 +55,191 @@ _BATTERY_POWER_SUPPLY_TECHNOLOGY = {
 # estop
 # ---------------------------------------------------------------------------
 
+def _drop_covariance(obj):
+    """Strip covariance matrices (36 zeros each) from a message dict: they dominate the output and carry no signal here."""
+    if isinstance(obj, dict):
+        return {k: _drop_covariance(v) for k, v in obj.items() if k != "covariance"}
+    if isinstance(obj, list):
+        return [_drop_covariance(v) for v in obj]
+    return obj
+
+
+_ESTOP_BASENAMES = ("emergency_stop", "estop", "e_stop")
+
+
+def _find_estop_services(service_names_and_types, profile_service=None):
+    """Return idempotent SetBool e-stop services (never Trigger toggles, which would release on a second call)."""
+    found = []
+    for name, types in service_names_and_types:
+        base = name.rstrip("/").rsplit("/", 1)[-1]
+        if "std_srvs/srv/SetBool" in types and (base in _ESTOP_BASENAMES or name == profile_service):
+            found.append(name)
+    return found
+
+
+def _zero_msg(msg_class):
+    msg = msg_class()
+    target = msg.twist if hasattr(msg, "twist") else msg
+    for field in (target.linear, target.angular):
+        field.x = field.y = field.z = 0.0
+    return msg
+
+
+def _odom_speeds(msg):
+    """(linear speed, |angular.z|) from an Odometry message dict."""
+    twist = msg.get("twist", {}).get("twist", {})
+    lin = twist.get("linear", {}) or {}
+    ang = twist.get("angular", {}) or {}
+    return (math.sqrt(lin.get("x", 0.0) ** 2 + lin.get("y", 0.0) ** 2 + lin.get("z", 0.0) ** 2),
+            abs(ang.get("z", 0.0)))
+
+
+def cmd_stop(args):
+    """Routine stop: zero every velocity topic and verify. Unlike `estop` it never latches the e-stop service."""
+    args.no_service = True
+    if not args.topic:  # the fast daemon keeps the publishers warm; any failure falls through to the local path
+        from ros2_fastmotion import stop_robot
+        served = stop_robot(getattr(args, "verify_odom_topic", None), getattr(args, "verify_timeout", 5.0),
+                            getattr(args, "velocity_threshold", 0.01))
+        if served is not None:
+            return output(served)
+    return cmd_estop(args)
+
+
 def cmd_estop(args):
-    """Emergency stop for mobile robots - auto-detect and publish zero velocity."""
+    """Emergency stop: engage the robot's SetBool e-stop service (if any), then zero every velocity topic.
 
-    def find_velocity_topic(node):
-        topics = node.get_topic_names()
-        candidates = [
-            (name, next(t for t in types if t in VELOCITY_TYPES))
-            for name, types in topics
-            if any(t in VELOCITY_TYPES for t in types)
-        ]
-        if not candidates:
-            return None, None
-        preferred = [(name, t) for name, t in candidates if "cmd_vel" in name.lower()]
-        return preferred[0] if preferred else candidates[0]
-
+    Zeros go to *every* velocity topic, not just one: with a twist switch or mux, zeroing a single
+    input does nothing while another source (e.g. Nav2) is selected.
+    """
     try:
         with ros2_context():
             node = ROS2CLI("estop")
+            result = {"success": False}
 
+            # 0. Interrupt a running motion command so it cannot keep publishing velocity.
+            try:
+                from ros2_fastmotion import cancel_motion
+                if cancel_motion():  # a move hosted by the fast daemon halts at once
+                    result["interrupted"] = "fast daemon move"
+            except Exception:
+                pass
+            try:
+                from ros2_motion_lock import interrupt_owner
+                owner = interrupt_owner()
+                if owner:
+                    result["interrupted"] = owner.get("command")
+            except Exception:
+                pass
+
+            # 1. Engage the e-stop service (SetBool data=true; idempotent).
+            if not getattr(args, "no_service", False):
+                try:
+                    from ros2_profile import load_profile_summary
+                    profile_service = ((load_profile_summary(readonly=True) or {}).get("estop_config") or {}).get("service_name")
+                except Exception:
+                    profile_service = None
+                services = _find_estop_services(node.get_service_names(), profile_service)
+                if services:
+                    from std_srvs.srv import SetBool
+                    req = SetBool.Request()
+                    req.data = True
+                    resp, err = call_ros_service(node, SetBool, services[0], req, timeout=2.0)
+                    result["estop_service"] = {
+                        "service": services[0],
+                        "engaged": bool(resp and resp.success),
+                        **({"error": err["error"]} if err else {}),
+                    }
+                else:
+                    result["estop_service"] = {"engaged": False, "note": "no SetBool e-stop service found; velocity zeroing only"}
+
+            # 2. Zero every velocity topic (or just --topic).
             if args.topic:
-                topic = args.topic
-                msg_type = None
-                for name, types in node.get_topic_names():
-                    if name == topic and types:
-                        msg_type = types[0]
-                        break
-                if not msg_type:
+                targets = [(n, t[0]) for n, t in node.get_topic_names() if n == args.topic and t]
+                if not targets:
                     return output({
-                        "error": f"Could not detect message type for topic '{topic}'",
+                        "error": f"Could not detect message type for topic '{args.topic}'",
                         "hint": "Ensure the topic is active and visible in the ROS graph. Use 'topics type <topic>' to inspect it."
                     })
             else:
-                topic, msg_type = find_velocity_topic(node)
+                targets = [(n, next(t for t in types if t in VELOCITY_TYPES))
+                           for n, types in node.get_topic_names() if any(t in VELOCITY_TYPES for t in types)]
 
-            if not topic:
+            pubs = []
+            for name, msg_type in targets:
+                msg_class = get_msg_type(msg_type)
+                if msg_class:
+                    pubs.append((name, node.create_publisher(msg_class, name, 10), _zero_msg(msg_class)))
+            if not pubs and not result.get("estop_service", {}).get("engaged"):
                 return output({
-                    "error": "Could not find velocity command topic",
+                    "error": "Could not find a velocity command topic or an e-stop service",
                     "hint": "This command is for mobile robots only (not arms). Ensure the robot has a /cmd_vel topic."
                 })
 
-            msg_class = get_msg_type(msg_type)
-            if not msg_class:
-                if args.topic:
-                    return output({
-                        "error": f"Could not load message type '{msg_type}' for topic '{topic}'",
-                        "hint": "Ensure the ROS workspace is built and sourced: cd ~/ros2_ws && colcon build && source install/setup.bash"
-                    })
-                else:
-                    for t in VELOCITY_TYPES:
-                        msg_class = get_msg_type(t)
-                        if msg_class:
-                            msg_type = t
-                            break
-
-            if not msg_class:
-                return output({"error": f"Could not load message type: {msg_type}"})
-
-            pub = node.create_publisher(msg_class, topic, 10)
-            msg = msg_class()
-
-            if hasattr(msg, "twist"):
-                msg.header.stamp = node.get_clock().now().to_msg()
-                msg.twist.linear.x = 0.0
-                msg.twist.linear.y = 0.0
-                msg.twist.linear.z = 0.0
-                msg.twist.angular.x = 0.0
-                msg.twist.angular.y = 0.0
-                msg.twist.angular.z = 0.0
-            else:
-                msg.linear.x = 0.0
-                msg.linear.y = 0.0
-                msg.linear.z = 0.0
-                msg.angular.x = 0.0
-                msg.angular.y = 0.0
-                msg.angular.z = 0.0
-
-            # Publish in a burst to ensure delivery regardless of QoS/late discovery
-            burst_count = 10
-            burst_interval = 0.05  # 20 Hz over 0.5 s
-            for _ in range(burst_count):
-                pub.publish(msg)
-                time.sleep(burst_interval)
-
-            result = {
-                "success": True,
-                "topic": topic,
-                "type": msg_type,
-                "message": "Emergency stop activated (mobile robot stopped)"
-            }
-
-            # Optional same-node verify: confirm velocity actually reads back
-            # as zero, without paying a second rclpy.init()/shutdown() cycle
-            # for a separate 'topics subscribe <ODOM_TOPIC>' call.
+            # Subscribe to odometry first so the verify read overlaps the zero burst (matching takes a few hundred ms).
             odom_topic = getattr(args, "verify_odom_topic", None)
+            subscriber = executor = None
             if odom_topic:
                 odom_type = resolve_topic_type(node, odom_topic, None)
                 if not odom_type:
                     result["verify_error"] = f"Could not detect message type for topic: {odom_topic}"
                 else:
-                    verify_timeout = getattr(args, "verify_timeout", 5.0)
-                    velocity_threshold = getattr(args, "velocity_threshold", 0.01)
                     subscriber = TopicSubscriber(odom_topic, odom_type)
                     if subscriber.sub is None:
                         result["verify_error"] = f"Could not load message type: {odom_type}"
+                        subscriber = None
                     else:
                         executor = rclpy.executors.SingleThreadedExecutor()
                         executor.add_node(subscriber)
-                        end_time = time.time() + verify_timeout
-                        odom_msg = None
-                        while time.time() < end_time:
-                            executor.spin_once(timeout_sec=0.1)
-                            with subscriber.lock:
-                                if subscriber.messages:
-                                    odom_msg = subscriber.messages[0]
-                                    break
-                        subscriber.destroy_node()
 
-                        if odom_msg is None:
-                            result["verify_error"] = f"Timeout after {verify_timeout}s waiting for a message on {odom_topic}"
-                        else:
-                            twist = odom_msg.get("twist", {}).get("twist", {})
-                            lin = twist.get("linear", {}) or {}
-                            ang = twist.get("angular", {}) or {}
-                            linear_speed = math.sqrt(
-                                lin.get("x", 0.0) ** 2 + lin.get("y", 0.0) ** 2 + lin.get("z", 0.0) ** 2
-                            )
-                            angular_speed_z = abs(ang.get("z", 0.0))
-                            result["verified_stationary"] = (
-                                linear_speed <= velocity_threshold
-                                and angular_speed_z <= velocity_threshold
-                            )
-                            result["linear_speed"] = linear_speed
-                            result["angular_speed_z"] = angular_speed_z
+            # Burst for delivery regardless of QoS/late discovery: 20 Hz, 0.25 s for a routine stop, 0.5 s for an e-stop
+            for _ in range(5 if getattr(args, "no_service", False) else 10):
+                for _name, pub, msg in pubs:
+                    if hasattr(msg, "header"):
+                        msg.header.stamp = node.get_clock().now().to_msg()
+                    pub.publish(msg)
+                if executor:
+                    executor.spin_once(timeout_sec=0.05)
+                else:
+                    time.sleep(0.05)
+
+            result.update({
+                "success": True,
+                "topics": [name for name, _p, _m in pubs],
+                "message": "Emergency stop activated"
+                           + (" (e-stop service engaged)" if result.get("estop_service", {}).get("engaged") else " (velocity zeroed only)"),
+                "next": "Cancel Nav2 goals with `nav2 cancel` if navigating. Releasing a service e-stop is a deliberate human action: do not clear it.",
+            })
+
+            # Confirm velocity reads back as zero on the same node (no second rclpy init/shutdown).
+            if subscriber is not None:
+                verify_timeout = getattr(args, "verify_timeout", 5.0)
+                velocity_threshold = getattr(args, "velocity_threshold", 0.01)
+                end_time = time.time() + verify_timeout
+                odom_msg, seen = None, 0
+                while time.time() < end_time:
+                    with subscriber.lock:
+                        msgs = subscriber.messages
+                        if len(msgs) > seen:
+                            odom_msg, seen = msgs[-1], len(msgs)
+                    if odom_msg is not None and _odom_speeds(odom_msg)[0] <= velocity_threshold \
+                            and _odom_speeds(odom_msg)[1] <= velocity_threshold:
+                        break  # stationary: stop waiting (coasting wheels need a moment)
+                    executor.spin_once(timeout_sec=0.1)
+                subscriber.destroy_node()
+
+                if odom_msg is None:
+                    result["verify_error"] = f"Timeout after {verify_timeout}s waiting for a message on {odom_topic}"
+                else:
+                    linear_speed, angular_speed_z = _odom_speeds(odom_msg)
+                    result["verified_stationary"] = (
+                        linear_speed <= velocity_threshold and angular_speed_z <= velocity_threshold
+                    )
+                    result["linear_speed"] = linear_speed
+                    result["angular_speed_z"] = angular_speed_z
+                    pos = (odom_msg.get("pose", {}).get("pose", {}) or {}).get("position")
+                    if pos:
+                        result["final_position"] = {"x": round(pos.get("x", 0.0), 4), "y": round(pos.get("y", 0.0), 4)}
 
         output(result)
     except Exception as e:
@@ -306,6 +359,17 @@ def _count_msg_bytes(d):
     return len(json.dumps(d))
 
 
+def _publisher_matched_qos(node, topic):
+    """BEST_EFFORT sensor QoS if any publisher uses it, else system default (avoids silent drops)."""
+    try:
+        if any(p.qos_profile.reliability == ReliabilityPolicy.BEST_EFFORT
+               for p in node.get_publishers_info_by_topic(topic)):
+            return qos_profile_sensor_data
+    except Exception:
+        pass
+    return qos_profile_system_default
+
+
 class TopicSubscriber(Node):
     def __init__(self, topic, msg_type, msg_class=None, qos=None,
                  throttle_rate_ms=None, max_bytes=None):
@@ -320,7 +384,7 @@ class TopicSubscriber(Node):
         self._bytes_seen = 0
 
         resolved_class = msg_class if msg_class is not None else get_msg_type(msg_type)
-        resolved_qos = qos if qos is not None else qos_profile_system_default
+        resolved_qos = qos if qos is not None else _publisher_matched_qos(self, topic)
         if resolved_class:
             self.sub = self.create_subscription(
                 resolved_class, topic, self.callback, resolved_qos
@@ -468,6 +532,26 @@ def cmd_topics_echo_once(args):
 # Publisher node
 # ---------------------------------------------------------------------------
 
+class _StampingPublisher:
+    """Publisher proxy that fills a zero header stamp with the current time.
+
+    A payload like {"header": {"stamp": {"sec": 0}}} is the natural way to write a TwistStamped, but
+    controllers warn about (or drop) zero-stamped commands.
+    """
+
+    def __init__(self, pub, node):
+        self._pub, self._node = pub, node
+
+    def publish(self, msg):
+        stamp = getattr(getattr(msg, "header", None), "stamp", None)
+        if stamp is not None and stamp.sec == 0 and stamp.nanosec == 0:
+            msg.header.stamp = self._node.get_clock().now().to_msg()
+        self._pub.publish(msg)
+
+    def __getattr__(self, name):
+        return getattr(self._pub, name)
+
+
 class TopicPublisher(Node):
     def __init__(self, topic, msg_type):
         super().__init__(_node_name('pub', topic))
@@ -477,29 +561,14 @@ class TopicPublisher(Node):
 
         msg_class = get_msg_type(msg_type)
         if msg_class:
-            self.pub = self.create_publisher(msg_class, topic, qos_profile_system_default)
+            self.pub = _StampingPublisher(self.create_publisher(msg_class, topic, qos_profile_system_default), self)
 
 
 # ---------------------------------------------------------------------------
 # Condition monitor node (for publish-until)
 # ---------------------------------------------------------------------------
 
-def quaternion_to_yaw(q):
-    """Extract yaw (rotation around z-axis) from quaternion (x, y, z, w)."""
-    x, y, z, w = q
-    siny_cosp = 2.0 * (w * z + x * y)
-    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
-    yaw = math.atan2(siny_cosp, cosy_cosp)
-    return yaw
-
-
-def normalize_angle(angle):
-    """Normalize angle to [-pi, pi]."""
-    while angle > math.pi:
-        angle -= 2 * math.pi
-    while angle < -math.pi:
-        angle += 2 * math.pi
-    return angle
+from ros2_condition import ConditionTracker, normalize_angle, quaternion_to_yaw  # noqa: E402,F401  (re-exported)
 
 
 # ---------------------------------------------------------------------------
@@ -507,460 +576,29 @@ def normalize_angle(angle):
 # ---------------------------------------------------------------------------
 
 # Per-axis fallback minimums (fine-control floor) and accel defaults.
-_DECEL_DEFAULTS = {
-    'a_max_linear':  0.5,    # m/s²   — conservative linear accel fallback
-    'a_max_angular': 1.0,    # rad/s² — conservative angular accel fallback
-    'v_min_x':       0.125,  # m/s    — fine-control floor, linear x
-    'v_min_y':       0.100,  # m/s    — fine-control floor, linear y
-    'omega_min':     0.375,  # rad/s  — fine-control floor, angular z
-}
-
-# Param keyword groups (searched case-insensitively, first numeric match wins).
-_ACCEL_KEYWORDS     = ['max_accel', 'accel_limit', 'decel_limit']
-_ANG_ACCEL_KEYWORDS = ['max_ang_accel', 'ang_accel_limit', 'angular_accel_limit']
-_MIN_VEL_KEYWORDS   = ['min_vel_x', 'min_vel', 'min_speed', 'speed_limit_min']
-_MIN_ANG_VEL_KEYWORDS = ['min_ang_vel', 'min_angular_speed', 'min_angular_vel']
+from ros2_motion_core import (  # noqa: E402,F401  (re-exported)
+    prepare_publish_until, probe_throttle,
+    _ACCEL_KEYWORDS, _ANG_ACCEL_KEYWORDS, _DECEL_DEFAULTS, _MIN_ANG_VEL_KEYWORDS, _MIN_VEL_KEYWORDS, _clamp_velocity,
+    _fetch_first_param, _has_velocity_fields, _twist_speed, compute_decel_params, scale_twist_velocity, slow_move,
+)
 
 
-def _fetch_first_param(node, nodes_to_search, keywords, deadline):
-    """Scan *nodes_to_search* for any param whose name contains a keyword.
-
-    Returns (float_value, "node_name:param_name") or (None, "defaults").
-    Stops as soon as one numeric value is found, or when *deadline* (epoch s) passes.
-    """
-    from rcl_interfaces.srv import ListParameters, GetParameters
-
-    for node_name in nodes_to_search:
-        if time.time() >= deadline:
-            break
-        try:
-            list_client = node.create_client(ListParameters, f"{node_name}/list_parameters")
-            svc_timeout = max(0.1, min(1.0, deadline - time.time()))
-            if not list_client.wait_for_service(timeout_sec=svc_timeout):
-                continue
-
-            future = list_client.call_async(ListParameters.Request())
-            while time.time() < deadline and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.05)
-            if not future.done():
-                future.cancel()
-                continue
-
-            result = future.result()
-            names = result.result.names if result and result.result else []
-            kws_lower = [k.lower() for k in keywords]
-            matched = [n for n in names if any(kw in n.lower() for kw in kws_lower)]
-            if not matched:
-                continue
-
-            get_client = node.create_client(GetParameters, f"{node_name}/get_parameters")
-            svc_timeout = max(0.1, min(1.0, deadline - time.time()))
-            if not get_client.wait_for_service(timeout_sec=svc_timeout):
-                continue
-
-            req = GetParameters.Request()
-            req.names = matched[:1]
-            future2 = get_client.call_async(req)
-            while time.time() < deadline and not future2.done():
-                rclpy.spin_once(node, timeout_sec=0.05)
-            if not future2.done():
-                future2.cancel()
-                continue
-
-            values = future2.result().values if future2.result() else []
-            if not values:
-                continue
-
-            pval = values[0]
-            for attr in ('double_value', 'integer_value'):
-                raw = getattr(pval, attr, None)
-                if raw is not None and float(raw) > 0:
-                    return float(raw), f"{node_name}:{matched[0]}"
-        except Exception:
-            continue
-
-    return None, "defaults"
-
-
-def compute_decel_params(msg_data, distance, is_rotation, is_degrees, node):
-    """Auto-compute the decel zone (slow_zone) and slow_factor for publish-until.
-
-    Uses kinematics:
-      linear:   slow_zone = v_cmd² / (2 × a_max);  slow_factor = v_min / v_cmd
-      rotation: slow_zone = ω_cmd² / (2 × α_max);  slow_factor = ω_min / ω_cmd
-
-    Accel and min-vel values are fetched from live node params (2 s hard timeout).
-    Falls back to _DECEL_DEFAULTS on any failure.
-
-    Args:
-        msg_data:    Parsed Twist or TwistStamped dict from the publish-until message.
-        distance:    Total move in condition units (metres for linear, radians for rotation).
-        is_rotation: True when using --rotate.
-        is_degrees:  True when --degrees is set (affects display value in meta only).
-        node:        A live ROS2CLI node to use for param service calls.
-
-    Returns:
-        (slow_zone, slow_factor, meta_dict)
-        slow_zone is in condition units (metres or radians).
-        meta_dict: {"auto_computed": True/False, "slow_last": X, "slow_factor": Y,
-                    "params_source": "node:param" | "defaults"}
-    """
-    deadline = time.time() + 2.0  # hard 2-second cap for all param fetches
-
-    # Unwrap TwistStamped → Twist
-    twist = msg_data.get('twist', msg_data)
-    linear  = twist.get('linear',  {})
-    angular = twist.get('angular', {})
-
-    # ------------------------------------------------------------------ rotation
-    if is_rotation:
-        omega_cmd = abs(angular.get('z', 0.0))
-        if omega_cmd < 1e-6:
-            return None, 0.25, {"auto_computed": False, "reason": "zero angular velocity"}
-
-        try:
-            node_info = node.get_node_names_and_namespaces()
-            nodes_list = [f"{ns.rstrip('/')}/{n}" for n, ns in node_info]
-        except Exception:
-            nodes_list = []
-
-        alpha_val, alpha_src = _fetch_first_param(node, nodes_list, _ANG_ACCEL_KEYWORDS, deadline)
-        alpha_max = alpha_val if alpha_val else _DECEL_DEFAULTS['a_max_angular']
-
-        omega_val, omega_src = _fetch_first_param(node, nodes_list, _MIN_ANG_VEL_KEYWORDS, deadline)
-        omega_min = omega_val if omega_val else _DECEL_DEFAULTS['omega_min']
-
-        # Kinematic braking distance (radians)
-        raw_zone   = omega_cmd ** 2 / (2.0 * alpha_max)
-        slow_zone  = max(math.radians(3.0), min(raw_zone, abs(distance) * 0.4))
-        slow_factor = max(0.10, min(0.50, omega_min / omega_cmd))
-
-        display_val  = math.degrees(slow_zone) if is_degrees else round(slow_zone, 4)
-        params_source = alpha_src if alpha_src != "defaults" else omega_src
-
-        meta = {
-            "auto_computed": True,
-            "slow_last":   round(display_val, 4),
-            "slow_factor": round(slow_factor, 4),
-            "params_source": params_source,
-        }
-        return slow_zone, slow_factor, meta
-
-    # ------------------------------------------------------------------ linear
-    vx = abs(linear.get('x', 0.0))
-    vy = abs(linear.get('y', 0.0))
-
-    if vx >= vy and vx > 1e-6:
-        v_cmd, v_min_default, axis_kws = vx, _DECEL_DEFAULTS['v_min_x'], ['min_vel_x'] + _MIN_VEL_KEYWORDS
-    elif vy > 1e-6:
-        v_cmd, v_min_default, axis_kws = vy, _DECEL_DEFAULTS['v_min_y'], ['min_vel_y'] + _MIN_VEL_KEYWORDS
-    else:
-        return None, 0.25, {"auto_computed": False, "reason": "zero linear velocity"}
-
-    try:
-        node_info = node.get_node_names_and_namespaces()
-        nodes_list = [f"{ns.rstrip('/')}/{n}" for n, ns in node_info]
-    except Exception:
-        nodes_list = []
-
-    accel_val, accel_src = _fetch_first_param(node, nodes_list, _ACCEL_KEYWORDS, deadline)
-    a_max = accel_val if accel_val else _DECEL_DEFAULTS['a_max_linear']
-
-    vmin_val, vmin_src = _fetch_first_param(node, nodes_list, axis_kws, deadline)
-    v_min = vmin_val if vmin_val else v_min_default
-
-    raw_zone  = v_cmd ** 2 / (2.0 * a_max)
-    slow_zone = max(0.05, min(raw_zone, abs(distance) * 0.4))
-    slow_factor = max(0.10, min(0.50, v_min / v_cmd))
-
-    params_source = accel_src if accel_src != "defaults" else vmin_src
-
-    meta = {
-        "auto_computed": True,
-        "slow_last":   round(slow_zone, 4),
-        "slow_factor": round(slow_factor, 4),
-        "params_source": params_source,
-    }
-    return slow_zone, slow_factor, meta
-
-
-def scale_twist_velocity(data, scale):
-    """Return a copy of a Twist or TwistStamped dict with all velocity fields multiplied by scale."""
-    d = copy.deepcopy(data)
-    if 'twist' in d and isinstance(d.get('twist'), dict):
-        # TwistStamped: velocity nested under 'twist' key
-        for top in ('linear', 'angular'):
-            if top in d['twist'] and isinstance(d['twist'][top], dict):
-                for ax in ('x', 'y', 'z'):
-                    if ax in d['twist'][top] and isinstance(d['twist'][top][ax], (int, float)):
-                        d['twist'][top][ax] = d['twist'][top][ax] * scale
-    else:
-        # Twist: velocity at top level
-        for top in ('linear', 'angular'):
-            if top in d and isinstance(d[top], dict):
-                for ax in ('x', 'y', 'z'):
-                    if ax in d[top] and isinstance(d[top][ax], (int, float)):
-                        d[top][ax] = d[top][ax] * scale
-    return d
-
-
-def _has_velocity_fields(data):
-    """Return True if *data* looks like a Twist or TwistStamped message dict.
-
-    Used to gate the auto-hold zero-velocity burst so it only fires for motion
-    payloads and is silently skipped for other message types.
-    """
-    if not isinstance(data, dict):
-        return False
-    if 'linear' in data or 'angular' in data:
-        return True
-    nested = data.get('twist')
-    return isinstance(nested, dict) and ('linear' in nested or 'angular' in nested)
-
-
-def _clamp_velocity(data, max_linear=None, max_ang=None):
-    """Return (clamped_data, notices).
-
-    Clips linear x/y/z to ±max_linear and angular z to ±max_ang in a Twist
-    or TwistStamped dict.  Non-velocity payloads pass through unchanged.
-    Both limits are optional; passing None means "no clamp on that axis".
-    """
-    if max_linear is None and max_ang is None:
-        return data, []
-    if not _has_velocity_fields(data):
-        return data, []
-
-    d = copy.deepcopy(data)
-    notices = []
-
-    def _clamp_axis(container, key, axis, limit, label):
-        if container and isinstance(container.get(key), dict):
-            val = container[key].get(axis)
-            if isinstance(val, (int, float)) and limit is not None:
-                clamped = max(-limit, min(limit, val))
-                if clamped != val:
-                    container[key][axis] = clamped
-                    notices.append(
-                        f"{label}.{axis}: {val} → {clamped} (clamped to ±{limit})"
-                    )
-
-    if 'twist' in d and isinstance(d.get('twist'), dict):
-        # TwistStamped — velocity nested under 'twist'
-        t = d['twist']
-        for ax in ('x', 'y', 'z'):
-            _clamp_axis(t, 'linear', ax, max_linear, 'twist.linear')
-        _clamp_axis(t, 'angular', 'z', max_ang, 'twist.angular')
-    else:
-        # Twist — velocity at top level
-        for ax in ('x', 'y', 'z'):
-            _clamp_axis(d, 'linear', ax, max_linear, 'linear')
-        _clamp_axis(d, 'angular', 'z', max_ang, 'angular')
-
-    return d, notices
-
-
-class ConditionMonitor(Node):
-    """Subscriber that evaluates a stop condition on every incoming message."""
+class ConditionMonitor(ConditionTracker, Node):
+    """Subscriber node that feeds every incoming message to a ConditionTracker (its attributes are the monitor's)."""
 
     def __init__(self, topic, msg_type, field, operator, threshold, stop_event,
                  euclidean=False, rotate=None):
-        super().__init__(_node_name('mon', topic))
-        self.euclidean = euclidean
-        self.rotate = rotate
-        if isinstance(field, list):
-            self.fields = field
-            self.field = field[0]
-        else:
-            self.fields = [field]
-            self.field = field
-        self.operator = operator
-        self.threshold = threshold
-        self.stop_event = stop_event
-
-        self.start_value = None
-        self.current_value = None
-        self.start_values = None
-        self.current_values = None
-        self.euclidean_distance = None
-
-        # Rotation-specific
-        self.start_yaw = None
-        self.last_yaw = None
-        self.accumulated_rotation = 0.0
-        self.rotation_delta = None
-
-        self.start_msg = None
-        self.end_msg = None
-        self.field_error = None
-        self.lock = threading.Lock()
+        Node.__init__(self, _node_name('mon', topic))
+        ConditionTracker.__init__(self, field, operator, threshold, stop_event, euclidean=euclidean, rotate=rotate)
         self.sub = None
 
         msg_class = get_msg_type(msg_type)
         if msg_class:
-            # Auto-match publisher QoS: use BEST_EFFORT if any publisher does,
-            # so RELIABLE/BEST_EFFORT mismatches don't silently drop all messages.
-            qos = qos_profile_system_default
-            try:
-                pub_infos = self.get_publishers_info_by_topic(topic)
-                if any(p.qos_profile.reliability == ReliabilityPolicy.BEST_EFFORT
-                       for p in pub_infos):
-                    qos = qos_profile_sensor_data
-            except Exception:
-                pass
+            qos = _publisher_matched_qos(self, topic)
             self.sub = self.create_subscription(msg_class, topic, self.callback, qos)
 
     def callback(self, msg):
-        with self.lock:
-            if self.stop_event.is_set():
-                return
-
-            msg_dict = msg_to_dict(msg)
-
-            if self.euclidean:
-                values = []
-                for fp in self.fields:
-                    try:
-                        v = resolve_field(msg_dict, fp)
-                    except (KeyError, IndexError, TypeError) as e:
-                        self.field_error = f"Field '{fp}' not found in monitor message: {e}"
-                        self.stop_event.set()
-                        return
-
-                    if isinstance(v, dict):
-                        numeric_children = [
-                            (k, float(v[k]))
-                            for k in sorted(v.keys())
-                            if isinstance(v[k], (int, float))
-                        ]
-                        if not numeric_children:
-                            self.field_error = (
-                                f"Field '{fp}' resolves to a dict with no direct numeric "
-                                f"sub-fields (keys: {sorted(v.keys())}). "
-                                f"Specify a leaf field such as {fp}.x"
-                            )
-                            self.stop_event.set()
-                            return
-                        values.extend(val for _, val in numeric_children)
-                    else:
-                        try:
-                            values.append(float(v))
-                        except (TypeError, ValueError) as e:
-                            self.field_error = f"Field '{fp}' not numeric in monitor message: {e}"
-                            self.stop_event.set()
-                            return
-
-                if self.start_values is None:
-                    self.start_values = values[:]
-                    self.start_msg = msg_dict
-
-                self.current_values = values
-                dist = math.sqrt(
-                    sum((c - s) ** 2 for c, s in zip(values, self.start_values))
-                )
-                self.euclidean_distance = dist
-
-                if dist >= float(self.threshold):
-                    self.end_msg = msg_dict
-                    self.stop_event.set()
-
-            elif self.rotate is not None:
-                try:
-                    quat = None
-                    for path in ['pose.pose.orientation', 'orientation']:
-                        try:
-                            quat = resolve_field(msg_dict, path)
-                            if quat and isinstance(quat, dict):
-                                break
-                        except (KeyError, IndexError, TypeError):
-                            continue
-
-                    if not quat or not isinstance(quat, dict):
-                        self.field_error = "Could not find quaternion (pose.pose.orientation) in odometry message for rotation monitoring"
-                        self.stop_event.set()
-                        return
-
-                    try:
-                        qx = float(quat.get('x', 0))
-                        qy = float(quat.get('y', 0))
-                        qz = float(quat.get('z', 0))
-                        qw = float(quat.get('w', 1))
-                    except (TypeError, ValueError) as e:
-                        self.field_error = f"Quaternion values must be numeric: {e}"
-                        self.stop_event.set()
-                        return
-
-                    current_yaw = quaternion_to_yaw((qx, qy, qz, qw))
-
-                    if self.start_yaw is None:
-                        self.start_yaw = current_yaw
-                        self.last_yaw = current_yaw
-                        self.start_msg = msg_dict
-                        return
-
-                    step = normalize_angle(current_yaw - self.last_yaw)
-                    self.accumulated_rotation += step
-                    self.last_yaw = current_yaw
-                    self.rotation_delta = self.accumulated_rotation
-
-                    target = self.rotate
-                    if target > 0 and self.accumulated_rotation >= target:
-                        self.end_msg = msg_dict
-                        self.stop_event.set()
-                    elif target < 0 and self.accumulated_rotation <= target:
-                        self.end_msg = msg_dict
-                        self.stop_event.set()
-
-                except Exception as e:
-                    self.field_error = f"Rotation monitoring error: {e}"
-                    self.stop_event.set()
-                    return
-
-            else:
-                try:
-                    value = resolve_field(msg_dict, self.field)
-                except (KeyError, IndexError, TypeError, ValueError) as e:
-                    self.field_error = f"Field '{self.field}' not found in monitor message: {e}"
-                    self.stop_event.set()
-                    return
-
-                try:
-                    numeric_value = float(value)
-                except (TypeError, ValueError):
-                    numeric_value = None
-
-                if self.start_value is None:
-                    self.start_value = value
-                    self.start_msg = msg_dict
-
-                self.current_value = value
-
-                condition_met = False
-                if self.operator == 'delta':
-                    if numeric_value is not None and self.start_value is not None:
-                        try:
-                            delta = numeric_value - float(self.start_value)
-                            thr = float(self.threshold)
-                            condition_met = delta >= thr if thr >= 0 else delta <= thr
-                        except (TypeError, ValueError):
-                            pass
-                elif self.operator == 'above':
-                    if numeric_value is not None:
-                        condition_met = numeric_value > float(self.threshold)
-                elif self.operator == 'below':
-                    if numeric_value is not None:
-                        condition_met = numeric_value < float(self.threshold)
-                elif self.operator == 'equals':
-                    if numeric_value is not None:
-                        try:
-                            condition_met = abs(numeric_value - float(self.threshold)) < 1e-9
-                        except (TypeError, ValueError):
-                            condition_met = str(value) == str(self.threshold)
-                    else:
-                        condition_met = str(value) == str(self.threshold)
-
-                if condition_met:
-                    self.end_msg = msg_dict
-                    self.stop_event.set()
+        self.update(msg_to_dict(msg))
 
 
 # ---------------------------------------------------------------------------
@@ -981,7 +619,7 @@ class HzMonitor(Node):
         msg_class = get_msg_type(msg_type)
         if msg_class:
             self.sub = self.create_subscription(
-                msg_class, topic, self._callback, qos_profile_system_default
+                msg_class, topic, self._callback, _publisher_matched_qos(self, topic)
             )
 
     def _callback(self, msg):
@@ -1228,9 +866,10 @@ def cmd_topics_publish_sequence(args):
                 if _has_velocity_fields(last_msg_data):
                     try:
                         zero_msg = dict_to_msg(msg_class, scale_twist_velocity(last_msg_data, 0.0))
-                        for _ in range(3):
-                            publisher.pub.publish(zero_msg)
-                            time.sleep(0.05)
+                        with uninterruptible():
+                            for _ in range(3):
+                                publisher.pub.publish(zero_msg)
+                                time.sleep(0.05)
                     except Exception:
                         pass
 
@@ -1253,95 +892,30 @@ def cmd_topics_publish_sequence(args):
 
 def cmd_topics_publish_until(args):
     """Publish to a topic until a condition on a monitor topic is met."""
-    if not args.topic:
-        return output({"error": "topic argument is required"})
-    if args.msg is None:
-        return output({"error": "msg argument is required"})
-    if not args.monitor:
-        return output({"error": "--monitor argument is required"})
+    err, plan = prepare_publish_until(args)
+    if err:
+        return output(err)
+    msg_data, field_paths, euclidean = plan["msg_data"], plan["field_paths"], plan["euclidean"]
+    rotate_angle, use_degrees = plan["rotate_angle"], plan["use_degrees"]
+    operator, threshold = plan["operator"], plan["threshold"]
+    clamp_notices, safety_action, safety_warning = plan["clamp_notices"], plan["safety_action"], plan["safety_warning"]
+    dry_run = plan["dry_run"]
 
-    # Handle --rotate flag
-    rotate_angle = getattr(args, 'rotate', None)
-    use_degrees = getattr(args, 'degrees', False)
-
-    if rotate_angle is not None:
-        if args.field:
-            return output({"error": "--rotate cannot be used with --field"})
-        if args.euclidean:
-            return output({"error": "--rotate cannot be used with --euclidean"})
-        if args.delta or args.above or args.below or args.equals:
-            return output({"error": "--rotate cannot be used with --delta, --above, --below, or --equals"})
-        try:
-            rotate_angle = float(rotate_angle)
-        except (TypeError, ValueError):
-            return output({"error": "--rotate must be a numeric value"})
-        if use_degrees:
-            rotate_angle = math.radians(rotate_angle)
-        if rotate_angle == 0:
-            return output({"error": "--rotate angle must be non-zero"})
-        field_paths = ['pose.pose.orientation']
-    else:
-        if not args.field:
-            return output({"error": "--field argument is required (or use --rotate for rotation)"})
-        field_paths = args.field
-    euclidean = getattr(args, 'euclidean', False)
-
-    if rotate_angle is None and len(field_paths) > 1 and not euclidean:
-        return output({"error": "Multiple --field paths require the --euclidean flag"})
-
-    operator_map = {
-        'delta': args.delta,
-        'above': args.above,
-        'below': args.below,
-        'equals': args.equals,
-    }
-    active = {k: v for k, v in operator_map.items() if v is not None}
-    if rotate_angle is None and len(active) != 1:
-        return output({"error": "Specify exactly one of --delta, --above, --below, --equals (or --rotate for rotation)"})
-
-    if euclidean and rotate_angle is None and next(iter(active)) != 'delta':
-        return output({"error": "--euclidean requires --delta (threshold is the Euclidean distance from start)"})
-    operator, threshold = next(iter(active.items())) if active else (None, None)
-    if euclidean and operator == 'delta' and threshold <= 0:
-        return output({"error": "--delta must be > 0 when --euclidean is used"})
+    from ros2_fastmotion import try_publish_until
+    served = try_publish_until(args, plan)
+    if served is not None:
+        return output(served)
 
     try:
-        msg_data = json.loads(args.msg)
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        return output({"error": f"Invalid JSON message: {e}"})
-
-    max_vel = getattr(args, 'max_vel', None)
-    max_ang = getattr(args, 'max_ang', None)
-    msg_data, clamp_notices = _clamp_velocity(msg_data, max_vel, max_ang)
-
-    ok, safety_action, modified_msg, safety_detail = validate_publish(
-        args.topic, msg_data, args.msg_type or ""
-    )
-    if not ok:
-        return output({
-            "error": "Publish-until blocked by safety validator",
-            "blocked": True,
-            "reason": "; ".join(safety_detail.get("violations", [])) if isinstance(safety_detail.get("violations"), list) else safety_detail.get("violations"),
-            "limits": safety_detail.get("limits"),
-            "actual": safety_detail.get("actual"),
-        })
-    if safety_action == "cap" and isinstance(modified_msg, dict):
-        msg_data = modified_msg
-    safety_warning = "; ".join(safety_detail.get("violations", [])) if safety_action == "warn" else None
-
-    try:
-        heartbeat_touch()
-    except Exception:
-        pass
-
-    dry_run = getattr(args, 'dry_run', False)
-
-    try:
+        from ros2_utils import trace
+        trace('publish-until: validated')
         with ros2_context():
-            temp_node = ROS2CLI("temp")
-            pub_msg_type = resolve_topic_type(temp_node, args.topic, args.msg_type)
-            mon_msg_type = resolve_topic_type(temp_node, args.monitor, args.monitor_msg_type)
-            temp_node.destroy_node()
+            pub_msg_type, mon_msg_type = args.msg_type, args.monitor_msg_type
+            if not (pub_msg_type and mon_msg_type):  # both types given (plan passes them): no discovery node
+                temp_node = ROS2CLI("temp")
+                pub_msg_type = resolve_topic_type(temp_node, args.topic, pub_msg_type)
+                mon_msg_type = resolve_topic_type(temp_node, args.monitor, mon_msg_type)
+                temp_node.destroy_node()
 
             if not pub_msg_type:
                 return output({"error": f"Could not detect message type for topic: {args.topic}. Use --msg-type."})
@@ -1378,6 +952,7 @@ def cmd_topics_publish_until(args):
             if monitor.sub is None:
                 return output({"error": f"Could not load monitor message type: {mon_msg_type}"})
 
+            trace('publish-until: pub/monitor created')
             msg = dict_to_msg(pub_msg_class, msg_data)
 
             executor = rclpy.executors.SingleThreadedExecutor()
@@ -1409,7 +984,13 @@ def cmd_topics_publish_until(args):
                     abs(rotate_angle) if rotate_angle is not None
                     else float(threshold) if threshold is not None else 0.0
                 )
-                param_node = ROS2CLI("decel_probe")
+                # Path A (profile loaded): no live parameter sweep (it costs ~2 s and finds nothing on most robots).
+                try:
+                    from ros2_profile import load_profile_summary
+                    path_a = bool(load_profile_summary(readonly=True))
+                except Exception:
+                    path_a = False
+                param_node = None if path_a else ROS2CLI("decel_probe")
                 try:
                     auto_zone, auto_factor, decel_meta = compute_decel_params(
                         msg_data,
@@ -1419,12 +1000,16 @@ def cmd_topics_publish_until(args):
                         node=param_node,
                     )
                 finally:
-                    param_node.destroy_node()
+                    if param_node is not None:
+                        param_node.destroy_node()
 
                 if auto_zone is not None:
                     slow_zone   = auto_zone
                     slow_factor = auto_factor
 
+            from ros2_utils import trace
+            trace('publish-until: first publish')
+            throttle = None
             try:
                 while not stop_event.is_set():
                     if timeout and (time.time() - start_time) >= timeout:
@@ -1453,19 +1038,32 @@ def cmd_topics_publish_until(args):
                     publisher.pub.publish(publish_msg)
                     published_count += 1
                     executor.spin_once(timeout_sec=interval)
+                if monitor.end_msg is None:
+                    # timed out: say whether a downstream limiter (collision monitor) was cutting the speed
+                    try:
+                        from ros2_profile import load_profile_summary
+                        upstream = ((load_profile_summary(readonly=True) or {}).get("velocity_chain") or {}).get("output")
+                    except Exception:
+                        upstream = None
+                    if upstream and upstream != args.topic:
+                        throttle = probe_throttle(publisher, lambda: publisher.pub.publish(msg),
+                                              lambda t: executor.spin_once(timeout_sec=t), upstream)
             finally:
                 stop_event.set()
                 # Always send a zero-velocity burst after the loop to stop the robot,
                 # regardless of whether the condition was met or the command timed out.
                 zero_msg = dict_to_msg(pub_msg_class, scale_twist_velocity(msg_data, 0.0))
-                for _ in range(10):
-                    publisher.pub.publish(zero_msg)
-                    time.sleep(0.05)
+                with uninterruptible():  # committed: a second Ctrl-C must not cut the stop short
+                    for _ in range(4):  # the publisher is already matched; `stop` follows with its own burst
+                        publisher.pub.publish(zero_msg)
+                        time.sleep(0.05)
 
             elapsed = round(time.time() - start_time, 3)
 
             with monitor.lock:
                 if monitor.field_error:
+                    publisher.destroy_node()
+                    monitor.destroy_node()
                     return output({"error": monitor.field_error})
 
                 condition_met = monitor.end_msg is not None
@@ -1514,13 +1112,17 @@ def cmd_topics_publish_until(args):
                     safety_extra["safety_capped"] = True
                 if safety_warning:
                     safety_extra["safety_warning"] = safety_warning
+                slow = None
+                if condition_met and euclidean and base.get("euclidean_distance"):
+                    slow = slow_move(base["euclidean_distance"], _twist_speed(msg_data), elapsed)
                 if condition_met:
                     output({**base,
+                            **({"slow": slow} if slow else {}),
                             "success": True,
                             "condition_met": True,
                             "decel_zone": decel_meta,
-                            "start_msg": monitor.start_msg,
-                            "end_msg": monitor.end_msg,
+                            "start_msg": _drop_covariance(monitor.start_msg),
+                            "end_msg": _drop_covariance(monitor.end_msg),
                             **clamp_extra,
                             **safety_extra})
                 else:
@@ -1529,9 +1131,14 @@ def cmd_topics_publish_until(args):
                             "condition_met": False,
                             "decel_zone": decel_meta,
                             "error": f"Timeout after {timeout}s: condition not met",
+                            **({"limited_downstream": throttle} if throttle else {}),
                             **clamp_extra,
                             **safety_extra})
+            publisher.destroy_node()  # a later publish-until in this process (plan --run) must not share the node names
+            monitor.destroy_node()
 
+    except KeyboardInterrupt:  # the loop's `finally` has zeroed velocity
+        output({"success": False, "cancelled": True, "error": "interrupted: velocity zeroed"})
     except Exception as e:
         output({"error": str(e)})
 
@@ -1570,6 +1177,7 @@ def _run_monitor(topic, window, timeout, monitor_cls):
     t = threading.Thread(target=_spin, daemon=True)
     t.start()
     done_event.wait(timeout=timeout)
+    done_event.set()  # stop the spin thread before the context shuts down (else it raises on exit)
     t.join(timeout=1.0)
     return monitor, None
 
@@ -1580,6 +1188,8 @@ def cmd_topics_hz(args):
         return output({"error": "topic argument is required"})
 
     topic, window, timeout = args.topic, args.window, args.timeout
+    if getattr(args, "duration", None):  # sample for a fixed time instead of a fixed message count
+        window, timeout = 10 ** 6, float(args.duration)
     try:
         with ros2_context():
             monitor, err = _run_monitor(topic, window, timeout, HzMonitor)
@@ -1670,7 +1280,7 @@ class BwMonitor(Node):
         msg_class = get_msg_type(msg_type)
         if msg_class:
             self.sub = self.create_subscription(
-                msg_class, topic, self._callback, qos_profile_system_default
+                msg_class, topic, self._callback, _publisher_matched_qos(self, topic)
             )
 
     def _callback(self, msg):
@@ -1844,7 +1454,7 @@ class DelayMonitor(Node):
         msg_class = get_msg_type(msg_type)
         if msg_class:
             self.sub = self.create_subscription(
-                msg_class, topic, self._callback, qos_profile_system_default
+                msg_class, topic, self._callback, _publisher_matched_qos(self, topic)
             )
 
     def _callback(self, msg):
@@ -1900,44 +1510,27 @@ def cmd_topics_delay(args):
 # topics capture-image
 # ---------------------------------------------------------------------------
 
-def cmd_topics_capture_image(args):
-    """Capture an image from a ROS 2 image topic and save to .artifacts/ folder.
-
-    Profile-aware: if a robot profile is available and the URDF indicates that
-    the camera is mounted at a non-upright angle (e.g. upside-down = 180°
-    roll), the captured image is automatically rotated before being saved so
-    that every downstream consumer (Discord send, display, analysis) receives a
-    correctly-oriented frame.  Pass ``--no-profile`` to skip this correction.
-    """
+def stream_hint(topic):
+    """Why a topic may be silent: toggle/enable services under the same namespace, else the generic causes."""
+    base = "/".join(topic.split("/")[:-2]) if topic.count("/") > 2 else ""
     try:
-        from sensor_msgs.msg import CompressedImage, Image
-        import cv2
-        import numpy as np
-    except ImportError as e:
-        return output({"error": f"Missing dependency for image capture: {e}"})
+        with ros2_context():
+            node = ROS2CLI("stream_hint")
+            toggles = sorted(n for n, _t in node.get_service_names_and_types()
+                             if base and n.startswith(base + "/") and any(k in n for k in ("toggle", "enable")))
+            node.destroy_node()
+    except Exception:
+        toggles = []
+    hint = f"{topic} sent nothing: the stream may be switched off or the driver stalled"
+    return hint + (f"; services that may control it: {', '.join(toggles)}" if toggles else "")
 
-    topic = args.topic
-    output_filename = args.output
-    timeout = args.timeout
-    img_type = args.type
-    skip_profile = getattr(args, "no_profile", False)
 
-    out_path = resolve_output_path(output_filename)
+def camera_rotation(topic, skip_profile=False):
+    """Profile-driven image rotation for *topic*: (degrees, applied, source, note).
 
-    # ── Profile-aware camera orientation ─────────────────────────────────────
-    # Load the robot profile silently.  If unavailable (profile not yet
-    # scanned, or --no-profile passed), proceed without any rotation.
-    #
-    # Two sources are checked, in priority order:
-    #   1. camera_rotation_overrides — a structured, human-supplied correction
-    #      (via 'profile set-camera-rotation'). Takes priority because it
-    #      corrects for cases the URDF heuristic below gets wrong: many camera
-    #      mount joints only encode the REP-103 body->optical-frame rotation,
-    #      which looks like a physical orientation but isn't one, so the
-    #      heuristic can be silently wrong or simply absent (no sensor_mounts
-    #      entry at all if the link name isn't recognised).
-    #   2. sensor_mounts[].image_rotation_deg — the URDF-derived heuristic,
-    #      used only when no override matches.
+    A structured override (`profile set-camera-rotation`) wins over the URDF-derived heuristic.
+    Best effort: a missing or unreadable profile means no rotation.
+    """
     profile_rotation_deg = 0
     profile_applied = False
     profile_note = None
@@ -1990,6 +1583,60 @@ def cmd_topics_capture_image(args):
             except Exception:
                 pass  # profile load is best-effort; never block image capture
 
+    return profile_rotation_deg, profile_applied, profile_source, profile_note
+
+
+def image_to_bgr(msg, rotation_deg=0):
+    """Image or CompressedImage message -> BGR array (cv2 writes BGR; ROS images are often rgb8), rotated."""
+    from sensor_msgs.msg import CompressedImage
+    import cv2
+    import numpy as np
+
+    if isinstance(msg, CompressedImage):
+        img = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
+    else:
+        img = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, -1))
+        if msg.encoding == "rgb8":
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        elif msg.encoding == "rgba8":
+            img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+        elif msg.encoding == "bgra8":
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    if rotation_deg == 180:
+        img = cv2.rotate(img, cv2.ROTATE_180)
+    elif rotation_deg == 90:
+        img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    elif rotation_deg == -90:
+        img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return img
+
+
+def cmd_topics_capture_image(args):
+    """Capture an image from a ROS 2 image topic and save to .artifacts/ folder.
+
+    Profile-aware: if a robot profile is available and the URDF indicates that
+    the camera is mounted at a non-upright angle (e.g. upside-down = 180°
+    roll), the captured image is automatically rotated before being saved so
+    that every downstream consumer (Discord send, display, analysis) receives a
+    correctly-oriented frame.  Pass ``--no-profile`` to skip this correction.
+    """
+    try:
+        from sensor_msgs.msg import CompressedImage, Image
+        import cv2
+        import numpy as np
+    except ImportError as e:
+        return output({"error": f"Missing dependency for image capture: {e}"})
+
+    topic = args.topic
+    output_filename = args.output
+    timeout = args.timeout
+    img_type = args.type
+    skip_profile = getattr(args, "no_profile", False)
+
+    out_path = resolve_output_path(output_filename)
+
+    profile_rotation_deg, profile_applied, profile_source, profile_note = camera_rotation(topic, skip_profile)
+
     try:
         received = {}
 
@@ -2013,26 +1660,13 @@ def cmd_topics_capture_image(args):
             node.destroy_node()
 
         if 'msg' not in received:
-            return output({"error": f"No image received from {topic} within {timeout} seconds"})
+            return output({"error": f"No image received from {topic} within {timeout} seconds", "hint": stream_hint(topic)})
 
         msg = received['msg']
 
-        if isinstance(msg, CompressedImage):
-            np_arr = np.frombuffer(msg.data, np.uint8)
-            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        elif isinstance(msg, Image):
-            arr = np.frombuffer(msg.data, dtype=np.uint8)
-            img = arr.reshape((msg.height, msg.width, -1))
-        else:
+        if not isinstance(msg, (CompressedImage, Image)):
             return output({"error": "Unknown image message type"})
-
-        # ── Apply profile-driven rotation ─────────────────────────────────
-        if profile_rotation_deg == 180:
-            img = cv2.rotate(img, cv2.ROTATE_180)
-        elif profile_rotation_deg == 90:
-            img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-        elif profile_rotation_deg == -90:
-            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        img = image_to_bgr(msg, profile_rotation_deg)
 
         cv2.imwrite(out_path, img)
 
@@ -2102,7 +1736,7 @@ def cmd_topics_depth_point(args):
             node.destroy_node()
 
         if 'msg' not in received:
-            return output({"error": f"No depth image received from {topic} within {timeout}s"})
+            return output({"error": f"No depth image received from {topic} within {timeout}s", "hint": stream_hint(topic)})
 
         msg = received['msg']
         encoding = msg.encoding
@@ -2169,6 +1803,8 @@ def _parse_diag_array(msg_dict):
     status_list = []
     for s in msg_dict.get("status", []):
         level = s.get("level", 0)
+        if isinstance(level, (list, tuple, bytes)):  # a `byte` field arrives as a 1-element sequence
+            level = level[0] if len(level) else 0
         status_list.append({
             "level": level,
             "level_name": _DIAG_LEVEL_NAMES.get(level, str(level)),
@@ -2499,8 +2135,8 @@ def cmd_topics_qos_check(args):
             # Suggest matching pub reliability if that's the primary issue
             pub_rel = publishers[0]["reliability"] if publishers else "BEST_EFFORT"
             suggestion = (
-                f"Add --qos-reliability {pub_rel.lower()} to your subscribe command "
-                "to match the publisher"
+                f"Publisher reliability is {pub_rel}; use a subscriber with a matching "
+                "reliability (topics subscribe/publish-until auto-match it)"
             )
 
         output({

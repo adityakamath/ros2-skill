@@ -1,4868 +1,3049 @@
-# Command Reference
-
-Full reference for all `ros2_cli.py` commands with arguments, options, ROS 2 CLI equivalents, and output examples.
-
-All commands output JSON. Errors return `{"error": "..."}`.
-
----
-
-## --help Quick Reference
-
-**Every subcommand supports `--help`.** Run it before constructing any command you are unsure about — it prints accepted flags without requiring a live ROS 2 graph.
-
-```bash
-# Top-level
-python3 {baseDir}/scripts/ros2_cli.py --help
-
-# topics subcommands
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until --help
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence --help
-python3 {baseDir}/scripts/ros2_cli.py topics publish --help
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe --help
-python3 {baseDir}/scripts/ros2_cli.py topics list --help
-python3 {baseDir}/scripts/ros2_cli.py topics type --help
-python3 {baseDir}/scripts/ros2_cli.py topics details --help
-python3 {baseDir}/scripts/ros2_cli.py topics message --help
-python3 {baseDir}/scripts/ros2_cli.py topics hz --help
-python3 {baseDir}/scripts/ros2_cli.py topics bw --help
-python3 {baseDir}/scripts/ros2_cli.py topics delay --help
-python3 {baseDir}/scripts/ros2_cli.py topics find --help
-python3 {baseDir}/scripts/ros2_cli.py topics capture-image --help
-python3 {baseDir}/scripts/ros2_cli.py topics diag --help
-python3 {baseDir}/scripts/ros2_cli.py topics battery --help
-
-# services subcommands
-python3 {baseDir}/scripts/ros2_cli.py services list --help
-python3 {baseDir}/scripts/ros2_cli.py services call --help
-python3 {baseDir}/scripts/ros2_cli.py services details --help
-python3 {baseDir}/scripts/ros2_cli.py services find --help
-python3 {baseDir}/scripts/ros2_cli.py services echo --help
-
-# actions subcommands
-python3 {baseDir}/scripts/ros2_cli.py actions list --help
-python3 {baseDir}/scripts/ros2_cli.py actions send --help
-python3 {baseDir}/scripts/ros2_cli.py actions details --help
-python3 {baseDir}/scripts/ros2_cli.py actions cancel --help
-python3 {baseDir}/scripts/ros2_cli.py actions echo --help
-python3 {baseDir}/scripts/ros2_cli.py actions find --help
-
-# nodes
-python3 {baseDir}/scripts/ros2_cli.py nodes list --help
-python3 {baseDir}/scripts/ros2_cli.py nodes details --help
-
-# params
-python3 {baseDir}/scripts/ros2_cli.py params list --help
-python3 {baseDir}/scripts/ros2_cli.py params get --help
-python3 {baseDir}/scripts/ros2_cli.py params set --help
-python3 {baseDir}/scripts/ros2_cli.py params describe --help
-python3 {baseDir}/scripts/ros2_cli.py params dump --help
-python3 {baseDir}/scripts/ros2_cli.py params load --help
-python3 {baseDir}/scripts/ros2_cli.py params delete --help
-python3 {baseDir}/scripts/ros2_cli.py params preset-save --help
-python3 {baseDir}/scripts/ros2_cli.py params preset-load --help
-python3 {baseDir}/scripts/ros2_cli.py params preset-list --help
-python3 {baseDir}/scripts/ros2_cli.py params preset-delete --help
-
-# lifecycle
-python3 {baseDir}/scripts/ros2_cli.py lifecycle nodes --help
-python3 {baseDir}/scripts/ros2_cli.py lifecycle list --help
-python3 {baseDir}/scripts/ros2_cli.py lifecycle get --help
-python3 {baseDir}/scripts/ros2_cli.py lifecycle set --help
-
-# control (controller manager)
-python3 {baseDir}/scripts/ros2_cli.py control list-controllers --help
-python3 {baseDir}/scripts/ros2_cli.py control list-controller-types --help
-python3 {baseDir}/scripts/ros2_cli.py control list-hardware-components --help
-python3 {baseDir}/scripts/ros2_cli.py control list-hardware-interfaces --help
-python3 {baseDir}/scripts/ros2_cli.py control load-controller --help
-python3 {baseDir}/scripts/ros2_cli.py control unload-controller --help
-python3 {baseDir}/scripts/ros2_cli.py control configure-controller --help
-python3 {baseDir}/scripts/ros2_cli.py control set-controller-state --help
-python3 {baseDir}/scripts/ros2_cli.py control switch-controllers --help
-python3 {baseDir}/scripts/ros2_cli.py control set-hardware-component-state --help
-python3 {baseDir}/scripts/ros2_cli.py control view-controller-chains --help
-
-# tf
-python3 {baseDir}/scripts/ros2_cli.py tf list --help
-python3 {baseDir}/scripts/ros2_cli.py tf lookup --help
-python3 {baseDir}/scripts/ros2_cli.py tf echo --help
-python3 {baseDir}/scripts/ros2_cli.py tf monitor --help
-python3 {baseDir}/scripts/ros2_cli.py tf static --help
-python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion --help
-python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler --help
-python3 {baseDir}/scripts/ros2_cli.py tf transform-point --help
-python3 {baseDir}/scripts/ros2_cli.py tf transform-vector --help
-
-# mission
-python3 {baseDir}/scripts/ros2_cli.py mission start --help
-python3 {baseDir}/scripts/ros2_cli.py mission pause --help
-python3 {baseDir}/scripts/ros2_cli.py mission resume --help
-python3 {baseDir}/scripts/ros2_cli.py mission cancel --help
-python3 {baseDir}/scripts/ros2_cli.py mission status --help
-python3 {baseDir}/scripts/ros2_cli.py mission list --help
+# Command reference
 
-# safety
-python3 {baseDir}/scripts/ros2_cli.py safety config --help
-python3 {baseDir}/scripts/ros2_cli.py safety check-velocity --help
-python3 {baseDir}/scripts/ros2_cli.py safety check-position --help
-python3 {baseDir}/scripts/ros2_cli.py safety heartbeat --help
-python3 {baseDir}/scripts/ros2_cli.py safety watchdog --help
+Generated by `scripts/gen_commands_doc.py` from the CLI's argparse tree; do not edit by hand.
+`CLI` means `python3 ${CLAUDE_SKILL_DIR}/scripts/ros2_cli.py`. Global options (before the command): `--timeout SECONDS`, `--retries N`. Every command prints JSON; run one to see its output shape.
 
-# other
-python3 {baseDir}/scripts/ros2_cli.py estop --help
-python3 {baseDir}/scripts/ros2_cli.py doctor --help
-python3 {baseDir}/scripts/ros2_cli.py multicast send --help
-python3 {baseDir}/scripts/ros2_cli.py multicast receive --help
-python3 {baseDir}/scripts/ros2_cli.py launch new --help
-python3 {baseDir}/scripts/ros2_cli.py run new --help
-python3 {baseDir}/scripts/ros2_cli.py interface show --help
-python3 {baseDir}/scripts/ros2_cli.py version --help
+### CLI version
 
-# bag (no live ROS 2 graph required)
-python3 {baseDir}/scripts/ros2_cli.py bag info --help
-
-# component
-python3 {baseDir}/scripts/ros2_cli.py component types --help        # no live graph required
-python3 {baseDir}/scripts/ros2_cli.py component list --help
-python3 {baseDir}/scripts/ros2_cli.py component ls --help
-python3 {baseDir}/scripts/ros2_cli.py component load --help
-python3 {baseDir}/scripts/ros2_cli.py component unload --help
-python3 {baseDir}/scripts/ros2_cli.py component kill --help
-python3 {baseDir}/scripts/ros2_cli.py component standalone --help
-
-# pkg (no live ROS 2 graph required)
-python3 {baseDir}/scripts/ros2_cli.py pkg list --help
-python3 {baseDir}/scripts/ros2_cli.py pkg prefix --help
-python3 {baseDir}/scripts/ros2_cli.py pkg executables --help
-python3 {baseDir}/scripts/ros2_cli.py pkg xml --help
-
-# daemon (no live ROS 2 graph required)
-python3 {baseDir}/scripts/ros2_cli.py daemon status --help
-python3 {baseDir}/scripts/ros2_cli.py daemon start --help
-python3 {baseDir}/scripts/ros2_cli.py daemon stop --help
 ```
-
-**Rule:** If you are about to use a flag and you have any doubt it exists, run `--help` for that subcommand first. Never guess flag names.
-
----
-
-## Global Options
+usage: ros2_cli.py version [-h]
 
-These options are placed **before** the command name and apply to every command that makes service or action calls.
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | (per-command default) | Override the per-command timeout with a global value (e.g. `--timeout 30` for a slow network) |
-| `--retries N` | `1` | Total number of attempts for each service/action call before giving up. `1` means no retry |
-
-```bash
-# Override timeout globally for a slow ROS graph
-python3 {baseDir}/scripts/ros2_cli.py --timeout 30 params list /turtlesim
-
-# Retry up to 3 times on an unreliable network
-python3 {baseDir}/scripts/ros2_cli.py --retries 3 lifecycle get /camera_driver
-
-# Combine both: 10 s per attempt, 3 attempts
-python3 {baseDir}/scripts/ros2_cli.py --timeout 10 --retries 3 services call /spawn '{}'
+options:
+  -h, --help  show this help message and exit
 ```
-
-**Notes:**
-- When `--timeout` is supplied globally, it overrides any per-command `--timeout` default. The per-command `--timeout` (placed after the command name) is used only when no global `--timeout` is set.
-- `--retries 1` (the default) means a single attempt with no retry — existing behaviour is preserved.
-
----
 
-## Agent Features
+### CLI context
 
-Commands that go beyond standard `ros2` CLI parity — designed specifically for AI agents operating on mobile robots.
-
----
-
-## estop
-
-Emergency stop for mobile robots. Auto-detects the velocity command topic and message type, then publishes zero velocity.
-
-**Note:** For mobile robots only (differential drive, omnidirectional, etc.). Does NOT work for robotic arms or manipulators.
-
-**ROS 2 CLI equivalent:** `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{}'`
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--topic TOPIC` | auto-detect | Override velocity topic (auto-detected by scanning for `Twist`/`TwistStamped` topics; prefers `cmd_vel`-named topics when multiple exist) |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py estop
-python3 {baseDir}/scripts/ros2_cli.py estop --topic /cmd_vel_nav
-```
-
-Output:
-```json
-{"success": true, "topic": "/cmd_vel", "type": "geometry_msgs/Twist", "message": "Emergency stop activated (mobile robot stopped)"}
 ```
+usage: ros2_cli.py context [-h] [--limit LIMIT] [--include-schemas]
 
-Error (no velocity topic found):
-```json
-{"error": "Could not find velocity command topic", "hint": "This command is for mobile robots only (not arms). Ensure the robot has a /cmd_vel topic."}
+options:
+  -h, --help         show this help message and exit
+  --limit LIMIT      Max topics to return (default: 50; 0 = unlimited)
+  --include-schemas  Expand topic type schemas into the output
 ```
-
----
-
-## topics capture-image
-
-Capture an image from a ROS 2 image topic and save to the .artifacts/ folder.
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| --topic | Yes | ROS 2 image topic (e.g. /camera/image_raw/compressed) |
-| --output | Yes | Output filename (saved in .artifacts/) |
-| --timeout | No | Seconds to wait for image (default: 5.0) |
-| --type | No | Image type: compressed, raw, or auto (default: auto) |
+### CLI plan
 
-Example:
-```bash
-python3 scripts/ros2_cli.py topics capture-image --topic /camera/image_raw/compressed --output test.jpg --timeout 5 --type auto
 ```
+usage: ros2_cli.py plan [-h] [--run] goal [goal ...]
 
-Output (success):
-```json
-{"success": true, "path": "/path/to/.artifacts/test.jpg"}
-```
-Output (error):
-```json
-{"error": "No image received from /camera/image_raw/compressed within 5 seconds"}
-```
-
----
-
-## discord_tools.py send-image
-
-Send an image file to a Discord channel. The bot token is read from `config["channels"]["discord"]["token"]`. If `--config` is omitted, the script checks `~/.nanobot/config.json` first and then `~/.config/ros2-skill/discord_tools.json`.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| --path | Yes | Path to image file (relative or absolute) |
-| --channel-id | Yes | Discord channel ID (provided by agent based on context) |
-| --config | No | Path to a Discord config file; if omitted, auto-detects nanobot or standalone config |
-| --delete | No | Delete image after sending |
+positional arguments:
+  goal        Goal text; steps separated by 'then' or ';'
 
-**Config file structure:**
-```json
-{
-  "channels": {
-    "discord": {
-      "token": "YOUR_DISCORD_BOT_TOKEN"
-    }
-  }
-}
+options:
+  -h, --help  show this help message and exit
+  --run       Execute the plan in one process: mode switch, pre-motion check, command, stop and
+              verify (stops and latches the e-stop on any failure)
 ```
 
-Examples:
-```bash
-python3 scripts/discord_tools.py send-image --path .artifacts/test.jpg --channel-id 123456789012345678 --delete
+### CLI notes remember
 
-# Explicit config override
-python3 scripts/discord_tools.py send-image --path .artifacts/test.jpg --channel-id 123456789012345678 --config ~/.nanobot/config.json --delete
-```
-
-Output (success):
-```
-Image sent to Discord channel 123456789012345678 successfully.
-Deleted image: .artifacts/test.jpg
-```
-Output (error):
-```
-Error: Config file not found at /path/to/config.json
-```
-or
 ```
-Error: --channel-id argument is required
-```
-
----
-
-## topics publish-sequence `<topic>` `<json_messages>` `<json_durations>` [options]
-
-Publish a sequence of messages in order. Each message is repeated at `--rate` Hz for its corresponding duration before moving to the next. Arrays must be the same length. The final message should usually be all-zeros to stop the robot.
-
-**ROS 2 CLI equivalent:** No direct equivalent (requires scripting multiple `ros2 topic pub` calls)
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic to publish to |
-| `json_messages` | Yes | JSON array of message objects, published in order |
-| `json_durations` | Yes | JSON array of durations in seconds — one per message |
+usage: ros2_cli.py notes remember [-h] [--tag TAG] text [text ...]
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--msg-type TYPE` | auto-detect | Override message type |
-| `--rate HZ` | `10` | Publish rate in Hz for each step |
-| `--max-vel LIN` | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before publishing (Twist / TwistStamped only) |
-| `--max-ang ANG` | _(none)_ | Clamp `angular.z` to ±ANG rad/s before publishing (Twist / TwistStamped only) |
-| `--dry-run` | _(off)_ | Resolve type and validate payload without publishing; returns `dry_run: true` |
+positional arguments:
+  text        The note
 
-**⚠️ WARNING — `publish-sequence` is open-loop and time-based. It has no sensor feedback and cannot guarantee distance or angle accuracy.**
-
-- **DO NOT use `publish-sequence` when the user specifies a distance ("move 1 meter") or angle ("rotate 90 degrees") and odometry is available.** Use `topics publish-until` with `--monitor <odom_topic>` instead (see below).
-- Use `publish-sequence` only when: (a) no distance/angle is specified and a timed motion pattern is acceptable, OR (b) odometry is genuinely unavailable. In case (b), notify the user that accuracy is not guaranteed.
-
-**[FALLBACK] Drive forward for a fixed time, then stop (no distance guarantee):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /cmd_vel \
-  '[{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}},{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}]' \
-  '[3.0, 0.5]'
-```
-
-**[FALLBACK] Draw a square (turtlesim — simulation only, odometry not relevant):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-sequence /turtle1/cmd_vel \
-  '[{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":2},"angular":{"z":0}},{"linear":{"x":0},"angular":{"z":1.5708}},{"linear":{"x":0},"angular":{"z":0}}]' \
-  '[1,1,1,1,1,1,1,1,0.5]'
+options:
+  -h, --help  show this help message and exit
+  --tag TAG   Tag (repeatable), e.g. dock, map
 ```
 
-Output:
-```json
-{"success": true, "published_count": 35, "topic": "/cmd_vel", "rate": 10.0}
-```
+### CLI notes recall
 
-Error (array length mismatch):
-```json
-{"error": "messages and durations arrays must have the same length"}
 ```
-
----
-
-## topics publish-until `<topic>` `<msg>` [options]
+usage: ros2_cli.py notes recall [-h] [--tag TAG] [--limit LIMIT] [query ...]
 
-Publish a message at a fixed rate while simultaneously monitoring a second topic. Stops as soon as a condition on the monitored field is satisfied, or after the safety timeout. Supports single-field conditions and N-dimensional Euclidean distance.
+positional arguments:
+  query          Words to match (none lists all)
 
-**ROS 2 CLI equivalent:** No equivalent (requires custom scripting)
-
-**Discovery workflow:**
-
-**Path A (profile loaded):** read `summary.localization_config.fused_sources` for the odometry topic — do NOT run `topics find nav_msgs/msg/Odometry`. Run `topics message nav_msgs/msg/Odometry` once per session for the field-path reference. Run `topics subscribe <ODOM_TOPIC> --duration 2` for the current baseline value.
-
-**Path B (no profile):** run the live-discovery sequence below.
-1. `topics find nav_msgs/msg/Odometry` — find the feedback topic (for --rotate or --field)
-2. `topics message nav_msgs/msg/Odometry` — inspect field paths (for --field)
-3. `topics subscribe <ODOM_TOPIC> --duration 2` — read current value (baseline for `--delta`)
-4. For rotation: use `--rotate ±N` — positive = CCW (left), negative = CW (right). Sign MUST match `angular.z` sign in the message payload.
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic to publish command messages to |
-| `json_message` | Yes | JSON string of the message payload |
-
-| Option | Required | Default | Description |
-|--------|----------|---------|-------------|
-| `--monitor TOPIC` | Yes | — | Topic to watch for the stop condition |
-| `--field PATH [PATH...]` | Yes (unless --rotate) | — | One or more dot-separated field paths in the monitor message (e.g. `pose.pose.position.x`). Provide multiple paths with `--euclidean`. |
-| `--rotate ±N` | Alternative to --field | — | Rotate by N radians. **Sign determines direction: positive = CCW (left turn), negative = CW (right turn). Sign of `--rotate` MUST match sign of `angular.z` in the payload — mismatched signs cause the command to run until timeout.** Zero is invalid. Handles quaternion math internally. |
-| `--degrees` | No | radians | Interpret --rotate angle in degrees instead of radians |
-| `--euclidean` | No | off | Compute Euclidean distance across all `--field` paths; requires `--delta`. Works for any number of numeric fields (2D, 3D, joint-space, etc.) |
-| `--delta N` | One required | — | Stop when field changes by ±N from first observed value; or when Euclidean distance ≥ N with `--euclidean` |
-| `--above N` | One required | — | Stop when field value > N (single-field only) |
-| `--below N` | One required | — | Stop when field value < N (single-field only) |
-| `--equals V` | One required | — | Stop when field value == V (single-field only) |
-| `--rate HZ` | No | `10` | Publish rate in Hz |
-| `--timeout SECONDS` | No | `60` | Safety stop if condition not met within this time |
-| `--msg-type TYPE` | No | auto-detect | Override publish topic message type |
-| `--monitor-msg-type TYPE` | No | auto-detect | Override monitor topic message type |
-| `--slow-last N` | No | **auto** | Override the auto-computed deceleration zone (see below). Units: metres for `--field`/`--euclidean`; degrees if `--degrees` set, radians otherwise for `--rotate`. |
-| `--slow-factor F` | No | **auto** | Override the auto-computed fine-control floor (0–1 fraction of commanded speed). |
-| `--max-vel LIN` | No | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before the first publish (Twist / TwistStamped only) |
-| `--max-ang ANG` | No | _(none)_ | Clamp `angular.z` to ±ANG rad/s before the first publish (Twist / TwistStamped only) |
-| `--dry-run` | No | _(off)_ | Resolve both topic types and validate payload without publishing; returns `dry_run: true` |
-
-**Note:** Either `--field` OR `--rotate` must be specified, but not both. `--slow-last` works with `--delta`, `--euclidean --delta`, and `--rotate`; ignored for `--above`/`--below`/`--equals`.
-
-#### Auto-computed deceleration zone
-
-When `--slow-last` is **not** provided, the skill computes the decel zone automatically at startup from the commanded velocity and live node params (2 s timeout):
-
-| Move type | Formula | Fallback `a_max` | Fallback fine-control floor |
-|-----------|---------|-----------------|----------------------------|
-| linear.x | `v_cmd² / (2 × a_max)`, clamped [0.05 m, distance × 0.4] | 0.5 m/s² | 0.125 m/s |
-| linear.y | same | 0.5 m/s² | 0.100 m/s |
-| angular.z | `ω_cmd² / (2 × α_max)`, clamped [3°, angle × 0.4] | 1.0 rad/s² | 0.375 rad/s |
-
-Params searched: `max_accel`, `accel_limit`, `decel_limit` (accel); `min_vel_x/y`, `min_vel`, `min_speed` (min vel); `max_ang_accel`, `ang_accel_limit` (angular accel); `min_ang_vel`, `min_angular_speed` (min angular vel). First numeric match wins. Falls back to defaults if nothing found.
-
-The computed zone is reported in every `publish-until` result:
-```json
-"decel_zone": {
-  "auto_computed": true,
-  "slow_last": 0.32,
-  "slow_factor": 0.28,
-  "params_source": "/velocity_controller:max_accel"
-}
+options:
+  -h, --help     show this help message and exit
+  --tag TAG      Only notes with this tag
+  --limit LIMIT  Maximum notes (default 20)
 ```
-
-If `--slow-last` **is** provided, auto-compute is skipped and `"decel_zone": {"auto_computed": false}` is returned.
 
-**Move forward until x-position increases by 1 m (straight path):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
-  --monitor /odom --field pose.pose.position.x --delta 1.0 --timeout 30
-```
+### CLI notes forget
 
-**Move 2 m in XY plane (Euclidean — works for curved/diagonal paths):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.3}}' \
-  --monitor /odom \
-  --field pose.pose.position.x pose.pose.position.y \
-  --euclidean --delta 2.0 --timeout 60
 ```
+usage: ros2_cli.py notes forget [-h] id
 
-**Move until joint_3 reaches 1.5 rad:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /arm/cmd \
-  '{"joint_3_velocity":0.2}' \
-  --monitor /joint_states --field position.2 --equals 1.5 --timeout 20
-```
+positional arguments:
+  id          Note id from `notes recall`
 
-**Stop when front lidar range drops below 0.5 m:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
-  --monitor /scan --field ranges.0 --below 0.5 --timeout 60
+options:
+  -h, --help  show this help message and exit
 ```
-
-**Direction convention — `--rotate` sign and `angular.z` sign must always match:**
 
-| Direction | `--rotate` | `angular.z` |
-|-----------|-----------|-------------|
-| Left / CCW | positive | positive |
-| Right / CW | negative | negative |
+### CLI braking show
 
-Mismatched signs (e.g. `--rotate 90` with `angular.z: -0.5`) means the robot turns CW while the monitor waits for CCW accumulation — the command will never stop until timeout.
-
-**Rotate 90 degrees CCW (positive --rotate, positive angular.z):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor /odom --rotate 90 --degrees --timeout 30
 ```
+usage: ros2_cli.py braking show [-h]
 
-**Rotate 90 degrees CW (negative --rotate, negative angular.z):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":-0.5}}' \
-  --monitor /odom --rotate -90 --degrees --timeout 30
+options:
+  -h, --help  show this help message and exit
 ```
 
-**Rotate 180 degrees CCW (using radians):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":0.5}}' \
-  --monitor /odom --rotate 3.14159 --timeout 30
-```
+### CLI braking clear
 
-**Drive 10 m forward with deceleration for the last 0.3 m (precision landing):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.2},"angular":{"z":0}}' \
-  --monitor /odom --field pose.pose.position --euclidean --delta 10.0 \
-  --slow-last 0.3 --slow-factor 0.25 --timeout 120
 ```
+usage: ros2_cli.py braking clear [-h]
 
-**Drive 15 cm forward — short distance, decel zone spans the whole move:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0.1},"angular":{"z":0}}' \
-  --monitor /odom --field pose.pose.position --euclidean --delta 0.15 \
-  --slow-last 0.3 --slow-factor 0.25 --timeout 15
+options:
+  -h, --help  show this help message and exit
 ```
-*(When `--slow-last` > total distance, deceleration applies from the start — velocity ramps from 0.1 × (0.15/0.3) = 0.05 m/s down to 0.1 × 0.25 = 0.025 m/s.)*
 
-**Rotate 10° CCW with decel for the last 20° (or the whole move, whichever is shorter):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /cmd_vel \
-  '{"linear":{"x":0},"angular":{"z":0.3}}' \
-  --monitor /odom --rotate 10 --degrees \
-  --slow-last 20 --slow-factor 0.25 --timeout 15
-```
+### CLI braking measure
 
-**Stop when temperature exceeds 50°C:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until /heater/cmd \
-  '{"power":1.0}' \
-  --monitor /temperature --field temperature --above 50.0 --timeout 120
 ```
+usage: ros2_cli.py braking measure [-h] [--distance DISTANCE] [--speed SPEED] [--runs RUNS]
 
-Output — single-field condition met:
-```json
-{
-  "success": true, "condition_met": true,
-  "topic": "/cmd_vel", "monitor_topic": "/odom",
-  "field": "pose.pose.position.x", "operator": "delta", "threshold": 1.0,
-  "start_value": 0.12, "end_value": 1.15,
-  "duration": 4.2, "published_count": 42,
-  "start_msg": {}, "end_msg": {}
-}
+options:
+  -h, --help           show this help message and exit
+  --distance DISTANCE  Metres per run (0.1-1.0, default 0.4)
+  --speed SPEED        m/s (0.05-0.5, default 0.2; still capped by the safety limits)
+  --runs RUNS          Runs, alternating forward and back (default 2)
 ```
 
-Output — Euclidean condition met:
-```json
-{
-  "success": true, "condition_met": true,
-  "topic": "/cmd_vel", "monitor_topic": "/odom",
-  "fields": ["pose.pose.position.x", "pose.pose.position.y"],
-  "operator": "euclidean_delta", "threshold": 2.0,
-  "start_values": [0.0, 0.0], "end_values": [1.42, 1.41],
-  "euclidean_distance": 2.003,
-  "duration": 9.8, "published_count": 98,
-  "start_msg": {}, "end_msg": {}
-}
-```
+### CLI snapshot
 
-Output — timeout (condition not met):
-```json
-{
-  "success": false, "condition_met": false,
-  "error": "Timeout after 30s: condition not met",
-  "start_value": 0.12, "end_value": 0.43,
-  "duration": 30.0, "published_count": 298
-}
 ```
+usage: ros2_cli.py snapshot [-h] [--only ONLY] [--window WINDOW] [--rates]
 
----
-
-## topics diag-list
+options:
+  -h, --help       show this help message and exit
+  --only ONLY      Comma-separated subset:
+                   scan,imu,odom,battery,tof,depth,joints,diagnostics,state,controllers
+  --window WINDOW  Max seconds to wait for sensors (default: 1.5; returns early once all have
+                   reported)
+  --rates          Hold the whole window and report each topic's rate in Hz
+```
 
-List all topics that publish `DiagnosticArray` messages, discovered by **type** rather than by name. Handles `/diagnostics`, `<node>/diagnostics`, `<namespace>/diagnostics`, or any other naming convention.
+### CLI look
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics diag-list
 ```
+usage: ros2_cli.py look [-h] [--topic TOPIC] [--output OUTPUT] [--diff DIFF] [--timeout TIMEOUT]
+                        [--no-profile]
 
-Output:
-```json
-{"topics": [{"topic": "/diagnostics", "type": "diagnostic_msgs/msg/DiagnosticArray"}, {"topic": "/camera/diagnostics", "type": "diagnostic_msgs/msg/DiagnosticArray"}], "count": 2}
+options:
+  -h, --help         show this help message and exit
+  --topic TOPIC      Image topic (default: the colour camera)
+  --output OUTPUT    Output filename in .artifacts/ (default: look.jpg)
+  --diff DIFF        Seconds before a second capture; reports changed_pixels_pct and changed
+  --timeout TIMEOUT  Seconds to wait for each frame
+  --no-profile       Skip profile camera rotation
 ```
-
----
-
-## topics diag [options]
-
-Subscribe to diagnostic topics and return parsed `DiagnosticStatus` entries with human-readable level names. Auto-discovers all diagnostic topics by type unless `--topic` is specified.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--topic TOPIC` | auto-discover all | Specific diagnostic topic to read from |
-| `--duration SEC` | one-shot | Collect messages for N seconds |
-| `--max-messages N` | `1` | Max messages per topic in `--duration` mode |
-| `--timeout SEC` | `10` | Timeout waiting for first message (one-shot mode) |
+### CLI stop
 
-```bash
-# One-shot: read latest diagnostics from all discovered topics
-python3 {baseDir}/scripts/ros2_cli.py topics diag
-
-# Read from a specific (non-standard) diagnostic topic
-python3 {baseDir}/scripts/ros2_cli.py topics diag --topic /my_node/diagnostics
-
-# Collect 5 messages per topic over 10 seconds
-python3 {baseDir}/scripts/ros2_cli.py topics diag --duration 10 --max-messages 5
 ```
+usage: ros2_cli.py stop [-h] [--topic TOPIC] [--verify-odom-topic VERIFY_ODOM_TOPIC]
+                        [--verify-timeout VERIFY_TIMEOUT]
+                        [--velocity-threshold VELOCITY_THRESHOLD]
 
-Output:
-```json
-{
-  "results": [
-    {
-      "topic": "/diagnostics",
-      "stamp": {"sec": 1234567890, "nanosec": 0},
-      "status": [
-        {
-          "level": 0, "level_name": "OK",
-          "name": "motor_driver: left", "message": "OK",
-          "hardware_id": "motor_driver",
-          "values": [{"key": "temperature", "value": "38.5"}]
-        },
-        {
-          "level": 1, "level_name": "WARN",
-          "name": "battery", "message": "Low charge",
-          "hardware_id": "power_board",
-          "values": [{"key": "voltage", "value": "11.2"}]
-        }
-      ]
-    }
-  ],
-  "topic_count": 1
-}
+options:
+  -h, --help            show this help message and exit
+  --topic TOPIC         Zero only this velocity topic (default: every velocity topic)
+  --verify-odom-topic VERIFY_ODOM_TOPIC
+                        Wait until velocity reads back as zero on this odom topic and report the
+                        final position
+  --verify-timeout VERIFY_TIMEOUT
+                        Max seconds to wait for the robot to be stationary (default: 5)
+  --velocity-threshold VELOCITY_THRESHOLD
+                        Max speed (m/s, rad/s) that counts as stationary (default: 0.01)
 ```
-
-Level values: `0` = OK, `1` = WARN, `2` = ERROR, `3` = STALE.
 
----
+### CLI estop
 
-## topics battery-list
-
-List all topics that publish `BatteryState` messages, discovered by **type** rather than by name. Handles `/battery_state`, `<robot>/battery_state`, or any other naming convention.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics battery-list
 ```
+usage: ros2_cli.py estop [-h] [--topic TOPIC] [--no-service]
+                         [--verify-odom-topic VERIFY_ODOM_TOPIC] [--verify-timeout VERIFY_TIMEOUT]
+                         [--velocity-threshold VELOCITY_THRESHOLD]
 
-Output:
-```json
-{"topics": [{"topic": "/battery_state", "type": "sensor_msgs/msg/BatteryState"}], "count": 1}
+options:
+  -h, --help            show this help message and exit
+  --topic TOPIC         Zero only this velocity topic (default: every velocity topic)
+  --no-service          Skip the e-stop service; only publish zero velocity
+  --verify-odom-topic VERIFY_ODOM_TOPIC
+                        If given, also confirm velocity reads back as zero on this odom topic in
+                        the same node/process (avoids a second 'topics subscribe' call)
+  --verify-timeout VERIFY_TIMEOUT
+                        Max seconds to wait for the verify odom message (default: 5)
+  --velocity-threshold VELOCITY_THRESHOLD
+                        Max |linear| (m/s) and |angular.z| (rad/s) to call it stationary (default:
+                        0.01)
 ```
-
----
 
-## topics battery [options]
+### CLI topics list
 
-Subscribe to battery topics and return a decoded `BatteryState` summary. Auto-discovers all battery topics by type unless `--topic` is specified.
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--topic TOPIC` | auto-discover all | Specific battery topic to read from |
-| `--duration SEC` | one-shot | Collect messages for N seconds |
-| `--max-messages N` | `1` | Max messages per topic in `--duration` mode |
-| `--timeout SEC` | `10` | Timeout waiting for first message (one-shot mode) |
-
-```bash
-# One-shot: read latest battery state from all discovered topics
-python3 {baseDir}/scripts/ros2_cli.py topics battery
-
-# Read from a specific battery topic
-python3 {baseDir}/scripts/ros2_cli.py topics battery --topic /my_robot/battery_state
-
-# Collect 3 messages per topic over 5 seconds
-python3 {baseDir}/scripts/ros2_cli.py topics battery --duration 5 --max-messages 3
 ```
+usage: ros2_cli.py topics list [-h] [--limit LIMIT]
 
-Output:
-```json
-{
-  "results": [
-    {
-      "topic": "/battery_state",
-      "battery": {
-        "percentage": 75.0,
-        "voltage": 12.4,
-        "current": -2.1,
-        "charge": 3.5,
-        "capacity": 5.0,
-        "design_capacity": 5.2,
-        "temperature": 25.0,
-        "present": true,
-        "power_supply_status": 2,
-        "status_name": "DISCHARGING",
-        "power_supply_health": 1,
-        "health_name": "GOOD",
-        "power_supply_technology": 3,
-        "technology_name": "LIPO",
-        "location": "slot_0",
-        "serial_number": "SN-001"
-      }
-    }
-  ],
-  "topic_count": 1
-}
+options:
+  -h, --help     show this help message and exit
+  --limit LIMIT  Max topics to return (default: 50; 0 = unlimited)
 ```
-
-`status_name` values: UNKNOWN, CHARGING, DISCHARGING, NOT_CHARGING, FULL.
-`health_name` values: UNKNOWN, GOOD, OVERHEAT, DEAD, OVERVOLTAGE, UNSPEC_FAILURE, COLD, WATCHDOG_TIMER_EXPIRE, SAFETY_TIMER_EXPIRE.
-`technology_name` values: UNKNOWN, NIMH, LION, LIPO, LIFE, NICD, LIMN.
-
----
 
-## params preset-save `<node>` `<preset>` [options]
+### CLI topics ls
 
-Save the current parameters of a node as a named preset. Internally calls `ListParameters` + `GetParameters` and writes a `{param_name: value}` JSON file to `.presets/{preset}.json` (beside the skill directory, created automatically — flat storage, no subdirectories). Requires the node to be running.
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | Yes | Node name (e.g. `/turtlesim`) |
-| `preset` | Yes | Preset name (e.g. `turtlesim_indoor`) |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py params preset-save /turtlesim turtlesim_indoor
-python3 {baseDir}/scripts/ros2_cli.py params preset-save /turtlesim turtlesim_outdoor --timeout 10
 ```
+usage: ros2_cli.py topics ls [-h] [--limit LIMIT]
 
-Output:
-```json
-{"node": "/turtlesim", "preset": "turtlesim_indoor", "path": "/path/to/ros2-skill/.presets/turtlesim_indoor.json", "count": 3}
+options:
+  -h, --help     show this help message and exit
+  --limit LIMIT  Max topics to return (default: 50; 0 = unlimited)
 ```
-
----
-
-## params preset-load `<node>` `<preset>` [options]
-
-Restore a named preset onto a node by reading the saved JSON file and calling `SetParameters`. Per-parameter success and failure reasons are reported individually.
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | Yes | Node name (e.g. `/turtlesim`) |
-| `preset` | Yes | Preset name to restore (e.g. `turtlesim_indoor`) |
+### CLI topics type
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py params preset-load /turtlesim turtlesim_indoor
 ```
+usage: ros2_cli.py topics type [-h] topic
 
-Output (success):
-```json
-{"node": "/turtlesim", "results": [{"name": "background_r", "success": true}, {"name": "background_g", "success": true}, {"name": "background_b", "success": true}]}
-```
+positional arguments:
+  topic       Topic name (e.g. /cmd_vel)
 
-Output (preset not found):
-```json
-{"error": "Preset 'turtlesim_indoor' not found", "path": "/path/to/ros2-skill/.presets/turtlesim_indoor.json"}
+options:
+  -h, --help  show this help message and exit
 ```
-
----
 
-## params preset-list
+### CLI topics details
 
-List all saved presets. Reads from `.presets/` (beside the skill directory) — no running ROS 2 graph required. Presets are stored flat; use descriptive names (e.g. `turtlesim_indoor`) to identify the node.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py params preset-list
-```
-
-Output:
-```json
-{"presets": [{"preset": "turtlesim_indoor", "path": "/path/to/ros2-skill/.presets/turtlesim_indoor.json"}, {"preset": "turtlesim_outdoor", "path": "/path/to/ros2-skill/.presets/turtlesim_outdoor.json"}], "count": 2}
 ```
-
----
+usage: ros2_cli.py topics details [-h] topic
 
-## params preset-delete `<preset>`
+positional arguments:
+  topic       Topic name (e.g. /cmd_vel)
 
-Delete a saved preset file from `.presets/`. No running ROS 2 graph required.
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `preset` | Yes | Preset name to delete (e.g. `turtlesim_indoor`) |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py params preset-delete turtlesim_indoor
-```
-
-Output:
-```json
-{"preset": "turtlesim_indoor", "deleted": true}
+options:
+  -h, --help  show this help message and exit
 ```
-
----
-
-## ROS 2 CLI Commands
 
-Commands that provide parity with the standard `ros2` CLI.
+### CLI topics message
 
----
-
-## context
-
-Compact session-start graph snapshot: topics, services, actions, and nodes in a single call.
-
-**Use at session start** (Rule 0.1 Step 5) to pre-load graph state rather than running four separate discovery commands.
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--limit N` | `50` | Max topics to return. Use `--limit 0` for the full list. |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py context
-python3 {baseDir}/scripts/ros2_cli.py context --limit 0      # full topic list
-python3 {baseDir}/scripts/ros2_cli.py context --limit 100
 ```
+usage: ros2_cli.py topics message [-h] message_type
 
-Output (normal):
-```json
-{
-  "topics": ["/cmd_vel", "/odom", "/scan"],
-  "topic_types": ["geometry_msgs/msg/Twist", "nav_msgs/msg/Odometry", "sensor_msgs/msg/LaserScan"],
-  "services": ["/robot_state_publisher/get_parameters"],
-  "actions": ["/navigate_to_pose"],
-  "nodes": ["/robot_state_publisher", "/controller_manager"],
-  "counts": {"topics": 3, "services": 1, "actions": 1, "nodes": 2}
-}
-```
+positional arguments:
+  message_type  Message type (e.g. geometry_msgs/msg/Twist)
 
-Output (truncated — more than 50 topics):
-```json
-{
-  "topics": ["...", "..."],
-  "topic_types": ["...", "..."],
-  "services": ["..."],
-  "actions": [],
-  "nodes": ["..."],
-  "counts": {"topics": 87, "services": 42, "actions": 0, "nodes": 12},
-  "topics_truncated": true,
-  "topics_shown": 50
-}
+options:
+  -h, --help    show this help message and exit
 ```
 
----
+### CLI topics message-structure
 
-## version
-
-Detect the ROS 2 version and distro name.
-
-**ROS 2 CLI equivalent:** `ros2 doctor --report` (verbose), or `echo $ROS_DISTRO`
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py version
 ```
-
-Output:
-```json
-{"version": "2", "distro": "humble", "domain_id": 0}
-```
-
----
+usage: ros2_cli.py topics message-structure [-h] message_type
 
-## topics list / topics ls
+positional arguments:
+  message_type  Message type (e.g. geometry_msgs/msg/Twist)
 
-List all active topics with their message types.
-
-**Aliases:** `topics ls`
-
-**ROS 2 CLI equivalent:** `ros2 topic list -t`
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--limit N` | `0` (unlimited) | Cap number of topics returned. Adds `truncated: true` and `total` when applied. |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics list
-python3 {baseDir}/scripts/ros2_cli.py topics ls
-python3 {baseDir}/scripts/ros2_cli.py topics list --limit 50
+options:
+  -h, --help    show this help message and exit
 ```
 
-Output (normal):
-```json
-{
-  "topics": ["/turtle1/cmd_vel", "/turtle1/pose", "/rosout"],
-  "types": ["geometry_msgs/Twist", "turtlesim/Pose", "rcl_interfaces/msg/Log"],
-  "count": 3
-}
-```
+### CLI topics message-struct
 
-Output (truncated):
-```json
-{
-  "topics": ["/cmd_vel", "/odom"],
-  "types": ["geometry_msgs/msg/Twist", "nav_msgs/msg/Odometry"],
-  "count": 2,
-  "total": 87,
-  "truncated": true
-}
 ```
-
----
+usage: ros2_cli.py topics message-struct [-h] message_type
 
-## topics type `<topic>`
+positional arguments:
+  message_type  Message type (e.g. geometry_msgs/msg/Twist)
 
-Get the message type of a specific topic.
-
-**ROS 2 CLI equivalent:** `ros2 topic type /topic`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic name (e.g. `/cmd_vel`, `/turtle1/pose`) |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics type /turtle1/cmd_vel
-python3 {baseDir}/scripts/ros2_cli.py topics type /scan
+options:
+  -h, --help    show this help message and exit
 ```
-
-Output:
-```json
-{"topic": "/turtle1/cmd_vel", "type": "geometry_msgs/Twist"}
-```
-
----
 
-## topics details `<topic>` / topics info `<topic>`
-
-Get topic details including message type, publishers, and subscribers.
-
-**Aliases:** `topics info`
-
-**ROS 2 CLI equivalent:** `ros2 topic info /topic`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic name |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics details /turtle1/cmd_vel
-python3 {baseDir}/scripts/ros2_cli.py topics info /turtle1/cmd_vel
-```
+### CLI topics subscribe
 
-Output:
-```json
-{
-  "topic": "/turtle1/cmd_vel",
-  "type": "geometry_msgs/Twist",
-  "publishers": [],
-  "subscribers": ["/turtlesim"]
-}
 ```
+usage: ros2_cli.py topics subscribe [-h] [--msg-type MSG_TYPE] [--duration DURATION]
+                                    [--max-messages MAX_MESSAGES] [--timeout TIMEOUT]
+                                    [--throttle-rate-ms THROTTLE_RATE_MS] [--max-bytes MAX_BYTES]
+                                    [topic]
 
----
+positional arguments:
+  topic                 Topic name to subscribe to (e.g. /cmd_vel)
 
-## topics message `<message_type>` / topics message-structure / topics message-struct
-
-Get the full field structure of a message type as a JSON template.
-
-**Aliases:** `topics message-structure`, `topics message-struct`
-
-**ROS 2 CLI equivalent:** `ros2 interface show geometry_msgs/msg/Twist`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `message_type` | Yes | Message type — full form (`geometry_msgs/msg/Twist`) or short form (`geometry_msgs/Twist`) both accepted |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics message geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics message-structure geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics message-struct sensor_msgs/msg/LaserScan
-```
-
-Output:
-```json
-{
-  "message_type": "geometry_msgs/Twist",
-  "structure": {
-    "linear": {"x": 0.0, "y": 0.0, "z": 0.0},
-    "angular": {"x": 0.0, "y": 0.0, "z": 0.0}
-  }
-}
+options:
+  -h, --help            show this help message and exit
+  --msg-type MSG_TYPE   Message type (auto-detected if not provided)
+  --duration DURATION   Subscribe for duration (seconds)
+  --max-messages MAX_MESSAGES, --max-msgs MAX_MESSAGES
+                        Max messages to collect
+  --timeout TIMEOUT     Timeout (seconds) when waiting for a single message (default: 5)
+  --throttle-rate-ms THROTTLE_RATE_MS
+                        Skip messages arriving faster than N ms (e.g. 100 for 10 Hz on a 100 Hz
+                        topic). Useful to reduce output size on high-frequency topics.
+  --max-bytes MAX_BYTES
+                        Stop collecting when total JSON-serialised output exceeds N bytes
 ```
-
----
-
-## topics subscribe `<topic>` [options] / topics echo
-
-Subscribe to a topic and receive messages. Without `--duration`, returns the first message received. With `--duration`, collects multiple messages for the specified number of seconds.
-
-**Aliases:** `topics echo`
-
-**ROS 2 CLI equivalent:** `ros2 topic echo /topic`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic to subscribe to |
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--msg-type TYPE` | auto-detect | Override message type (usually not needed) |
-| `--duration SECONDS` | _(none)_ | Collect messages for this duration; without this flag, returns first message only |
-| `--max-messages N` / `--max-msgs N` | `100` | Maximum messages to collect (only applies with `--duration`) |
-| `--timeout SECONDS` | `5` | Timeout waiting for first message (single-message mode only) |
+### CLI topics echo
 
-**Wait for first message (single-message mode):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /turtle1/pose
-python3 {baseDir}/scripts/ros2_cli.py topics echo /odom
 ```
+usage: ros2_cli.py topics echo [-h] [--msg-type MSG_TYPE] [--duration DURATION]
+                               [--max-messages MAX_MESSAGES] [--timeout TIMEOUT]
+                               [--throttle-rate-ms THROTTLE_RATE_MS] [--max-bytes MAX_BYTES]
+                               [topic]
 
-Output (single message):
-```json
-{
-  "msg": {"x": 5.544, "y": 5.544, "theta": 0.0, "linear_velocity": 0.0, "angular_velocity": 0.0}
-}
-```
+positional arguments:
+  topic                 Topic name to subscribe to (e.g. /cmd_vel)
 
-**Collect messages over time:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /odom --duration 5
-python3 {baseDir}/scripts/ros2_cli.py topics echo /scan --duration 10 --max-messages 50
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe /joint_states --duration 3 --max-msgs 20
+options:
+  -h, --help            show this help message and exit
+  --msg-type MSG_TYPE   Message type (auto-detected if not provided)
+  --duration DURATION   Subscribe for duration (seconds)
+  --max-messages MAX_MESSAGES, --max-msgs MAX_MESSAGES
+                        Max messages to collect
+  --timeout TIMEOUT     Timeout (seconds) when waiting for a single message (default: 5)
+  --throttle-rate-ms THROTTLE_RATE_MS
+                        Skip messages arriving faster than N ms (e.g. 100 for 10 Hz on a 100 Hz
+                        topic). Useful to reduce output size on high-frequency topics.
+  --max-bytes MAX_BYTES
+                        Stop collecting when total JSON-serialised output exceeds N bytes
 ```
 
-Output (multiple messages):
-```json
-{
-  "topic": "/odom",
-  "collected_count": 50,
-  "messages": [
-    {"header": {}, "pose": {"pose": {"position": {"x": 0.1, "y": 0.0, "z": 0.0}}}},
-    "..."
-  ]
-}
-```
+### CLI topics echo-once
 
-Error (timeout):
-```json
-{"error": "Timeout waiting for message"}
 ```
-
----
-
-## topics publish `<topic>` `<json_message>` [options] / topics pub / topics publish-continuous
-
-Publish a message to a topic. Without `--duration`/`--timeout`, sends once (single-shot). With either flag, publishes repeatedly at `--rate` Hz for the specified duration, then stops.
-
-**Aliases:** `topics pub`, `topics publish-continuous` (all three share the same handler)
+usage: ros2_cli.py topics echo-once [-h] [--msg-type MSG_TYPE] [--timeout TIMEOUT] [topic]
 
-**ROS 2 CLI equivalent:** `ros2 topic pub /topic geometry_msgs/msg/Twist '{"linear": {"x": 1.0}}'`
+positional arguments:
+  topic                Topic name (e.g. /odom)
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic to publish to |
-| `json_message` | Yes | JSON string of the message payload |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--msg-type TYPE` | auto-detect | Override message type |
-| `--duration SECONDS` | _(none)_ | Publish repeatedly for this many seconds; identical to `--timeout` |
-| `--timeout SECONDS` | _(none)_ | Alias for `--duration`; interchangeable |
-| `--rate HZ` | `10` | Publish rate in Hz |
-| `--max-vel LIN` | _(none)_ | Clamp `linear.x/y/z` to ±LIN m/s before publishing (Twist / TwistStamped only) |
-| `--max-ang ANG` | _(none)_ | Clamp `angular.z` to ±ANG rad/s before publishing (Twist / TwistStamped only) |
-| `--dry-run` | _(off)_ | Resolve type and validate payload without publishing; returns `dry_run: true` |
-
-**Single-shot (one message):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish /trigger '{"data": ""}'
-python3 {baseDir}/scripts/ros2_cli.py topics pub /turtle1/cmd_vel \
-  '{"linear":{"x":2.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
+options:
+  -h, --help           show this help message and exit
+  --msg-type MSG_TYPE  Message type (auto-detected if not provided)
+  --timeout TIMEOUT    Max wait time in seconds (default: 5)
 ```
 
-Output (single-shot):
-```json
-{"success": true, "topic": "/turtle1/cmd_vel", "msg_type": "geometry_msgs/Twist"}
-```
+### CLI topics depth-point
 
-**With velocity ceiling (catches over-limit values before they reach the wire):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
-  '{"linear":{"x":1.5},"angular":{"z":0}}' --max-vel 0.5 --max-ang 1.0
 ```
+usage: ros2_cli.py topics depth-point [-h] --topic TOPIC --u U --v V [--timeout TIMEOUT]
 
-Output (clamped):
-```json
-{"success": true, "topic": "/cmd_vel", "msg_type": "geometry_msgs/msg/Twist",
- "velocity_clamped": ["linear.x: 1.5 → 0.5 (clamped to ±0.5)"]}
+options:
+  -h, --help         show this help message and exit
+  --topic TOPIC      Depth image topic (e.g. /camera/depth/image_rect_raw)
+  --u U              Pixel column (x), 0-indexed from left
+  --v V              Pixel row (y), 0-indexed from top
+  --timeout TIMEOUT  Max wait time in seconds (default: 5)
 ```
 
-**Publish for a duration (recommended for velocity commands):**
-```bash
-# Move forward for 3 seconds
-python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
-  '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --duration 3
+### CLI topics capture-image
 
-# Rotate left for 2 seconds (using --timeout alias)
-python3 {baseDir}/scripts/ros2_cli.py topics pub /cmd_vel \
-  '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0.5}}' --timeout 2
-
-# Stop the robot
-python3 {baseDir}/scripts/ros2_cli.py topics publish /cmd_vel \
-  '{"linear":{"x":0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
-
-# Using publish-continuous alias
-python3 {baseDir}/scripts/ros2_cli.py topics publish-continuous /cmd_vel \
-  '{"linear":{"x":0.3,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --timeout 5
 ```
+usage: ros2_cli.py topics capture-image [-h] --topic TOPIC --output OUTPUT [--timeout TIMEOUT]
+                                        [--type {auto,compressed,raw}] [--no-profile] [--inline]
 
-Output (duration mode):
-```json
-{"success": true, "topic": "/cmd_vel", "msg_type": "geometry_msgs/Twist", "duration": 3.002, "rate": 10.0, "published_count": 30, "stopped_by": "timeout"}
+options:
+  -h, --help            show this help message and exit
+  --topic TOPIC         ROS 2 image topic (e.g., /camera/image_raw/compressed)
+  --output OUTPUT       Output filename (saved in .artifacts/)
+  --timeout TIMEOUT     Seconds to wait for image
+  --type {auto,compressed,raw}
+                        Image type: compressed, raw, or auto
+  --no-profile          Skip profile-driven camera orientation correction (use when the detected
+                        rotation is wrong for this specific capture)
+  --inline              Also return the image as base64-encoded data in the JSON output (in
+                        addition to saving to --output). Eliminates a follow-up file read for
+                        multimodal LLM pipelines.
 ```
-
-`stopped_by` is `"timeout"` when the duration expires normally, or `"keyboard_interrupt"` if stopped early with Ctrl+C.
 
----
+### CLI topics info
 
-## topics hz `<topic>` [options]
-
-Measure the publish rate of a topic. Collects inter-message intervals over a sliding window and reports rate, min/max delta, and standard deviation.
-
-**ROS 2 CLI equivalent:** `ros2 topic hz /topic`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic name |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--window N` | `10` | Number of inter-message intervals to sample |
-| `--timeout SECONDS` | `10` | Max wait time; returns error if fewer than 2 messages arrive |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics hz /turtle1/pose
-python3 {baseDir}/scripts/ros2_cli.py topics hz /scan --window 20 --timeout 15
-python3 {baseDir}/scripts/ros2_cli.py topics hz /odom --window 5
 ```
+usage: ros2_cli.py topics info [-h] topic
 
-Output:
-```json
-{
-  "topic": "/turtle1/pose",
-  "rate": 62.4831,
-  "min_delta": 0.015832,
-  "max_delta": 0.016201,
-  "std_dev": 0.000089,
-  "samples": 10
-}
-```
+positional arguments:
+  topic       Topic name (e.g. /cmd_vel)
 
-Error (insufficient messages):
-```json
-{"error": "Fewer than 2 messages received within 10.0s on '/turtle1/pose'"}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
-
-## topics qos-check `<topic>` [options]
-
-Inspect the QoS profiles of all publishers and subscribers on `<topic>` and report whether they are compatible. When a publisher uses `BEST_EFFORT` reliability and a subscriber uses `RELIABLE`, messages are silently discarded — this command detects that and suggests the corrective flag.
-
-**Run this before `publish-until` or any subscribe that times out unexpectedly.** It replaces manual interpretation of `topics details` output.
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Full topic name (e.g. `/odom`) |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Node spin timeout |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics qos-check /odom
-python3 {baseDir}/scripts/ros2_cli.py topics qos-check /cmd_vel
-```
+### CLI topics hz
 
-**Output (incompatible):**
-```json
-{
-  "topic": "/odom",
-  "publisher_count": 1,
-  "subscriber_count": 1,
-  "publishers": [{"node": "/ekf_node", "reliability": "BEST_EFFORT", "durability": "VOLATILE"}],
-  "subscribers": [{"node": "/my_controller", "reliability": "RELIABLE", "durability": "VOLATILE"}],
-  "compatible": false,
-  "issues": ["reliability mismatch: publisher BEST_EFFORT vs subscriber RELIABLE on /my_controller"],
-  "suggestion": "Add --qos-reliability best_effort to your subscribe command to match the publisher"
-}
 ```
+usage: ros2_cli.py topics hz [-h] [--window WINDOW] [--duration DURATION] [--timeout TIMEOUT]
+                             [topic]
 
-**Output (compatible):**
-```json
-{
-  "topic": "/cmd_vel",
-  "publisher_count": 1,
-  "subscriber_count": 1,
-  "compatible": true,
-  "issues": [],
-  "suggestion": "QoS is compatible — no flags needed"
-}
-```
+positional arguments:
+  topic                Topic name (e.g. /cmd_vel)
 
-**Output (no publisher):**
-```json
-{
-  "topic": "/odom",
-  "publisher_count": 0,
-  "subscriber_count": 0,
-  "compatible": false,
-  "issues": ["no publisher on topic /odom"],
-  "suggestion": "Check nodes list to verify the publishing node is running"
-}
+options:
+  -h, --help           show this help message and exit
+  --window WINDOW      Number of inter-message intervals to sample (default: 10)
+  --duration DURATION  Sample for this many seconds instead of a message count (overrides
+                       --window)
+  --timeout TIMEOUT    Max wait time in seconds (default: 10)
 ```
-
----
-
-## topics find `<message_type>`
-
-Find all topics publishing a specific message type. Accepts both `/msg/` and short formats (normalised for comparison).
-
-**ROS 2 CLI equivalent:** `ros2 topic find geometry_msgs/msg/Twist`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `message_type` | Yes | Message type (e.g. `geometry_msgs/msg/Twist` or `geometry_msgs/Twist`) |
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Timeout in seconds for topic discovery |
+### CLI topics find
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
 ```
+usage: ros2_cli.py topics find [-h] [--timeout TIMEOUT] [--ignore-profile] [msg_type]
 
-Output:
-```json
-{
-  "message_type": "geometry_msgs/msg/Twist",
-  "topics": ["/cmd_vel", "/turtle1/cmd_vel"],
-  "count": 2
-}
-```
+positional arguments:
+  msg_type           Message type to search for (e.g. geometry_msgs/msg/Twist)
 
-No matches:
-```json
-{"message_type": "geometry_msgs/msg/Twist", "topics": [], "count": 0}
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+  --ignore-profile   Override the Path A guard: run live discovery even when the loaded profile
+                     already has this field. Use only for legitimate Path B / debug needs.
 ```
-
----
-
-## topics bw `[topics...]` [options]
-
-Measure the bandwidth of one or more topics in bytes per second. Serialises each received message to measure its size. Pass multiple topic names to monitor them concurrently in a single call (Lyrical Luth feature — works on all distros).
-
-**ROS 2 CLI equivalent:** `ros2 topic bw /topic`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topics` | No | One or more topic names (zero triggers `--all`) |
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--all` | false | Monitor all currently-published topics |
-| `--window N` | `10` | Number of message samples to collect per topic |
-| `--timeout SECONDS` | `10` | Max wait time per topic |
+### CLI topics bw
 
-```bash
-# Single topic (original format)
-python3 {baseDir}/scripts/ros2_cli.py topics bw /camera/image_raw
-python3 {baseDir}/scripts/ros2_cli.py topics bw /scan --window 20 --timeout 15
-
-# Multiple topics (concurrent)
-python3 {baseDir}/scripts/ros2_cli.py topics bw /scan /odom /cmd_vel
-python3 {baseDir}/scripts/ros2_cli.py topics bw /camera/image_raw /scan --window 5
-```
-
-Single-topic output:
-```json
-{
-  "topic": "/camera/image_raw",
-  "bw": 9437184.0,
-  "bytes_per_msg": 921604,
-  "rate": 10.24,
-  "samples": 10
-}
 ```
+usage: ros2_cli.py topics bw [-h] [--all] [--window WINDOW] [--timeout TIMEOUT] [topics ...]
 
-Multi-topic output:
-```json
-{
-  "topics": {
-    "/scan": {"bw": 38400.0, "bytes_per_msg": 3840, "rate": 10.0, "samples": 10},
-    "/odom": {"bw": 2048.0, "bytes_per_msg": 256, "rate": 8.0, "samples": 10},
-    "/cmd_vel": {"bw": 480.0, "bytes_per_msg": 48, "rate": 10.0, "samples": 10}
-  },
-  "no_data": [],
-  "count": 3
-}
-```
+positional arguments:
+  topics             Topic name(s) (e.g. /odom /cmd_vel); omit with --all
 
-`bw` is bytes/s. `bytes_per_msg` is mean serialised message size. Topics that produced fewer than 2 messages appear in `no_data`. Single-topic error:
-```json
-{"error": "Fewer than 2 messages received within 10.0s on '/camera/image_raw'"}
+options:
+  -h, --help         show this help message and exit
+  --all              Measure bandwidth for every topic in the ROS graph (Lyrical Luth+)
+  --window WINDOW    Number of messages to sample per topic (default: 10)
+  --timeout TIMEOUT  Max wait time in seconds per topic (default: 10)
 ```
-
----
-
-## topics delay `<topic>` [options]
 
-Measure the end-to-end latency between a message's `header.stamp` and the wall clock at receipt. Requires messages with a `std_msgs/Header` field.
+### CLI topics delay
 
-**ROS 2 CLI equivalent:** `ros2 topic delay /topic`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `topic` | Yes | Topic name |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--window N` | `10` | Number of latency samples to collect |
-| `--timeout SECONDS` | `10` | Max wait time |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics delay /odom
-python3 {baseDir}/scripts/ros2_cli.py topics delay /scan --window 20
-python3 {baseDir}/scripts/ros2_cli.py topics delay /camera/image_raw --window 5 --timeout 15
 ```
+usage: ros2_cli.py topics delay [-h] [--window WINDOW] [--timeout TIMEOUT] [topic]
 
-Output:
-```json
-{
-  "topic": "/odom",
-  "mean_delay": 0.003241,
-  "min_delay": 0.001823,
-  "max_delay": 0.005012,
-  "std_dev": 0.000891,
-  "samples": 10
-}
-```
+positional arguments:
+  topic              Topic name (must publish messages with header.stamp)
 
-All delay values in seconds. Error if no `header.stamp`:
-```json
-{"error": "Messages on '/cmd_vel' have no header.stamp field"}
+options:
+  -h, --help         show this help message and exit
+  --window WINDOW    Number of messages to sample (default: 10)
+  --timeout TIMEOUT  Max wait time in seconds (default: 10)
 ```
 
----
+### CLI topics qos-check
 
-## services list / services ls
+```
+usage: ros2_cli.py topics qos-check [-h] [--timeout TIMEOUT] topic
 
-List all available services.
+positional arguments:
+  topic              Topic name (e.g. /odom)
 
-**Aliases:** `services ls`
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-**ROS 2 CLI equivalent:** `ros2 service list -t`
+### CLI topics diag-list
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services list
-python3 {baseDir}/scripts/ros2_cli.py services ls
 ```
+usage: ros2_cli.py topics diag-list [-h]
 
-Output:
-```json
-{
-  "services": ["/clear", "/kill", "/reset", "/spawn", "/turtle1/set_pen", "/turtle1/teleport_absolute"],
-  "types": ["std_srvs/Empty", "turtlesim/Kill", "std_srvs/Empty", "turtlesim/Spawn", "turtlesim/SetPen", "turtlesim/TeleportAbsolute"],
-  "count": 6
-}
+options:
+  -h, --help  show this help message and exit
 ```
-
----
 
-## services type `<service>`
+### CLI topics diag
 
-Get the type of a specific service.
-
-**ROS 2 CLI equivalent:** `ros2 service type /service`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `service` | Yes | Service name (e.g. `/spawn`, `/reset`) |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services type /spawn
-python3 {baseDir}/scripts/ros2_cli.py services type /reset
 ```
+usage: ros2_cli.py topics diag [-h] [--topic TOPIC] [--duration DURATION]
+                               [--max-messages MAX_MESSAGES] [--timeout TIMEOUT]
 
-Output:
-```json
-{"service": "/spawn", "type": "turtlesim/Spawn"}
+options:
+  -h, --help            show this help message and exit
+  --topic TOPIC         Specific diagnostic topic (default: auto-discover all by type)
+  --duration DURATION   Collect for N seconds (default: one-shot)
+  --max-messages MAX_MESSAGES
+                        Max messages per topic in --duration mode (default: 1)
+  --timeout TIMEOUT     Timeout waiting for messages (default: 10s)
 ```
-
----
-
-## services details `<service>` / services info `<service>`
-
-Get service details including type, request fields, and response fields.
 
-**Aliases:** `services info`
+### CLI topics battery-list
 
-**ROS 2 CLI equivalent:** `ros2 service info /service`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `service` | Yes | Service name |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--verbose` / `-v` | false | Include QoS profiles and endpoint node info (Lyrical Luth and newer only) |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services details /spawn
-python3 {baseDir}/scripts/ros2_cli.py services info /spawn
-python3 {baseDir}/scripts/ros2_cli.py services details /turtle1/set_pen
-python3 {baseDir}/scripts/ros2_cli.py services info /my_service --verbose   # Lyrical+ only
 ```
+usage: ros2_cli.py topics battery-list [-h]
 
-Output:
-```json
-{
-  "service": "/spawn",
-  "type": "turtlesim/Spawn",
-  "request": {"x": 0.0, "y": 0.0, "theta": 0.0, "name": ""},
-  "response": {"name": ""}
-}
+options:
+  -h, --help  show this help message and exit
 ```
-
-Output with `--verbose` (Lyrical Luth and newer):
-```json
-{
-  "service": "/my_service",
-  "type": "std_srvs/srv/SetBool",
-  "request": {"data": false},
-  "response": {"success": false, "message": ""},
-  "servers": [
-    {
-      "node_name": "my_node",
-      "node_namespace": "/",
-      "qos": {
-        "reliability": "ReliabilityPolicy.RELIABLE",
-        "durability": "DurabilityPolicy.VOLATILE",
-        "history": "HistoryPolicy.KEEP_LAST",
-        "depth": 10
-      }
-    }
-  ],
-  "clients": [
-    {"node_name": "caller_node", "node_namespace": "/"}
-  ]
-}
-```
-
-If `--verbose` is used on a pre-Lyrical distro, a `"verbose_note"` key is returned instead of `"servers"`/`"clients"` with an explanation.
 
----
+### CLI topics battery
 
-## services call `<service>` `<json_request>` [options]
-
-Call a service with a JSON request payload and return the response.
-
-**ROS 2 CLI equivalent:** `ros2 service call /service turtlesim/srv/Spawn '{"x": 3.0}'`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `service` | Yes | Service name |
-| `json_request` | Yes | JSON string of the request arguments |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--service-type TYPE` | auto-detect | Override service type (e.g. `std_srvs/srv/SetBool`) |
-| `--timeout SECONDS` | `5` | Timeout waiting for service availability and response |
-
-```bash
-# Reset turtlesim
-python3 {baseDir}/scripts/ros2_cli.py services call /reset '{}'
-
-# Spawn a new turtle
-python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
-  '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
-
-# Set pen color
-python3 {baseDir}/scripts/ros2_cli.py services call /turtle1/set_pen \
-  '{"r":255,"g":0,"b":0,"width":3,"off":0}'
-
-# Toggle a boolean service
-python3 {baseDir}/scripts/ros2_cli.py services call /enable_motors \
-  '{"data":true}' --service-type std_srvs/srv/SetBool
-
-# With longer timeout for slow services
-python3 {baseDir}/scripts/ros2_cli.py services call /run_calibration '{}' --timeout 30
 ```
+usage: ros2_cli.py topics battery [-h] [--topic TOPIC] [--duration DURATION]
+                                  [--max-messages MAX_MESSAGES] [--timeout TIMEOUT]
 
-Output:
-```json
-{"service": "/spawn", "success": true, "result": {"name": "turtle2"}}
+options:
+  -h, --help            show this help message and exit
+  --topic TOPIC         Specific battery topic (default: auto-discover all by type)
+  --duration DURATION   Collect for N seconds (default: one-shot)
+  --max-messages MAX_MESSAGES
+                        Max messages per topic in --duration mode (default: 1)
+  --timeout TIMEOUT     Timeout waiting for messages (default: 10s)
 ```
-
-Error (service not available):
-```json
-{"error": "Service not available: /spawn"}
-```
-
----
 
-## services find `<service_type>`
+### CLI topics classify
 
-Find all services of a specific service type. Accepts both `/srv/` and short formats.
-
-**ROS 2 CLI equivalent:** `ros2 service find std_srvs/srv/Empty`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `service_type` | Yes | Service type (e.g. `std_srvs/srv/Empty` or `std_srvs/Empty`) |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/srv/Empty
-python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/Empty
-python3 {baseDir}/scripts/ros2_cli.py services find turtlesim/srv/Spawn
 ```
+usage: ros2_cli.py topics classify [-h]
 
-Output:
-```json
-{
-  "service_type": "std_srvs/srv/Empty",
-  "services": ["/clear", "/reset"],
-  "count": 2
-}
+options:
+  -h, --help  show this help message and exit
 ```
-
----
-
-## services echo `<service>` [options]
-
-Collect service request/response events published on `<service>/_service_event` and return them all together. Requires service introspection to be explicitly enabled on both the client and server via `configure_introspection()`. A single service call produces at least 2 events (client-request + server-response).
 
-**ROS 2 CLI equivalent:** `ros2 service echo /service` (Jazzy+)
+### CLI topics publish
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `service` | Yes | Service name (e.g. `/spawn`) |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `30` | Collection window in seconds (command exits after this, returning all events collected) |
-| `--duration SECONDS` | _(none)_ | Same as `--timeout` but takes precedence when both are supplied |
-| `--max-messages N` / `--max-events N` | _(unlimited)_ | Stop early after receiving this many events |
-
-**Note:** This command requires service introspection to be enabled on the server/client:
-```python
-node.configure_introspection(
-    clock, qos_profile, ServiceIntrospectionState.CONTENTS  # or METADATA
-)
 ```
-
-```bash
-# Default: collect all events for 30 s — start BEFORE making the service call
-python3 {baseDir}/scripts/ros2_cli.py services echo /spawn
+usage: ros2_cli.py topics publish [-h] [--msg-type MSG_TYPE] [--duration DURATION] [--rate RATE]
+                                  [--retries RETRIES] [--max-vel MAX_VEL] [--max-ang MAX_ANG]
+                                  [--dry-run]
+                                  [topic] [msg]
 
-# Longer window for slower workflows
-python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --timeout 60
+positional arguments:
+  topic                 Topic name to publish to (e.g. /cmd_vel)
+  msg                   JSON message
 
-# Stop as soon as 2 events are received (one request + one response)
-python3 {baseDir}/scripts/ros2_cli.py services echo /emergency_stop --max-messages 2
-
-# Fixed duration window
-python3 {baseDir}/scripts/ros2_cli.py services echo /spawn --duration 10
+options:
+  -h, --help            show this help message and exit
+  --msg-type MSG_TYPE   Message type (auto-detected if not provided)
+  --duration DURATION, --timeout DURATION
+                        Publish repeatedly for this many seconds (--timeout is an alias)
+  --rate RATE           Publish rate in Hz (default: 10)
+  --retries RETRIES     Number of attempts before giving up (overrides global --retries)
+  --max-vel MAX_VEL     Clamp linear velocity (x/y/z) to ±N m/s before publishing (Twist /
+                        TwistStamped only; other message types unaffected)
+  --max-ang MAX_ANG     Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
+                        other message types unaffected)
+  --dry-run             Validate topic type and payload without publishing
 ```
 
-Output:
-```json
-{
-  "service": "/spawn",
-  "event_topic": "/spawn/_service_event",
-  "collected_count": 2,
-  "events": [
-    {"info": {}, "request": [{"x": 3.0, "y": 3.0, "theta": 0.0, "name": ""}], "response": []},
-    {"info": {}, "request": [], "response": [{"name": "turtle2"}]}
-  ]
-}
-```
+### CLI topics pub
 
-Error (introspection not enabled):
-```json
-{
-  "error": "No service event topic found: /spawn/_service_event",
-  "hint": "Service introspection must be enabled on the server/client via configure_introspection(clock, qos, ServiceIntrospectionState.METADATA or CONTENTS)."
-}
 ```
-
----
+usage: ros2_cli.py topics pub [-h] [--msg-type MSG_TYPE] [--duration DURATION] [--rate RATE]
+                              [--retries RETRIES] [--max-vel MAX_VEL] [--max-ang MAX_ANG]
+                              [--dry-run]
+                              [topic] [msg]
 
-## nodes list / nodes ls
+positional arguments:
+  topic                 Topic name to publish to (e.g. /cmd_vel)
+  msg                   JSON message
 
-List all active ROS 2 nodes.
-
-**Aliases:** `nodes ls`
-
-**ROS 2 CLI equivalent:** `ros2 node list`
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py nodes list
-python3 {baseDir}/scripts/ros2_cli.py nodes ls
+options:
+  -h, --help            show this help message and exit
+  --msg-type MSG_TYPE   Message type (auto-detected if not provided)
+  --duration DURATION, --timeout DURATION
+                        Publish repeatedly for this many seconds (--timeout is an alias)
+  --rate RATE           Publish rate in Hz (default: 10)
+  --retries RETRIES     Number of attempts before giving up (overrides global --retries)
+  --max-vel MAX_VEL     Clamp linear velocity (x/y/z) to ±N m/s before publishing (Twist /
+                        TwistStamped only; other message types unaffected)
+  --max-ang MAX_ANG     Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
+                        other message types unaffected)
+  --dry-run             Validate topic type and payload without publishing
 ```
-
-Output:
-```json
-{
-  "nodes": ["/turtlesim", "/ros2cli"],
-  "count": 2
-}
-```
-
----
 
-## nodes details `<node>` / nodes info `<node>`
+### CLI topics publish-sequence
 
-Get node details: publishers, subscribers, services, action servers, and action clients.
-
-**Aliases:** `nodes info`
-
-**ROS 2 CLI equivalent:** `ros2 node info /node`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | Yes | Node name (e.g. `/turtlesim`) |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py nodes details /turtlesim
-python3 {baseDir}/scripts/ros2_cli.py nodes info /turtlesim
-python3 {baseDir}/scripts/ros2_cli.py nodes details /robot_state_publisher
-```
-
-Output:
-```json
-{
-  "node": "/turtlesim",
-  "publishers": ["/turtle1/color_sensor", "/turtle1/pose", "/rosout"],
-  "subscribers": ["/turtle1/cmd_vel"],
-  "services": ["/clear", "/kill", "/reset", "/spawn", "/turtle1/set_pen"],
-  "action_servers": ["/turtle1/rotate_absolute"],
-  "action_clients": []
-}
 ```
-
----
+usage: ros2_cli.py topics publish-sequence [-h] [--msg-type MSG_TYPE] [--rate RATE]
+                                           [--max-vel MAX_VEL] [--max-ang MAX_ANG] [--dry-run]
+                                           [topic] [messages] [durations]
 
-## params list `<node>` / params ls `<node>`
+positional arguments:
+  topic                Topic name to publish to (e.g. /cmd_vel)
+  messages             JSON array of messages
+  durations            JSON array of durations in seconds (message is repeated during each)
 
-List all parameters for a specific node.
-
-**Aliases:** `params ls`
-
-**ROS 2 CLI equivalent:** `ros2 param list /node`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | Yes | Node name (e.g. `/turtlesim`) |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
-python3 {baseDir}/scripts/ros2_cli.py params ls /turtlesim
-python3 {baseDir}/scripts/ros2_cli.py params list /robot_state_publisher --timeout 10
-```
-
-Output:
-```json
-{
-  "node": "/turtlesim",
-  "parameters": ["/turtlesim:background_r", "/turtlesim:background_g", "/turtlesim:background_b", "/turtlesim:use_sim_time"],
-  "count": 4
-}
+options:
+  -h, --help           show this help message and exit
+  --msg-type MSG_TYPE  Message type (auto-detected if not provided)
+  --rate RATE          Publish rate in Hz (default: 10)
+  --max-vel MAX_VEL    Clamp linear velocity (x/y/z) to ±N m/s before publishing (Twist /
+                       TwistStamped only; other message types unaffected)
+  --max-ang MAX_ANG    Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
+                       other message types unaffected)
+  --dry-run            Validate topic type and payload without publishing
 ```
-
----
-
-## params get `<node:param_name>` or `<node> <param_name>`
-
-Get a parameter value. Accepts either colon-separated or space-separated format.
-
-**ROS 2 CLI equivalent:** `ros2 param get /turtlesim background_r`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `name` | Yes | Node name with `:param_name` suffix, or just the node name when using space format |
-| `param_name` | No | Parameter name (when using space-separated format) |
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
+### CLI topics publish-until
 
-```bash
-# Colon format
-python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
-
-# Space-separated format
-python3 {baseDir}/scripts/ros2_cli.py params get /base_controller base_frame_id
-
-python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:use_sim_time
-python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim background_g --timeout 10
-```
-
-Output:
-```json
-{"name": "/turtlesim:background_r", "value": "69", "exists": true}
 ```
-
----
-
-## params set `<node:param_name>` `<value>` or `<node> <param_name> <value>`
-
-Set one or more parameter values. Accepts colon-separated or space-separated format. Pass additional `name=value` pairs after the first to set multiple parameters in a single call (Lyrical Luth feature — works on all distros).
-
-**ROS 2 CLI equivalent:** `ros2 param set /turtlesim background_r 255`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `name` | Yes | Node name with `:param_name` suffix, or just the node name |
-| `value` | Yes | New value (colon format) |
-| `param_name` | No | Parameter name (space format) |
-| `extra_value` | No | Value to set (space format); additional `name=value` pairs for multi-set |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
-| `--type TYPE` | auto-detect | Force value type: `bool`, `int`, `float`, or `str`. Use when the inferred type is wrong (e.g. `"123"` should be a string). |
-
-```bash
-# Colon format (single)
-python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
-
-# Space-separated format (single)
-python3 {baseDir}/scripts/ros2_cli.py params set /base_controller base_frame_id base_link_new
+usage: ros2_cli.py topics publish-until [-h] [--monitor MONITOR] [--field FIELD [FIELD ...]]
+                                        [--euclidean] [--delta DELTA] [--above ABOVE]
+                                        [--below BELOW] [--equals EQUALS] [--rotate ROTATE]
+                                        [--degrees] [--slow-last SLOW_LAST]
+                                        [--slow-factor SLOW_FACTOR] [--rate RATE]
+                                        [--timeout TIMEOUT] [--retries RETRIES]
+                                        [--msg-type MSG_TYPE]
+                                        [--monitor-msg-type MONITOR_MSG_TYPE] [--max-vel MAX_VEL]
+                                        [--max-ang MAX_ANG] [--dry-run]
+                                        [topic] [msg]
 
-# Force type (Lyrical+ multi-param set feature — works on all distros)
-python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:name_param 123 --type str
+positional arguments:
+  topic                 Topic name to publish to (e.g. /cmd_vel)
+  msg                   JSON message to publish
 
-# Multi-pair: set background_r, background_g, and background_b in one call
-python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255 \
-  /turtlesim:background_g 0 /turtlesim:background_b 0
+options:
+  -h, --help            show this help message and exit
+  --monitor MONITOR     Topic to monitor for the stop condition (required)
+  --field FIELD [FIELD ...]
+                        One or more dot-separated field paths in the monitor message (e.g.
+                        pose.pose.position.x). Provide multiple paths with --euclidean for
+                        N-dimensional Euclidean distance monitoring.
+  --euclidean           Compute Euclidean distance across all --field paths; requires --delta as
+                        the distance threshold.
+  --delta DELTA         Stop when field changes by ±N from its value at start (or Euclidean
+                        distance >= N with --euclidean)
+  --above ABOVE         Stop when field > N (absolute threshold)
+  --below BELOW         Stop when field < N (absolute threshold)
+  --equals EQUALS       Stop when field == value (numeric or string)
+  --rotate ROTATE       Rotate by N radians (or degrees with --degrees). SIGN DETERMINES
+                        DIRECTION: positive = CCW (left), negative = CW (right). The sign of
+                        --rotate MUST match the sign of angular.z in the message — mismatched
+                        signs will cause the command to never stop (monitor waits for opposite
+                        direction). Zero is the only invalid value. Requires --monitor with an
+                        odometry topic.
+  --degrees             Interpret --rotate angle in degrees instead of radians
+  --slow-last SLOW_LAST
+                        Begin decelerating when this many units remain before the target. Units
+                        match the movement type: metres for --field/--euclidean distance, degrees
+                        if --degrees is set, radians otherwise for --rotate. Velocity ramps
+                        linearly from full commanded speed at --slow-last remaining down to
+                        --slow-factor × full speed at the target.
+  --slow-factor SLOW_FACTOR
+                        Minimum velocity as a fraction of the commanded velocity at the end of the
+                        decel zone (0–1, default 0.25). E.g. 0.25 means the robot finishes at 25%
+                        of its commanded speed.
+  --rate RATE           Publish rate in Hz (default: 10)
+  --timeout TIMEOUT     Safety timeout in seconds (default: 60)
+  --retries RETRIES     Number of attempts before giving up (overrides global --retries)
+  --msg-type MSG_TYPE   Publish topic message type (auto-detected)
+  --monitor-msg-type MONITOR_MSG_TYPE
+                        Monitor topic message type (auto-detected)
+  --max-vel MAX_VEL     Clamp linear velocity (x/y/z) to ±N m/s before publishing (Twist /
+                        TwistStamped only; other message types unaffected)
+  --max-ang MAX_ANG     Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
+                        other message types unaffected)
+  --dry-run             Validate topic type and payload without publishing
 ```
 
-Single-pair output:
-```json
-{"name": "/turtlesim:background_r", "value": "255", "success": true}
-```
+### CLI services list
 
-Multi-pair output:
-```json
-{
-  "results": [
-    {"name": "/turtlesim:background_r", "value": "255", "success": true},
-    {"name": "/turtlesim:background_g", "value": "0", "success": true},
-    {"name": "/turtlesim:background_b", "value": "0", "success": true}
-  ]
-}
 ```
+usage: ros2_cli.py services list [-h]
 
-Read-only parameter:
-```json
-{"name": "/base_controller:base_frame_id", "value": "base_link_new", "success": false, "error": "Parameter is read-only and cannot be changed at runtime", "read_only": true}
+options:
+  -h, --help  show this help message and exit
 ```
-
----
-
-## params get-all-nodes `<param_name>` [options]
-
-Query every running node for a single parameter by exact name. Returns the value from each node that has the parameter, and lists nodes where it is not set. Useful for checking `use_sim_time` or any other cross-node parameter without knowing which nodes own it.
-
-**ROS 2 CLI equivalent:** No direct equivalent — replaces `ros2 param get` × N nodes. Related to Lyrical Luth's `--all-nodes` param query feature.
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `param_name` | Yes | Exact parameter name to search for (e.g. `use_sim_time`) |
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Per-node service call timeout |
+### CLI services ls
 
-```bash
-# Check use_sim_time across all nodes
-python3 {baseDir}/scripts/ros2_cli.py params get-all-nodes use_sim_time
-
-# Check a controller parameter across all nodes
-python3 {baseDir}/scripts/ros2_cli.py params get-all-nodes max_vel_x
 ```
+usage: ros2_cli.py services ls [-h]
 
-Output:
-```json
-{
-  "param": "use_sim_time",
-  "nodes": {
-    "/turtlesim": "False",
-    "/robot_state_publisher": "False",
-    "/controller_manager": "False"
-  },
-  "count": 3,
-  "not_set": ["/some_node_without_it"]
-}
+options:
+  -h, --help  show this help message and exit
 ```
-
-`nodes` maps node name → string-formatted value for every node that has the parameter. `not_set` lists nodes contacted but that do not have the parameter. Nodes that timed out are omitted silently.
-
----
-
-## params describe `<node:param_name>` or `<node> <param_name>`
-
-Describe a parameter's type, description, and constraints via the `DescribeParameters` service.
-
-**ROS 2 CLI equivalent:** `ros2 param describe /turtlesim background_r`
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `name` | Yes | Node name with `:param_name` suffix, or node name alone |
-| `param_name` | No | Parameter name (space-separated format) |
+### CLI services type
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py params describe /turtlesim:background_r
-python3 {baseDir}/scripts/ros2_cli.py params describe /turtlesim background_r
-python3 {baseDir}/scripts/ros2_cli.py params describe /base_controller base_frame_id --timeout 10
-```
-
-Output:
-```json
-{
-  "name": "/turtlesim:background_r",
-  "type": "integer",
-  "description": "",
-  "read_only": false,
-  "dynamic_typing": false,
-  "additional_constraints": ""
-}
 ```
-
----
-
-## params dump `<node>` [options]
-
-Export all parameters for a node as a flat `{param_name: value}` dict. Internally calls `ListParameters` then `GetParameters`.
+usage: ros2_cli.py services type [-h] service
 
-**ROS 2 CLI equivalent:** `ros2 param dump /turtlesim`
+positional arguments:
+  service     Service name (e.g. /add_two_ints)
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | Yes | Node name (e.g. `/turtlesim`) |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py params dump /turtlesim
-python3 {baseDir}/scripts/ros2_cli.py params dump /robot_state_publisher --timeout 10
-```
-
-Output:
-```json
-{
-  "node": "/turtlesim",
-  "parameters": {
-    "background_r": 69,
-    "background_g": 86,
-    "background_b": 255,
-    "use_sim_time": false
-  }
-}
+options:
+  -h, --help  show this help message and exit
 ```
-
----
-
-## params load `<node>` `<json_or_file>` [options]
-
-Bulk-set parameters on a node from a JSON string or a JSON file path. Each parameter is set via `SetParameters`. Reports per-parameter success/failure.
 
-**ROS 2 CLI equivalent:** `ros2 param load /turtlesim /path/to/params.yaml`
+### CLI services details
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | Yes | Node name |
-| `params` | Yes | JSON string `{"param": value}` or path to a JSON file |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
-
-```bash
-# From JSON string
-python3 {baseDir}/scripts/ros2_cli.py params load /turtlesim \
-  '{"background_r":255,"background_g":0,"background_b":0}'
-
-# From a JSON file
-python3 {baseDir}/scripts/ros2_cli.py params load /turtlesim /tmp/turtlesim_params.json
-
-python3 {baseDir}/scripts/ros2_cli.py params load /base_controller \
-  '{"max_vel_x":1.5,"max_vel_theta":2.0}' --timeout 10
-```
-
-Output:
-```json
-{
-  "node": "/turtlesim",
-  "results": [
-    {"name": "background_r", "value": 255, "success": true},
-    {"name": "background_g", "value": 0, "success": true},
-    {"name": "background_b", "value": 0, "success": true}
-  ],
-  "loaded": 3,
-  "failed": 0
-}
 ```
-
----
-
-## params delete `<node>` `<param_name>` [`<extra_names>` ...] [options]
-
-Delete one or more parameters from a node. ROS 2 has no `DeleteParameters` service; this command uses `SetParameters` with `PARAMETER_NOT_SET` (type 0) to undeclare each parameter. Nodes launched with `allow_undeclare_parameters=False` (the default) or read-only parameters will reject the request and return an error reason.
-
-**ROS 2 CLI equivalent:** `ros2 param delete /turtlesim background_r`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `name` | Yes | Node name |
-| `param_name` | Yes | First parameter name to delete |
-| `extra_names` | No | Additional parameter names to delete in one call |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
+usage: ros2_cli.py services details [-h] service
 
-```bash
-# Delete one parameter
-python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r
+positional arguments:
+  service     Service name (e.g. /add_two_ints)
 
-# Delete multiple parameters in one call
-python3 {baseDir}/scripts/ros2_cli.py params delete /turtlesim background_r background_g background_b
-
-python3 {baseDir}/scripts/ros2_cli.py params delete /base_controller max_vel_x --timeout 10
+options:
+  -h, --help  show this help message and exit
 ```
 
-Output (success):
-```json
-{"node": "/turtlesim", "results": [{"name": "background_r", "success": true}], "count": 1}
-```
+### CLI services info
 
-Output (rejected — node disallows undeclaring):
-```json
-{"node": "/turtlesim", "results": [{"name": "background_r", "success": false, "error": "Node rejected deletion (parameter may be read-only or undeclaring is not allowed)"}], "count": 1}
 ```
-
----
-
-## params find `<pattern>` [options]
-
-Search all running nodes (or a specific node) for parameters whose names contain `<pattern>` (case-insensitive substring match). Fetches the value of each matching parameter. Use pattern `all` or `*` to return every parameter on every node.
-
-**Use this instead of:** `nodes list` → `params list <node>` × N → manual grep. Automates the full cross-node scan required by Rule 0 velocity-limit discovery.
+usage: ros2_cli.py services info [-h] [--verbose] service
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `pattern` | Yes | Substring to match against parameter names (case-insensitive). Use `all` or `*` to return everything. |
+positional arguments:
+  service        Service name (e.g. /add_two_ints)
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--node NODE` | (all nodes) | Restrict search to a single node |
-| `--timeout SECONDS` | `10` | Per-node service timeout |
-
-```bash
-# Find all velocity-related params across all nodes
-python3 {baseDir}/scripts/ros2_cli.py params find vel
-
-# Find limit params on a specific node
-python3 {baseDir}/scripts/ros2_cli.py params find limit --node /base_controller
-
-# Dump all params from all nodes
-python3 {baseDir}/scripts/ros2_cli.py params find all
+options:
+  -h, --help     show this help message and exit
+  --verbose, -v  Include QoS profiles and endpoint node info (requires Lyrical Luth or newer)
 ```
 
-**Output (matches found):**
-```json
-{
-  "pattern": "vel",
-  "node_filter": null,
-  "matches": [
-    {"node": "/base_controller", "param": "max_vel_x", "full_name": "/base_controller:max_vel_x", "value": "0.5"},
-    {"node": "/teleop_node", "param": "scale_linear_vel", "full_name": "/teleop_node:scale_linear_vel", "value": "0.3"}
-  ],
-  "count": 2
-}
-```
+### CLI services find
 
-**Output (no matches):**
-```json
-{"pattern": "vel", "node_filter": null, "matches": [], "count": 0, "error": "No parameters matching 'vel' found on any node"}
 ```
-
----
-
-## actions list / actions ls
+usage: ros2_cli.py services find [-h] [--timeout TIMEOUT] [--ignore-profile] [service_type]
 
-List all available action servers.
+positional arguments:
+  service_type       Service type to search for (e.g. std_srvs/srv/SetBool)
 
-**Aliases:** `actions ls`
-
-**ROS 2 CLI equivalent:** `ros2 action list -t`
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions list
-python3 {baseDir}/scripts/ros2_cli.py actions ls
-```
-
-Output:
-```json
-{
-  "actions": ["/turtle1/rotate_absolute"],
-  "count": 1
-}
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+  --ignore-profile   Override the Path A guard: run live discovery even when the loaded profile
+                     already has this field. Use only for legitimate Path B / debug needs.
 ```
-
----
-
-## actions details `<action>` / actions info `<action>`
 
-Get action details including goal, result, and feedback field structures.
+### CLI services call
 
-**Aliases:** `actions info`
-
-**ROS 2 CLI equivalent:** `ros2 action info /action`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `action` | Yes | Action server name |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
-python3 {baseDir}/scripts/ros2_cli.py actions info /turtle1/rotate_absolute
-python3 {baseDir}/scripts/ros2_cli.py actions details /navigate_to_pose
 ```
-
-Output:
-```json
-{
-  "action": "/turtle1/rotate_absolute",
-  "action_type": "turtlesim/action/RotateAbsolute",
-  "goal": {"theta": 0.0},
-  "result": {"delta": 0.0},
-  "feedback": {"remaining": 0.0}
-}
-```
-
----
+usage: ros2_cli.py services call [-h] [--service-type SERVICE_TYPE] [--timeout TIMEOUT]
+                                 [--retries RETRIES]
+                                 service request [extra_request]
 
-## actions type `<action>`
+positional arguments:
+  service               Service name (e.g. /add_two_ints)
+  request               JSON request, or service type when using positional service-type format
+  extra_request         JSON request when using /svc service_type json positional format
 
-Get the type of an action server. Resolves the type by inspecting the `/_action/feedback` topic and stripping the `_FeedbackMessage` suffix.
-
-**ROS 2 CLI equivalent:** Shown in `ros2 action info /action` output
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `action` | Yes | Action server name |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Max wait time |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions type /turtle1/rotate_absolute
-python3 {baseDir}/scripts/ros2_cli.py actions type /navigate_to_pose
+options:
+  -h, --help            show this help message and exit
+  --service-type SERVICE_TYPE
+                        Service type (auto-detected if not provided, e.g. std_srvs/srv/SetBool)
+  --timeout TIMEOUT     Timeout in seconds (default: 5)
+  --retries RETRIES     Number of attempts before giving up (overrides global --retries)
 ```
 
-Output:
-```json
-{"action": "/turtle1/rotate_absolute", "type": "turtlesim/action/RotateAbsolute"}
-```
+### CLI services echo
 
-Error (not found):
-```json
-{"error": "Action '/turtle1/rotate_absolute' not found in the ROS graph"}
 ```
-
----
-
-## actions send `<action>` `<json_goal>` [options]
-
-Send an action goal and wait for the result. Optionally collects intermediate feedback messages.
-
-**ROS 2 CLI equivalent:** `ros2 action send_goal /action turtlesim/action/RotateAbsolute '{"theta": 3.14}'`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `action` | Yes | Action server name |
-| `json_goal` | Yes | JSON string of the goal arguments |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--feedback` | off | Collect feedback messages during execution; adds `feedback_msgs` to output |
-| `--timeout SECONDS` | `30` | Timeout waiting for result |
-
-```bash
-# Basic goal
-python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
-  '{"theta":3.14}'
-
-# With feedback collection
-python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
-  '{"theta":3.14}' --feedback
+usage: ros2_cli.py services echo [-h] [--duration DURATION] [--max-messages MAX_MESSAGES]
+                                 [--timeout TIMEOUT]
+                                 service
 
-# Navigate to pose (Nav2)
-python3 {baseDir}/scripts/ros2_cli.py actions send /navigate_to_pose \
-  '{"pose":{"header":{"frame_id":"map"},"pose":{"position":{"x":1.0,"y":0.0,"z":0.0},"orientation":{"w":1.0}}}}' \
-  --timeout 120 --feedback
-```
+positional arguments:
+  service               Service name (e.g. /add_two_ints)
 
-Output (without `--feedback`):
-```json
-{
-  "action": "/turtle1/rotate_absolute",
-  "success": true,
-  "goal_id": "goal_1709312000000",
-  "result": {"delta": -1.584}
-}
+options:
+  -h, --help            show this help message and exit
+  --duration DURATION   Collect events for exactly this many seconds (overrides --timeout)
+  --max-messages MAX_MESSAGES, --max-events MAX_MESSAGES
+                        Stop after collecting this many events (default: unlimited within window)
+  --timeout TIMEOUT     Collection window in seconds when --duration is not set (default: 30)
 ```
 
-Output (with `--feedback`):
-```json
-{
-  "action": "/turtle1/rotate_absolute",
-  "success": true,
-  "goal_id": "goal_1709312000000",
-  "result": {"delta": -1.584},
-  "feedback_msgs": [
-    {"remaining": 2.1},
-    {"remaining": 1.4},
-    {"remaining": 0.0}
-  ]
-}
-```
+### CLI services state
 
-Error (timeout):
-```json
-{
-  "action": "/turtle1/rotate_absolute",
-  "goal_id": "goal_1709312000000",
-  "success": false,
-  "error": "Timeout after 30.0s"
-}
 ```
-
----
-
-## actions cancel `<action>` [options]
-
-Cancel all in-flight goals on an action server. Sends a `CancelGoal` request with zero UUID and zero timestamp — per the ROS 2 spec, this cancels all goals.
-
-**ROS 2 CLI equivalent:** No direct equivalent (requires custom scripting with `action_msgs`)
+usage: ros2_cli.py services state [-h] [--timeout TIMEOUT] services [services ...]
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `action` | Yes | Action server name |
+positional arguments:
+  services           Service names (e.g. /emergency_stop /twist_switch)
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Service call timeout |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions cancel /turtle1/rotate_absolute
-python3 {baseDir}/scripts/ros2_cli.py actions cancel /navigate_to_pose
-python3 {baseDir}/scripts/ros2_cli.py actions cancel /navigate_to_pose --timeout 10
-```
-
-Output:
-```json
-{
-  "action": "/turtle1/rotate_absolute",
-  "return_code": 0,
-  "cancelled_goals": 0
-}
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Seconds to wait for replayed events (default: 2)
 ```
 
-`return_code`: 0 = success, 1 = rejected, 2 = unknown goal, 3 = goal already terminated.
+### CLI nodes list
 
-Error (server not available):
-```json
-{"error": "Action server '/turtle1/rotate_absolute' not available"}
 ```
-
----
-
-## actions echo `<action>` [options]
-
-Echo live action feedback and status messages from an action server. Subscribes to `<action>/_action/feedback` and (if available) `<action>/_action/status`. No introspection required — these are standard action topics.
+usage: ros2_cli.py nodes list [-h]
 
-**ROS 2 CLI equivalent:** `ros2 action echo /action`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `action` | Yes | Action server name |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--duration SECONDS` | _(none)_ | Collect feedback for this many seconds; without this, returns first feedback message |
-| `--max-messages N` / `--max-msgs N` | `100` | Maximum feedback messages to collect (only with `--duration`) |
-| `--timeout SECONDS` | `5` | Timeout waiting for first feedback message |
-
-```bash
-# Wait for first feedback message
-python3 {baseDir}/scripts/ros2_cli.py actions echo /turtle1/rotate_absolute
-
-# Collect feedback for 10 seconds while a goal is running
-python3 {baseDir}/scripts/ros2_cli.py actions echo /navigate_to_pose --duration 10
-
-# Collect up to 20 feedback messages with a 30-second window
-python3 {baseDir}/scripts/ros2_cli.py actions echo /navigate_to_pose \
-  --duration 30 --max-messages 20
+options:
+  -h, --help  show this help message and exit
 ```
 
-Output (single feedback):
-```json
-{
-  "action": "/turtle1/rotate_absolute",
-  "feedback": {"feedback": {"remaining": 1.42}}
-}
-```
+### CLI nodes ls
 
-Output (duration mode):
-```json
-{
-  "action": "/navigate_to_pose",
-  "collected_count": 5,
-  "feedback": [
-    {"feedback": {"current_pose": {}, "distance_remaining": 2.1}},
-    {"feedback": {"current_pose": {}, "distance_remaining": 1.7}}
-  ],
-  "status": [{"status_list": [{"status": 2}]}]
-}
 ```
+usage: ros2_cli.py nodes ls [-h]
 
-Error (action server not found):
-```json
-{"error": "Action server not found: /turtle1/rotate_absolute"}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI nodes details
 
-## actions find `<action_type>`
-
-Find all action servers of a specific action type. Accepts both `/action/` and short formats (normalised for comparison). Mirrors `topics find` and `services find`.
-
-**ROS 2 CLI equivalent:** `ros2 action find turtlesim/action/RotateAbsolute`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `action_type` | Yes | Action type (e.g. `turtlesim/action/RotateAbsolute` or `turtlesim/RotateAbsolute`) |
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECONDS` | `5` | Timeout in seconds for action server discovery |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py actions find turtlesim/action/RotateAbsolute
-python3 {baseDir}/scripts/ros2_cli.py actions find turtlesim/RotateAbsolute
-python3 {baseDir}/scripts/ros2_cli.py actions find nav2_msgs/action/NavigateToPose
 ```
+usage: ros2_cli.py nodes details [-h] node
 
-Output:
-```json
-{
-  "action_type": "turtlesim/action/RotateAbsolute",
-  "actions": ["/turtle1/rotate_absolute"],
-  "count": 1
-}
-```
+positional arguments:
+  node        Node name (e.g. /turtlesim)
 
-No matches:
-```json
-{"action_type": "turtlesim/action/RotateAbsolute", "actions": [], "count": 0}
+options:
+  -h, --help  show this help message and exit
 ```
-
----
 
-## lifecycle nodes
+### CLI nodes info
 
-List all managed (lifecycle) nodes in the ROS 2 graph. Discovers nodes by scanning for services of type `lifecycle_msgs/srv/GetState`.
-
-**ROS 2 CLI equivalent:** `ros2 lifecycle nodes`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| (none) | — | No arguments needed |
-
-Example:
-```bash
-python3 scripts/ros2_cli.py lifecycle nodes
 ```
+usage: ros2_cli.py nodes info [-h] node
 
-Output:
-```json
-{
-  "managed_nodes": [
-    "/lifecycle_node",
-    "/camera_driver"
-  ],
-  "count": 2
-}
-```
+positional arguments:
+  node        Node name (e.g. /turtlesim)
 
-Output (no managed nodes found):
-```json
-{"managed_nodes": [], "count": 0}
+options:
+  -h, --help  show this help message and exit
 ```
-
----
-
-## lifecycle list
 
-List available states and transitions for one or all managed (lifecycle) nodes.
-
-**Aliases:** `lifecycle ls`
-
-**ROS 2 CLI equivalent:** `ros2 lifecycle list <node>`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | No | Node name (e.g. `/my_lifecycle_node`). If omitted, queries all managed nodes. |
-| `--timeout` | No | Timeout per node in seconds (default: 5) |
-
-Examples:
-```bash
-# Single node
-python3 scripts/ros2_cli.py lifecycle list /my_lifecycle_node
-python3 scripts/ros2_cli.py lifecycle ls /my_lifecycle_node
-
-# All managed nodes (no argument)
-python3 scripts/ros2_cli.py lifecycle list
-python3 scripts/ros2_cli.py lifecycle ls
-```
+### CLI nodes kill
 
-Output (single node):
-```json
-{
-  "node": "/my_lifecycle_node",
-  "available_states": [
-    {"id": 0, "label": "unknown"},
-    {"id": 1, "label": "unconfigured"},
-    {"id": 2, "label": "inactive"},
-    {"id": 3, "label": "active"},
-    {"id": 4, "label": "finalized"}
-  ],
-  "available_transitions": [
-    {
-      "id": 1,
-      "label": "configure",
-      "start_state": {"id": 1, "label": "unconfigured"},
-      "goal_state": {"id": 2, "label": "inactive"}
-    },
-    {
-      "id": 5,
-      "label": "shutdown",
-      "start_state": {"id": 1, "label": "unconfigured"},
-      "goal_state": {"id": 4, "label": "finalized"}
-    }
-  ]
-}
 ```
+usage: ros2_cli.py nodes kill [-h] [--confirm] [--timeout TIMEOUT] node
 
-Output (all nodes — no argument):
-```json
-{
-  "nodes": [
-    {
-      "node": "/lifecycle_node",
-      "available_states": [...],
-      "available_transitions": [...]
-    }
-  ]
-}
-```
+positional arguments:
+  node               Node name (e.g. /turtlesim)
 
-Output (error):
-```json
-{"node": "/my_lifecycle_node", "error": "Lifecycle service not available for /my_lifecycle_node"}
+options:
+  -h, --help         show this help message and exit
+  --confirm          Safety interlock — must be set to actually kill the node
+  --timeout TIMEOUT  Seconds to wait for lifecycle shutdown (default: 10)
 ```
-
----
-
-## lifecycle get
 
-Get the current lifecycle state of a managed node.
+### CLI lifecycle nodes
 
-**ROS 2 CLI equivalent:** `ros2 lifecycle get <node>`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | Yes | Node name (e.g. `/my_lifecycle_node`) |
-| `--timeout` | No | Timeout in seconds (default: 5) |
-
-Example:
-```bash
-python3 scripts/ros2_cli.py lifecycle get /my_lifecycle_node
 ```
+usage: ros2_cli.py lifecycle nodes [-h]
 
-Output:
-```json
-{"node": "/my_lifecycle_node", "state_id": 1, "state_label": "unconfigured"}
+options:
+  -h, --help  show this help message and exit
 ```
 
-Common state IDs:
-| ID | Label |
-|----|-------|
-| 0 | unknown |
-| 1 | unconfigured |
-| 2 | inactive |
-| 3 | active |
-| 4 | finalized |
+### CLI lifecycle list
 
-Output (error):
-```json
-{"error": "Lifecycle service not available for /my_lifecycle_node. Is it a managed node?"}
 ```
-
----
-
-## lifecycle set
-
-Trigger a lifecycle state transition on a managed node. Accepts a transition by label (preferred) or numeric ID.
-
-When a label is given, the node's available transitions are queried first to resolve the correct numeric ID. This ensures correctness because the `ChangeState` service dispatches on ID, not label. Numeric IDs bypass the extra lookup.
-
-**ROS 2 CLI equivalent:** `ros2 lifecycle set <node> <transition>`
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `node` | Yes | Node name (e.g. `/my_lifecycle_node`) |
-| `transition` | Yes | Transition label (e.g. `configure`) or numeric ID (e.g. `1`) |
-| `--timeout` | No | Timeout in seconds (default: 5) |
-
-Common transition labels:
-
-| Label | ID | Start state | Goal state |
-|-------|----|-------------|------------|
-| `configure` | 1 | unconfigured | inactive |
-| `cleanup` | 2 | inactive | unconfigured |
-| `activate` | 3 | inactive | active |
-| `deactivate` | 4 | active | inactive |
-| `unconfigured_shutdown` | 5 | unconfigured | finalized |
-| `inactive_shutdown` | 6 | inactive | finalized |
-| `active_shutdown` | 7 | active | finalized |
+usage: ros2_cli.py lifecycle list [-h] [--timeout TIMEOUT] [node]
 
-Short forms are accepted via two-way fuzzy matching against the available transitions for the node's current state:
-- **Suffix match** — input matches the end of a label: `shutdown` → `unconfigured_shutdown` / `inactive_shutdown` / `active_shutdown`
-- **Prefix match** — input matches the start of a label: `unconfigured` → `unconfigured_shutdown`, `inactive` → `inactive_shutdown`, `active` → `active_shutdown`
+positional arguments:
+  node               Node name (e.g. /my_node); if omitted, queries all managed nodes
 
-Exact match is always tried first; suffix then prefix are fallbacks.
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout per node in seconds (default: 5)
+```
 
-Examples:
-```bash
-# By label (preferred) — resolves to the correct transition ID automatically
-python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node configure
-python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node activate
-python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node deactivate
-python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node cleanup
-python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node shutdown               # suffix-matched to current state
-python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node unconfigured_shutdown  # explicit full label
+### CLI lifecycle ls
 
-# By numeric ID — no extra round-trip to the node
-python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node 3   # activate
-python3 scripts/ros2_cli.py lifecycle set /my_lifecycle_node 5   # shutdown from unconfigured
 ```
+usage: ros2_cli.py lifecycle ls [-h] [--timeout TIMEOUT] [node]
 
-Output (success):
-```json
-{"node": "/my_lifecycle_node", "transition": "configure", "success": true}
-```
+positional arguments:
+  node               Node name (e.g. /my_node); if omitted, queries all managed nodes
 
-Output (failure — invalid transition for current state):
-```json
-{"node": "/my_lifecycle_node", "transition": "activate", "success": false}
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout per node in seconds (default: 5)
 ```
 
-Output (error — node not reachable):
-```json
-{"error": "Lifecycle service not available for /my_lifecycle_node. Is it a managed node?"}
-```
+### CLI lifecycle get
 
-Output (error — unknown label, with available options):
-```json
-{"error": "Unknown transition 'go'. Available: ['configure', 'unconfigured_shutdown']"}
 ```
-
----
+usage: ros2_cli.py lifecycle get [-h] [--timeout TIMEOUT] node
 
-## control list-controller-types
+positional arguments:
+  node               Node name (e.g. /my_lifecycle_node)
 
-List all controller types available in the pluginlib registry with their base classes.
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+### CLI lifecycle set
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control list-controller-types
-python3 scripts/ros2_cli.py control list-controller-types --controller-manager /my_robot/controller_manager
 ```
+usage: ros2_cli.py lifecycle set [-h] [--timeout TIMEOUT] [--verify] node transition
 
-Output (success):
-```json
-{
-  "controller_types": [
-    {"type": "joint_trajectory_controller/JointTrajectoryController", "base_class": "controller_interface::ControllerInterface"},
-    {"type": "diff_drive_controller/DiffDriveController", "base_class": "controller_interface::ControllerInterface"}
-  ],
-  "count": 2
-}
-```
-Output (error):
-```json
-{"error": "Controller manager service not available: /controller_manager/list_controller_types. Is the controller manager running?"}
+positional arguments:
+  node               Node name (e.g. /my_lifecycle_node)
+  transition         Transition label (e.g. configure, activate) or numeric ID
+
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+  --verify           Confirm the resulting state via GetState in the same node/process (avoids a
+                     second 'lifecycle get' CLI invocation)
 ```
 
----
+### CLI control list-controller-types
 
-## control list-controllers
+```
+usage: ros2_cli.py control list-controller-types [-h] [--controller-manager CONTROLLER_MANAGER]
+                                                 [--timeout TIMEOUT]
 
-List all loaded controllers, their type, and current state.
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
+```
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+### CLI control list-controllers
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control list-controllers
 ```
+usage: ros2_cli.py control list-controllers [-h] [--controller-manager CONTROLLER_MANAGER]
+                                            [--timeout TIMEOUT]
 
-Output (success):
-```json
-{
-  "controllers": [
-    {"name": "joint_trajectory_controller", "type": "joint_trajectory_controller/JointTrajectoryController", "state": "active"},
-    {"name": "joint_state_broadcaster", "type": "joint_state_broadcaster/JointStateBroadcaster", "state": "active"}
-  ],
-  "count": 2
-}
-```
-Output (error):
-```json
-{"error": "Timeout calling /controller_manager/list_controllers"}
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
 ```
 
----
+### CLI control list-hardware-components
 
-## control list-hardware-components
+```
+usage: ros2_cli.py control list-hardware-components [-h] [--controller-manager CONTROLLER_MANAGER]
+                                                    [--timeout TIMEOUT]
 
-List hardware components (actuator, sensor, system) managed by ros2_control.
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
+```
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+### CLI control list-hardware-interfaces
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control list-hardware-components
 ```
+usage: ros2_cli.py control list-hardware-interfaces [-h] [--controller-manager CONTROLLER_MANAGER]
+                                                    [--timeout TIMEOUT]
 
-Output (success):
-```json
-{
-  "hardware_components": [
-    {"name": "RRBotSystemPositionOnly", "type": "system", "state": {"id": 3, "label": "active"}}
-  ],
-  "count": 1
-}
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
 ```
-Output (error):
-```json
-{"error": "Controller manager service not available: /controller_manager/list_hardware_components. Is the controller manager running?"}
-```
-
----
 
-## control list-hardware-interfaces
+### CLI control load-controller
 
-List all available command and state interfaces.
+```
+usage: ros2_cli.py control load-controller [-h] [--controller-manager CONTROLLER_MANAGER]
+                                           [--timeout TIMEOUT]
+                                           name
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+positional arguments:
+  name                  Controller name
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control list-hardware-interfaces
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
 ```
 
-Output (success):
-```json
-{
-  "command_interfaces": [{"name": "joint1/position", "is_available": true, "is_claimed": true}],
-  "state_interfaces": [{"name": "joint1/position", "is_available": true}]
-}
-```
-Output (error):
-```json
-{"error": "Controller manager service not available: /controller_manager/list_hardware_interfaces. Is the controller manager running?"}
+### CLI control load
+
 ```
+usage: ros2_cli.py control load [-h] [--controller-manager CONTROLLER_MANAGER] [--timeout TIMEOUT]
+                                name
 
----
+positional arguments:
+  name                  Controller name
 
-## control load-controller
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
+```
 
-Load a controller plugin by name into the controller manager.
+### CLI control unload-controller
 
-**Alias:** `load`
+```
+usage: ros2_cli.py control unload-controller [-h] [--controller-manager CONTROLLER_MANAGER]
+                                             [--timeout TIMEOUT]
+                                             name
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| name | Yes | Controller name (positional) |
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+positional arguments:
+  name                  Controller name
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control load-controller joint_trajectory_controller
-python3 scripts/ros2_cli.py control load joint_trajectory_controller
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
 ```
 
-Output (success):
-```json
-{"controller": "joint_trajectory_controller", "ok": true}
-```
-Output (error):
-```json
-{"error": "Controller manager service not available: /controller_manager/load_controller. Is the controller manager running?"}
+### CLI control unload
+
 ```
+usage: ros2_cli.py control unload [-h] [--controller-manager CONTROLLER_MANAGER]
+                                  [--timeout TIMEOUT]
+                                  name
 
----
+positional arguments:
+  name                  Controller name
 
-## control unload-controller
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
+```
 
-Unload a stopped controller from the controller manager.
+### CLI control configure-controller
 
-**Alias:** `unload`
+```
+usage: ros2_cli.py control configure-controller [-h] [--controller-manager CONTROLLER_MANAGER]
+                                                [--timeout TIMEOUT]
+                                                name
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| name | Yes | Controller name (positional) |
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+positional arguments:
+  name                  Controller name
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control unload-controller joint_trajectory_controller
-python3 scripts/ros2_cli.py control unload joint_trajectory_controller
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
 ```
 
-Output (success):
-```json
-{"controller": "joint_trajectory_controller", "ok": true}
-```
-Output (error):
-```json
-{"controller": "joint_trajectory_controller", "ok": false}
+### CLI control reload-controller-libraries
+
 ```
+usage: ros2_cli.py control reload-controller-libraries [-h] [--force-kill]
+                                                       [--controller-manager CONTROLLER_MANAGER]
+                                                       [--timeout TIMEOUT]
 
----
+options:
+  -h, --help            show this help message and exit
+  --force-kill          Force kill controllers before reloading
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
+```
 
-## control configure-controller
+### CLI control set-controller-state
 
-Configure a loaded controller, driving it from the `unconfigured` state to `inactive`. This calls the `ConfigureController` service directly, which surfaces any `on_configure()` errors that `SwitchController`'s built-in auto-configure silently hides.
+```
+usage: ros2_cli.py control set-controller-state [-h] [--controller-manager CONTROLLER_MANAGER]
+                                                [--timeout TIMEOUT]
+                                                name {active,inactive}
 
-Use this command when a controller is stuck in `unconfigured` after `load-controller`, or when you need to confirm that configuration succeeds before attempting to activate.
+positional arguments:
+  name                  Controller name
+  {active,inactive}     Target state: active or inactive
 
-**ROS 2 CLI equivalent:** `ros2 control configure_controller <name>`
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `name` | Yes | Controller name (positional) |
-| `--controller-manager` | No | Controller manager node name (default: /controller_manager) |
-| `--timeout` | No | Service call timeout in seconds (default: 5.0) |
+### CLI control set-hardware-component-state
 
-Recommended workflow — explicit load → configure → activate:
-```bash
-# 1. Load the controller (brings it to unconfigured)
-python3 scripts/ros2_cli.py control load-controller joint_trajectory_controller
+```
+usage: ros2_cli.py control set-hardware-component-state [-h]
+                                                        [--controller-manager CONTROLLER_MANAGER]
+                                                        [--timeout TIMEOUT]
+                                                        name
+                                                        {unconfigured,inactive,active,finalized}
 
-# 2. Configure it (unconfigured → inactive); errors from on_configure() are visible here
-python3 scripts/ros2_cli.py control configure-controller joint_trajectory_controller
+positional arguments:
+  name                  Hardware component name
+  {unconfigured,inactive,active,finalized}
+                        Target lifecycle state
 
-# 3. Activate it (inactive → active)
-python3 scripts/ros2_cli.py control set-controller-state joint_trajectory_controller active
+options:
+  -h, --help            show this help message and exit
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
 ```
 
-Output (success):
-```json
-{"controller": "joint_trajectory_controller", "ok": true}
-```
-Output (failure — on_configure() returned error):
-```json
-{"controller": "joint_trajectory_controller", "ok": false}
+### CLI control switch-controllers
+
 ```
-Output (error — service not available):
-```json
-{"error": "Controller manager service not available: /controller_manager/configure_controller. Is the controller manager running?"}
+usage: ros2_cli.py control switch-controllers [-h] [--activate [ACTIVATE ...]]
+                                              [--deactivate [DEACTIVATE ...]]
+                                              [--strictness {BEST_EFFORT,STRICT}]
+                                              [--activate-asap] [--verify]
+                                              [--controller-manager CONTROLLER_MANAGER]
+                                              [--timeout TIMEOUT]
+
+options:
+  -h, --help            show this help message and exit
+  --activate [ACTIVATE ...]
+                        Controllers to activate
+  --deactivate [DEACTIVATE ...]
+                        Controllers to deactivate
+  --strictness {BEST_EFFORT,STRICT}
+                        Switching strictness (default: BEST_EFFORT)
+  --activate-asap       Activate controllers as soon as possible
+  --verify              Confirm the requested state changes landed via a list-controllers call in
+                        the same node/process (avoids a second CLI invocation)
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
 ```
 
----
+### CLI control view-controller-chains
 
-## control reload-controller-libraries
+```
+usage: ros2_cli.py control view-controller-chains [-h] [--output OUTPUT] [--channel-id CHANNEL_ID]
+                                                  [--config CONFIG]
+                                                  [--controller-manager CONTROLLER_MANAGER]
+                                                  [--timeout TIMEOUT]
 
-Reload all controller plugin libraries in the controller manager.
+options:
+  -h, --help            show this help message and exit
+  --output OUTPUT       Output filename saved in .artifacts/ (default: controller_diagram.pdf)
+  --channel-id CHANNEL_ID
+                        Discord channel ID; if provided, sends the PDF via discord_tools
+  --config CONFIG       Path to a Discord config file; if omitted, discord_tools.py will try
+                        ~/.nanobot/config.json and then ~/.config/ros2-skill/discord_tools.json
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5)
+```
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| --force-kill | No | Force kill controllers before reloading |
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+### CLI preflight motion
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control reload-controller-libraries
-python3 scripts/ros2_cli.py control reload-controller-libraries --force-kill
 ```
+usage: ros2_cli.py preflight motion [-h] --controller CONTROLLER --odom-topic ODOM_TOPIC
+                                    [--controller-manager CONTROLLER_MANAGER] [--timeout TIMEOUT]
+                                    [--stationary-timeout STATIONARY_TIMEOUT]
+                                    [--velocity-threshold VELOCITY_THRESHOLD]
+                                    [--source {teleop,nav2}] [--verbose]
 
-Output (success):
-```json
-{"ok": true, "force_kill": false}
+options:
+  -h, --help            show this help message and exit
+  --controller CONTROLLER
+                        Controller name to verify is active (from profile
+                        summary.active_controllers)
+  --odom-topic ODOM_TOPIC
+                        Odometry topic to check for stationary state
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Controller manager service call timeout in seconds (default: 5)
+  --stationary-timeout STATIONARY_TIMEOUT
+                        Max seconds to wait for one odom message (default: 2)
+  --velocity-threshold VELOCITY_THRESHOLD
+                        Max |linear| (m/s) and |angular.z| (rad/s) to call the robot stationary
+                        (default: 0.01)
+  --source {teleop,nav2}
+                        Velocity input the motion will use: teleop (topics publish*) or nav2 (nav2
+                        go/rotate/mission). With a twist switch, a command on the unselected input
+                        is ignored (default: teleop)
+  --verbose             Include the full controller description and odometry covariances
 ```
-Output (error):
-```json
-{"error": "Controller manager service not available: /controller_manager/reload_controller_libraries. Is the controller manager running?"}
-```
 
----
+### CLI preflight joint-command
 
-## control set-controller-state
+```
+usage: ros2_cli.py preflight joint-command [-h] --controller CONTROLLER
+                                           [--joint-state-topic JOINT_STATE_TOPIC]
+                                           [--joints JOINTS]
+                                           [--controller-manager CONTROLLER_MANAGER]
+                                           [--timeout TIMEOUT] [--state-timeout STATE_TIMEOUT]
 
-Activate or deactivate a single controller via SwitchController (STRICT mode).
+options:
+  -h, --help            show this help message and exit
+  --controller CONTROLLER
+                        Controller name to verify is active (from profile
+                        summary.joint_command_topics[].controller)
+  --joint-state-topic JOINT_STATE_TOPIC
+                        JointState topic to read current positions from (default: /joint_states)
+  --joints JOINTS       Comma-separated joint names to extract (from profile
+                        summary.joint_command_topics[].joints); omit to return every joint in the
+                        message
+  --controller-manager CONTROLLER_MANAGER
+                        Controller manager node name (default: /controller_manager)
+  --timeout TIMEOUT     Controller manager service call timeout in seconds (default: 5)
+  --state-timeout STATE_TIMEOUT
+                        Max seconds to wait for one joint_states message (default: 2)
+```
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| name | Yes | Controller name (positional) |
-| state | Yes | Target state: `active` or `inactive` (positional) |
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+### CLI params list
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control set-controller-state joint_trajectory_controller active
-python3 scripts/ros2_cli.py control set-controller-state joint_trajectory_controller inactive
 ```
+usage: ros2_cli.py params list [-h] [--timeout TIMEOUT] node
 
-Output (success):
-```json
-{"controller": "joint_trajectory_controller", "state": "active", "ok": true}
-```
-Output (error):
-```json
-{"controller": "joint_trajectory_controller", "state": "active", "ok": false}
-```
+positional arguments:
+  node               Node name (e.g. /turtlesim)
 
----
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-## control set-hardware-component-state
+### CLI params ls
 
-Drive a hardware component through its lifecycle state machine.
+```
+usage: ros2_cli.py params ls [-h] [--timeout TIMEOUT] node
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| name | Yes | Hardware component name (positional) |
-| state | Yes | Target lifecycle state: `unconfigured`, `inactive`, `active`, or `finalized` (positional) |
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+positional arguments:
+  node               Node name (e.g. /turtlesim)
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control set-hardware-component-state my_robot active
-python3 scripts/ros2_cli.py control set-hardware-component-state my_robot inactive
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
 ```
 
-Output (success):
-```json
-{"component": "my_robot", "ok": true, "actual_state": {"id": 3, "label": "active"}}
-```
-Output (error):
-```json
-{"error": "Controller manager service not available: /controller_manager/set_hardware_component_state. Is the controller manager running?"}
-```
+### CLI params get
 
----
+```
+usage: ros2_cli.py params get [-h] [--timeout TIMEOUT] name [param_name] [extra_names ...]
 
-## control switch-controllers
+positional arguments:
+  name               /node_name:param_name or just /node_name
+  param_name         Parameter name (alternative to colon format)
+  extra_names        Additional parameter names to fetch in the same call
 
-Atomically activate and/or deactivate multiple controllers in a single call.
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| --activate | No | Controllers to activate (space-separated list) |
-| --deactivate | No | Controllers to deactivate (space-separated list) |
-| --strictness | No | `BEST_EFFORT` or `STRICT` (default: BEST_EFFORT) |
-| --activate-asap | No | Activate controllers as soon as possible |
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+### CLI params set
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control switch-controllers \
-    --activate joint_trajectory_controller --deactivate cartesian_controller
-python3 scripts/ros2_cli.py control switch-controllers --activate ctrl_a ctrl_b --strictness STRICT
 ```
+usage: ros2_cli.py params set [-h] [--type {bool,int,float,str}] [--timeout TIMEOUT] [--verify]
+                              name value [extra_value] [rest ...]
 
-Output (success):
-```json
-{
-  "activate": ["joint_trajectory_controller"],
-  "deactivate": ["cartesian_controller"],
-  "strictness": "BEST_EFFORT",
-  "ok": true
-}
-```
-Output (error):
-```json
-{"error": "Timeout calling /controller_manager/switch_controller"}
+positional arguments:
+  name                  /node_name:param_name or just /node_name
+  value                 Value to set, or parameter name when using /node param value format
+  extra_value           Value when using /node param value format
+  rest                  Additional param-value pairs: p2 v2 p3 v3 ... (Lyrical multi-pair)
+
+options:
+  -h, --help            show this help message and exit
+  --type {bool,int,float,str}
+                        Force parameter type, overriding heuristic inference (mirrors Lyrical YAML
+                        !! annotations: !!bool, !!int, !!float, !!str)
+  --timeout TIMEOUT     Timeout in seconds (default: 5)
+  --verify              Read back the actual value via GetParameters in the same node/process
+                        (avoids a second 'params get' CLI invocation)
 ```
 
----
+### CLI params describe
 
-## control view-controller-chains
+```
+usage: ros2_cli.py params describe [-h] [--timeout TIMEOUT] name [param_name]
 
-Generate a Graphviz diagram of loaded chained controllers, save as PDF to `.artifacts/`, and optionally send to Discord.
+positional arguments:
+  name               /node_name:param_name or just /node_name
+  param_name         Parameter name (alternative to colon format)
 
-Requires graphviz: `sudo apt install graphviz`
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| --output | No | Output PDF filename saved in .artifacts/ (default: controller_diagram.pdf) |
-| --channel-id | No | Discord channel ID; if provided, sends the PDF via discord_tools |
-| --config | No | Path to a Discord config file; if omitted, auto-detects nanobot or standalone config |
-| --controller-manager | No | Controller manager node name (default: /controller_manager) |
-| --timeout | No | Service call timeout in seconds (default: 5.0) |
+### CLI params dump
 
-Example:
-```bash
-python3 scripts/ros2_cli.py control view-controller-chains
-python3 scripts/ros2_cli.py control view-controller-chains --output my_diagram.pdf --channel-id 1234567890
 ```
+usage: ros2_cli.py params dump [-h] [--timeout TIMEOUT] node
 
-Output (success):
-```json
-{
-  "gv_path": "/path/to/.artifacts/controller_diagram.gv",
-  "pdf_path": "/path/to/.artifacts/controller_diagram.pdf",
-  "controllers": 3
-}
-```
-Output (success with Discord):
-```json
-{
-  "gv_path": "/path/to/.artifacts/controller_diagram.gv",
-  "pdf_path": "/path/to/.artifacts/controller_diagram.pdf",
-  "controllers": 3,
-  "discord_sent": true
-}
-```
-Output (graphviz not installed):
-```json
-{
-  "gv_path": "/path/to/.artifacts/controller_diagram.gv",
-  "pdf_path": null,
-  "warning": "graphviz 'dot' not installed; .gv written but PDF not generated. Install with: sudo apt install graphviz",
-  "controllers": 3
-}
-```
-Output (error):
-```json
-{"error": "Controller manager service not available: /controller_manager/list_controllers. Is the controller manager running?"}
-```
+positional arguments:
+  node               Node name (e.g. /turtlesim)
 
----
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-## nav2
+### CLI params load
 
-High-level Nav2 navigation commands. These wrap Nav2 actions and require Nav2 to be running.
+```
+usage: ros2_cli.py params load [-h] [--timeout TIMEOUT] node params
 
-### nav2 go `<x>` `<y>` [options]
+positional arguments:
+  node               Node name (e.g. /turtlesim)
+  params             JSON string or file path with parameters dict
 
-Send a NavigateToPose goal to Nav2. The robot navigates autonomously, avoiding obstacles.
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-**ROS 2 CLI equivalent:** `ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose`
+### CLI params delete
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `x` | Yes | Target X in map frame (metres) |
-| `y` | Yes | Target Y in map frame (metres) |
+```
+usage: ros2_cli.py params delete [-h] [--timeout TIMEOUT] name [param_name] [extra_names ...]
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--yaw YAW` | `0.0` | Target heading at goal (radians) |
-| `--frame FRAME` | `map` | Reference frame for the goal pose |
-| `--timeout SECS` | `60.0` | Abort if not reached within this time |
+positional arguments:
+  name               /node_name:param_name or just /node_name
+  param_name         Parameter name (alternative to colon format)
+  extra_names        Additional parameter names to delete
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.0 2.0
-python3 {baseDir}/scripts/ros2_cli.py nav2 go 1.0 2.0 --yaw 1.57 --timeout 90
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
 ```
 
----
+### CLI params find
 
-### nav2 rotate `<degrees>` [options]
+```
+usage: ros2_cli.py params find [-h] [--node NODE] [--timeout TIMEOUT] pattern
 
-Rotate in-place by the given angle using Nav2's Spin action. Unlike `topics publish-until --rotate`, this is **obstacle-aware**: Nav2 will abort and return an error if rotation is blocked.
+positional arguments:
+  pattern            Case-insensitive substring to match (use 'all' or '*' for everything)
 
-**Use `nav2 rotate` (not `publish-until --rotate`) when Nav2 is running and obstacle avoidance during rotation is required.**
+options:
+  -h, --help         show this help message and exit
+  --node NODE        Limit search to a single node (e.g. /turtlesim)
+  --timeout TIMEOUT  Timeout per node in seconds (default: 10)
+```
 
-**ROS 2 CLI equivalent:** `ros2 action send_goal /spin nav2_msgs/action/Spin`
+### CLI params exists
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `degrees` | Yes | Angle to rotate (positive = counter-clockwise) |
+```
+usage: ros2_cli.py params exists [-h] [--timeout TIMEOUT] name
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECS` | `30.0` | Abort if not completed within this time |
+positional arguments:
+  name               Node and parameter in '/node:param' format (e.g. /turtlesim:background_r)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py nav2 rotate 90
-python3 {baseDir}/scripts/ros2_cli.py nav2 rotate -45 --timeout 15
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
 ```
 
-Output (success):
-```json
-{"success": true, "status": "SUCCEEDED", "degrees": 90.0, "target_yaw_rad": 1.5707963267948966}
-```
+### CLI params get-all-nodes
 
-Output (obstacle blocked):
-```json
-{"success": false, "status": "ABORTED", "degrees": 90.0, "target_yaw_rad": 1.5707963267948966}
 ```
+usage: ros2_cli.py params get-all-nodes [-h] [--timeout TIMEOUT] param_name
 
----
+positional arguments:
+  param_name         Parameter name to look up across all nodes (e.g. use_sim_time)
 
-### nav2 cancel
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout per node in seconds (default: 10)
+```
 
-Cancel the active Nav2 goal.
+### CLI params preset-save
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py nav2 cancel
 ```
+usage: ros2_cli.py params preset-save [-h] [--timeout TIMEOUT] node preset
 
----
+positional arguments:
+  node               Node name (e.g. /turtlesim)
+  preset             Preset name (e.g. indoor)
 
-### nav2 initial-pose `<x>` `<y>` `<yaw>` [options]
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-Set the robot's initial pose estimate for AMCL localization.
+### CLI params preset-load
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `x` | Yes | X position in map frame (metres) |
-| `y` | Yes | Y position in map frame (metres) |
-| `yaw` | Yes | Heading (radians) |
+```
+usage: ros2_cli.py params preset-load [-h] [--timeout TIMEOUT] node preset
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--frame FRAME` | `map` | Reference frame |
+positional arguments:
+  node               Node name (e.g. /turtlesim)
+  preset             Preset name (e.g. indoor)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py nav2 initial-pose 0.0 0.0 0.0
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
 ```
 
----
+### CLI params preset-list
 
-## doctor / wtf
+```
+usage: ros2_cli.py params preset-list [-h]
 
-Run ROS 2 system health checks. `wtf` is an exact alias for `doctor` (same flags, same subcommands, same output).
+options:
+  -h, --help  show this help message and exit
+```
 
-**ROS 2 CLI equivalent:** `ros2 doctor` / `ros2 wtf`
+### CLI params preset-delete
 
-### doctor (default — health check)
+```
+usage: ros2_cli.py params preset-delete [-h] preset
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--report` / `-r` | false | Include all report sections in the output |
-| `--report-failed` / `-rf` | false | Include report sections for failed checks only |
-| `--exclude-packages` / `-ep` | false | Skip package-related checks |
-| `--include-warnings` / `-iw` | false | Treat warnings as failures in the overall summary |
+positional arguments:
+  preset      Preset name to delete
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py doctor
-python3 {baseDir}/scripts/ros2_cli.py doctor --include-warnings
-python3 {baseDir}/scripts/ros2_cli.py doctor --report-failed -ep
-python3 {baseDir}/scripts/ros2_cli.py wtf
+options:
+  -h, --help  show this help message and exit
 ```
 
-Output (all passing):
-```json
-{
-  "summary": {
-    "total": 4,
-    "passed": 4,
-    "failed": 0,
-    "warned": 0,
-    "overall": "PASS"
-  },
-  "checks": [
-    {"name": "network", "status": "PASS", "errors": 0, "warnings": 0},
-    {"name": "platform", "status": "PASS", "errors": 0, "warnings": 0},
-    {"name": "rmw", "status": "PASS", "errors": 0, "warnings": 0},
-    {"name": "topic", "status": "PASS", "errors": 0, "warnings": 0}
-  ]
-}
-```
+### CLI actions list
 
-Output (with warnings, `--report-failed` flag):
-```json
-{
-  "summary": {
-    "total": 4,
-    "passed": 3,
-    "failed": 0,
-    "warned": 1,
-    "overall": "WARN"
-  },
-  "checks": [
-    {"name": "network", "status": "WARN", "errors": 0, "warnings": 1},
-    {"name": "platform", "status": "PASS", "errors": 0, "warnings": 0},
-    {"name": "rmw", "status": "PASS", "errors": 0, "warnings": 0},
-    {"name": "topic", "status": "PASS", "errors": 0, "warnings": 0}
-  ],
-  "reports": []
-}
 ```
+usage: ros2_cli.py actions list [-h]
 
-Output (ros2doctor not installed):
-```json
-{"error": "No ros2doctor checkers found. Is ros2doctor installed? Source ROS 2 setup.bash."}
+options:
+  -h, --help  show this help message and exit
 ```
 
-**Environment variables that affect ROS 2 health (Lyrical Luth additions):**
+### CLI actions ls
 
-| Variable | Effect | When to use |
-|----------|--------|-------------|
-| `RCL_LOGGING_IMPLEMENTATION` | Swap the logging backend at runtime (`rcl_logging_spdlog` is the default; `rcl_logging_log4cxx` for structured log aggregation). | Node logs missing or in unexpected format: unset this variable or set it explicitly to `rcl_logging_spdlog`. |
-| `TRACETOOLS_RUNTIME_DISABLE` | Set to `1` to disable tracetools instrumentation globally at runtime. | Suppress tracing overhead when `ros2 trace` is not in use (Lyrical+ only). |
-| `TRACETOOLS_STATUS_OVERRIDE` | Force tracing status reporting (`enabled`/`disabled`). | Debug tracing configuration issues without restarting nodes. |
-
----
+```
+usage: ros2_cli.py actions ls [-h]
 
-### doctor hello
+options:
+  -h, --help  show this help message and exit
+```
 
-Check cross-host connectivity by publishing on a ROS 2 topic and sending UDP multicast packets simultaneously, then reporting which other hosts responded.
+### CLI actions details
 
-**ROS 2 CLI equivalent:** `ros2 doctor hello`
+```
+usage: ros2_cli.py actions details [-h] action
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--topic TOPIC` / `-t` | `/canyouhearme` | Topic to publish and subscribe on |
-| `--timeout SECS` / `-to` | `10.0` | How long to listen for responses (seconds) |
+positional arguments:
+  action      Action server name (e.g. /turtle1/rotate_absolute)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py doctor hello
-python3 {baseDir}/scripts/ros2_cli.py doctor hello --timeout 5 --topic /ros2_hello
-python3 {baseDir}/scripts/ros2_cli.py wtf hello
+options:
+  -h, --help  show this help message and exit
 ```
 
-Output (other hosts heard):
-```json
-{
-  "published": {
-    "topic": "/canyouhearme",
-    "multicast": "225.0.0.1:49150",
-    "message": "hello, it's me my-robot"
-  },
-  "ros_topic_heard_from": ["hello, it's me other-robot"],
-  "multicast_heard_from": ["192.168.1.42"],
-  "total_ros_hosts": 1,
-  "total_multicast_hosts": 1
-}
-```
+### CLI actions info
 
-Output (no other hosts):
-```json
-{
-  "published": {
-    "topic": "/canyouhearme",
-    "multicast": "225.0.0.1:49150",
-    "message": "hello, it's me my-robot"
-  },
-  "ros_topic_heard_from": [],
-  "multicast_heard_from": [],
-  "total_ros_hosts": 0,
-  "total_multicast_hosts": 0
-}
 ```
+usage: ros2_cli.py actions info [-h] action
 
----
+positional arguments:
+  action      Action server name (e.g. /turtle1/rotate_absolute)
 
-### doctor diagnostics
+options:
+  -h, --help  show this help message and exit
+```
 
-Read hardware health from `/diagnostics_agg` (aggregated `DiagnosticArray`). Subscribes for `--timeout` seconds and returns the most recent snapshot, filtered by minimum severity level.
+### CLI actions type
 
-**ROS 2 CLI equivalent:** `ros2 topic echo /diagnostics_agg` (but structured and filtered)
+```
+usage: ros2_cli.py actions type [-h] [--timeout TIMEOUT] [action]
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--level LEVEL` | `ok` | Minimum severity to include: `ok`, `warn`, `error`, or `stale` |
-| `--topic TOPIC` | `/diagnostics_agg` | Diagnostics topic to subscribe to |
-| `--timeout SECS` | `5.0` | How long to wait for a message (seconds) |
+positional arguments:
+  action             Action server name (e.g. /turtle1/rotate_absolute)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py doctor diagnostics
-python3 {baseDir}/scripts/ros2_cli.py doctor diagnostics --level warn
-python3 {baseDir}/scripts/ros2_cli.py wtf diagnostics --level error --timeout 10
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
 ```
+
+### CLI actions send
 
-Output:
-```json
-{
-  "topic": "/diagnostics_agg",
-  "filter_level": "warn",
-  "components_total": 5,
-  "components_shown": 2,
-  "summary": "2 WARN, 0 ERROR, 0 STALE",
-  "components": [
-    {"name": "motor_driver", "level": "WARN", "message": "temperature high", "values": {}},
-    {"name": "imu", "level": "WARN", "message": "calibration drift", "values": {}}
-  ]
-}
 ```
+usage: ros2_cli.py actions send [-h] [--timeout TIMEOUT] [--retries RETRIES] [--feedback]
+                                action goal
 
----
+positional arguments:
+  action             Action server name (e.g. /turtle1/rotate_absolute)
+  goal               JSON goal
 
-## multicast send
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 30)
+  --retries RETRIES  Number of attempts before giving up (overrides global --retries)
+  --feedback         Collect and return feedback messages alongside the result
+```
 
-Send one UDP multicast datagram to a multicast group. Uses pure Python `socket` — no ROS 2 required.
+### CLI actions cancel
 
-**ROS 2 CLI equivalent:** `ros2 multicast send`
+```
+usage: ros2_cli.py actions cancel [-h] [--goal-id GOAL_ID] [--timeout TIMEOUT] [--retries RETRIES]
+                                  [action]
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--group GROUP` / `-g` | `225.0.0.1` | Multicast group address |
-| `--port PORT` / `-p` | `49150` | UDP port |
+positional arguments:
+  action             Action server name (e.g. /turtle1/rotate_absolute)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py multicast send
-python3 {baseDir}/scripts/ros2_cli.py multicast send --group 225.0.0.1 --port 49150
+options:
+  -h, --help         show this help message and exit
+  --goal-id GOAL_ID  Cancel only the goal with this UUID string (default: cancel ALL goals)
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+  --retries RETRIES  Number of attempts before giving up (overrides global --retries)
 ```
 
-Output:
-```json
-{
-  "sent": {
-    "group": "225.0.0.1",
-    "port": 49150,
-    "message": "Hello, multicast!"
-  }
-}
+### CLI actions status
+
 ```
+usage: ros2_cli.py actions status [-h] [--timeout TIMEOUT] [action]
 
----
+positional arguments:
+  action             Action server name (e.g. /navigate_to_pose)
 
-## multicast receive
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Seconds to wait for a status message (default: 3)
+```
 
-Listen for UDP multicast packets and return all received within the timeout window. Uses pure Python `socket` — no ROS 2 required.
+### CLI actions echo
 
-**ROS 2 CLI equivalent:** `ros2 multicast receive`
+```
+usage: ros2_cli.py actions echo [-h] [--duration DURATION] [--max-messages MAX_MESSAGES]
+                                [--timeout TIMEOUT]
+                                action
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--group GROUP` / `-g` | `225.0.0.1` | Multicast group address |
-| `--port PORT` / `-p` | `49150` | UDP port |
-| `--timeout SECS` / `-t` | `5.0` | How long to listen in seconds |
+positional arguments:
+  action                Action server name (e.g. /turtle1/rotate_absolute)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py multicast receive
-python3 {baseDir}/scripts/ros2_cli.py multicast receive --timeout 10
-python3 {baseDir}/scripts/ros2_cli.py multicast receive --group 225.0.0.1 --port 49150 --timeout 5
+options:
+  -h, --help            show this help message and exit
+  --duration DURATION   Collect feedback for this many seconds (default: wait for first message)
+  --max-messages MAX_MESSAGES, --max-msgs MAX_MESSAGES
+                        Max feedback messages to collect when using --duration (default: 100)
+  --timeout TIMEOUT     Timeout waiting for first feedback in seconds (default: 5)
 ```
 
-Output (packets received):
-```json
-{
-  "received": [
-    {"from": "192.168.1.42", "message": "Hello, multicast!"}
-  ],
-  "total": 1,
-  "group": "225.0.0.1",
-  "port": 49150,
-  "timeout": 5.0
-}
-```
+### CLI actions find
 
-Output (nothing received):
-```json
-{
-  "received": [],
-  "total": 0,
-  "group": "225.0.0.1",
-  "port": 49150,
-  "timeout": 5.0
-}
 ```
+usage: ros2_cli.py actions find [-h] [--timeout TIMEOUT] [action_type]
 
----
+positional arguments:
+  action_type        Action type to search for (e.g. turtlesim/action/RotateAbsolute)
 
-## tf
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout in seconds (default: 5)
+```
 
-TF2 transform utilities for querying, listing, and monitoring coordinate frame transforms.
+### CLI doctor hello
 
-### tf tree [options]
+```
+usage: ros2_cli.py doctor hello [-h] [--topic TOPIC] [--timeout TIMEOUT]
 
-Subscribe to `/tf` and `/tf_static` for a short duration and output the full frame hierarchy as an ASCII tree. Use this to understand the robot's transform topology before any spatial operation.
+options:
+  -h, --help            show this help message and exit
+  --topic TOPIC, -t TOPIC
+                        Topic to publish/subscribe on (default: /canyouhearme)
+  --timeout TIMEOUT, -to TIMEOUT
+                        How long to listen for responses in seconds (default: 10.0)
+```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--duration SECONDS` | `2.0` | How long to collect TF messages |
+### CLI doctor diagnostics
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf tree
-python3 {baseDir}/scripts/ros2_cli.py tf tree --duration 3
 ```
+usage: ros2_cli.py doctor diagnostics [-h] [--level LEVEL] [--topic TOPIC] [--timeout TIMEOUT]
 
-**Output:**
-```json
-{
-  "frames": ["world", "odom", "base_link", "laser_link", "camera_link"],
-  "root_frames": ["world"],
-  "tree": "world\n└── odom\n    └── base_link\n        ├── laser_link\n        └── camera_link",
-  "transform_count": 4
-}
+options:
+  -h, --help         show this help message and exit
+  --level LEVEL      Minimum level to show: ok | warn | error | stale (default: ok = show all)
+  --topic TOPIC      Diagnostics topic (default: /diagnostics_agg)
+  --timeout TIMEOUT  Seconds to wait for a message (default: 5.0)
 ```
+
+### CLI wtf hello
 
-**No frames received:**
-```json
-{"error": "No TF frames received within 2.0s — is a TF publisher running?"}
 ```
+usage: ros2_cli.py wtf hello [-h] [--topic TOPIC] [--timeout TIMEOUT]
 
-### tf validate [options]
+options:
+  -h, --help            show this help message and exit
+  --topic TOPIC, -t TOPIC
+                        Topic to publish/subscribe on (default: /canyouhearme)
+  --timeout TIMEOUT, -to TIMEOUT
+                        How long to listen for responses in seconds (default: 10.0)
+```
 
-Collect TF transforms and check for structural problems: cycles, frames with multiple parents, and empty trees. Run this before any TF-dependent operation when the tree is unfamiliar or after a node restart.
+### CLI wtf diagnostics
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--duration SECONDS` | `2.0` | How long to collect TF messages |
+```
+usage: ros2_cli.py wtf diagnostics [-h] [--level LEVEL] [--topic TOPIC] [--timeout TIMEOUT]
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf validate
+options:
+  -h, --help         show this help message and exit
+  --level LEVEL      Minimum level to show: ok | warn | error | stale (default: ok = show all)
+  --topic TOPIC      Diagnostics topic (default: /diagnostics_agg)
+  --timeout TIMEOUT  Seconds to wait for a message (default: 5.0)
 ```
 
-**Output (valid):**
-```json
-{
-  "valid": true,
-  "frames": ["world", "odom", "base_link", "laser_link"],
-  "issues": [],
-  "warnings": ["Frame 'laser_link' has no children — leaf node (expected for sensors)"]
-}
+### CLI multicast send
+
 ```
+usage: ros2_cli.py multicast send [-h] [--group GROUP] [--port PORT]
 
-**Output (cycle detected):**
-```json
-{
-  "valid": false,
-  "frames": ["odom", "base_link", "odom"],
-  "issues": ["Cycle detected involving frame 'odom'", "Frame 'base_link' has multiple parents: odom, world"],
-  "warnings": []
-}
+options:
+  -h, --help            show this help message and exit
+  --group GROUP, -g GROUP
+                        Multicast group address (default: 225.0.0.1)
+  --port PORT, -p PORT  UDP port (default: 49150)
 ```
 
-### tf list / tf ls
+### CLI multicast receive
 
-List all available coordinate frames.
+```
+usage: ros2_cli.py multicast receive [-h] [--group GROUP] [--port PORT] [--timeout TIMEOUT]
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf list
+options:
+  -h, --help            show this help message and exit
+  --group GROUP, -g GROUP
+                        Multicast group address (default: 225.0.0.1)
+  --port PORT, -p PORT  UDP port (default: 49150)
+  --timeout TIMEOUT, -t TIMEOUT
+                        How long to listen in seconds (default: 5.0)
 ```
 
-### tf lookup / tf get `<source>` `<target>`
+### CLI tf list
 
-Lookup transform between two frames.
+```
+usage: ros2_cli.py tf list [-h] [--timeout TIMEOUT]
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `source` | Yes | Source frame |
-| `target` | Yes | Target frame |
+options:
+  -h, --help            show this help message and exit
+  --timeout TIMEOUT, -t TIMEOUT
+                        Seconds to spin collecting TF broadcasts before reporting (default: 3.0)
+```
 
-| Option | Required | Default | Description |
-|--------|----------|---------|-------------|
-| `--timeout`, `-t` | No | 5.0 | Timeout in seconds |
+### CLI tf ls
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf lookup base_link map
 ```
+usage: ros2_cli.py tf ls [-h] [--timeout TIMEOUT]
 
-**Output:**
-```json
-{
-  "source_frame": "base_link",
-  "target_frame": "map",
-  "translation": {"x": 1.0, "y": 0.0, "z": 0.0},
-  "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
-  "euler": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
-  "euler_degrees": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}
-}
+options:
+  -h, --help            show this help message and exit
+  --timeout TIMEOUT, -t TIMEOUT
+                        Seconds to spin collecting TF broadcasts before reporting (default: 3.0)
 ```
 
-### tf echo `<source>` `<target>`
+### CLI tf lookup
 
-Continuously echo transforms.
-
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `source` | Yes | Source frame |
-| `target` | Yes | Target frame |
+```
+usage: ros2_cli.py tf lookup [-h] [--timeout TIMEOUT] source target
 
-| Option | Required | Default | Description |
-|--------|----------|---------|-------------|
-| `--timeout`, `-t` | No | 5.0 | Timeout per lookup |
-| `--count`, `-n` | No | 5 | Number of echos |
-| `--once` | No | false | Echo once (equivalent to `--count 1`) |
+positional arguments:
+  source                Source frame
+  target                Target frame
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf echo base_link map --count 10
+options:
+  -h, --help            show this help message and exit
+  --timeout TIMEOUT, -t TIMEOUT
+                        Timeout in seconds
 ```
 
-### tf monitor `<frame>`
+### CLI tf get
 
-Monitor transform updates for a specific frame.
+```
+usage: ros2_cli.py tf get [-h] [--timeout TIMEOUT] source target
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `frame` | Yes | Frame to monitor |
+positional arguments:
+  source                Source frame
+  target                Target frame
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf monitor base_link --count 5
+options:
+  -h, --help            show this help message and exit
+  --timeout TIMEOUT, -t TIMEOUT
+                        Timeout in seconds
 ```
 
-### tf static `<x>` `<y>` `<z>` `<roll>` `<pitch>` `<yaw>` `<from_frame>` `<to_frame>`
+### CLI tf echo
 
-Publish static transform. Runs in tmux session.
+```
+usage: ros2_cli.py tf echo [-h] [--timeout TIMEOUT] [--count COUNT] [--once] source target
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `x` | Yes | Translation x |
-| `y` | Yes | Translation y |
-| `z` | Yes | Translation z |
-| `roll` | Yes | Rotation roll (radians) |
-| `pitch` | Yes | Rotation pitch (radians) |
-| `yaw` | Yes | Rotation yaw (radians) |
-| `from_frame` | Yes | Source frame |
-| `to_frame` | Yes | Target frame |
+positional arguments:
+  source                Source frame
+  target                Target frame
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf static 0 0 0 0 0 0 base_link odom
+options:
+  -h, --help            show this help message and exit
+  --timeout TIMEOUT, -t TIMEOUT
+                        Timeout per lookup
+  --count COUNT, -n COUNT
+                        Number of echos
+  --once                Echo once (equivalent to --count 1)
 ```
 
-### tf euler-from-quaternion `<x>` `<y>` `<z>` `<w>`
+### CLI tf monitor
 
-Convert quaternion to Euler angles (radians).
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion 0 0 0 1
 ```
-
-### tf quaternion-from-euler `<roll>` `<pitch>` `<yaw>`
+usage: ros2_cli.py tf monitor [-h] [--reference-frame REFERENCE_FRAME] [--timeout TIMEOUT]
+                              [--count COUNT]
+                              frame
 
-Convert Euler angles to quaternion (radians).
+positional arguments:
+  frame                 Frame to monitor
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler 0 0 1.57
+options:
+  -h, --help            show this help message and exit
+  --reference-frame REFERENCE_FRAME, -r REFERENCE_FRAME
+                        Reference frame to look up against (default: auto-discovered root frame
+                        via tf list)
+  --timeout TIMEOUT, -t TIMEOUT
+                        Timeout per lookup
+  --count COUNT, -n COUNT
+                        Number of updates
 ```
 
-### tf euler-from-quaternion-deg `<x>` `<y>` `<z>` `<w>`
+### CLI tf static
 
-Convert quaternion to Euler angles (degrees).
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf euler-from-quaternion-deg 0 0 0 1
 ```
-
-### tf quaternion-from-euler-deg `<roll>` `<pitch>` `<yaw>`
+usage: ros2_cli.py tf static [-h] [--from FROM_FRAME] [--to TO_FRAME] [--xyz X Y Z] [--rpy R P Y]
+                             [pos_args ...]
 
-Convert Euler angles to quaternion (degrees).
+positional arguments:
+  pos_args           Positional: x y z roll pitch yaw from_frame to_frame
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf quaternion-from-euler-deg 0 0 90
+options:
+  -h, --help         show this help message and exit
+  --from FROM_FRAME  Source frame (named form)
+  --to TO_FRAME      Target frame (named form)
+  --xyz X Y Z        Translation x y z
+  --rpy R P Y        Rotation roll pitch yaw (radians)
 ```
 
-### tf transform-point `<target>` `<source>` `<x>` `<y>` `<z>`
+### CLI tf euler-from-quaternion
 
-Transform a point from source to target frame.
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf transform-point map base_link 1 0 0
 ```
-
-### tf transform-vector `<target>` `<source>` `<x>` `<y>` `<z>`
+usage: ros2_cli.py tf euler-from-quaternion [-h] x y z w
 
-Transform a vector from source to target frame.
+positional arguments:
+  x           Quaternion x
+  y           Quaternion y
+  z           Quaternion z
+  w           Quaternion w
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py tf transform-vector map base_link 1 0 0
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI tf quaternion-from-euler
 
-## launch new `<package>` `<launch_file>` [args...]
-
-Run a ROS 2 launch file in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
+```
+usage: ros2_cli.py tf quaternion-from-euler [-h] roll pitch yaw
 
-**Auto-detect features:**
-- Launch arguments are validated against the launch file's available arguments
-- Invalid/unknown arguments show a warning and are ignored
-- Partial argument names are auto-matched (e.g., "mock" → "use_mock")
+positional arguments:
+  roll        Euler roll (radians)
+  pitch       Euler pitch (radians)
+  yaw         Euler yaw (radians)
 
-**Workspace sourcing:** If the launch file is in a local workspace, the skill automatically sources it. Set `ROS2_LOCAL_WS` environment variable if the workspace is not in the default search paths (`~/ros2_ws`, `~/colcon_ws`, `~/dev_ws`, `~/workspace`, `~/ros2`).
+options:
+  -h, --help  show this help message and exit
+```
 
-**Lyrical Luth launch additions (available in launch files on Lyrical+ only):**
-- **New substitutions:** `StringJoinSubstitution(values, delimiter)` — concatenates a list of strings; `PathJoinSubstitution(values)` — joins path segments (replaces manual `[FindPackageShare(...), "subdir", "file.yaml"]` patterns).
-- **Log actions:** `LogInfo(msg)`, `LogWarn(msg)`, `LogError(msg)`, `LogDebug(msg)` — emit structured messages from inside a launch file at the appropriate log level. More precise than `LogInfo` with a `condition` argument for runtime-conditional logging.
+### CLI tf euler-from-quaternion-deg
 
-These are launch-file authoring features, not `ros2_cli.py` flags. They affect launch files you write or inspect, not how `launch new` is invoked.
+```
+usage: ros2_cli.py tf euler-from-quaternion-deg [-h] x y z w
 
-**Discovery workflow:** Resolve the launch file location before running:
-1. **Path A (profile loaded):** check `summary.launch_files` and `summary.packages` for the package + launch file. No live calls needed for naming.
-2. **Path B (no profile):** `ros2 pkg list` — find available packages; `ros2 pkg files <package>` — find launch files in a package.
-3. Either path: `launch run` will fail-fast if the file does not exist, so a `launch list` pre-check is optional, not required.
+positional arguments:
+  x           Quaternion x
+  y           Quaternion y
+  z           Quaternion z
+  w           Quaternion w
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `package` | Yes | Package name containing the launch file |
-| `launch_file` | Yes | Launch file name (e.g., `navigation2.launch.py`) |
-| `args` | No | Additional launch arguments |
+options:
+  -h, --help  show this help message and exit
+```
 
-| Option | Required | Default | Description |
-|--------|----------|---------|-------------|
-| `--timeout SECONDS` | No | 30 | Timeout for launch to start |
+### CLI tf quaternion-from-euler-deg
 
-**Run a launch file:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py
 ```
+usage: ros2_cli.py tf quaternion-from-euler-deg [-h] roll pitch yaw
 
-**Run with arguments (exact match):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py use_mock:=true map:=/maps/office.yaml
-```
+positional arguments:
+  roll        Euler roll (degrees)
+  pitch       Euler pitch (degrees)
+  yaw         Euler yaw (degrees)
 
-**Run with arguments (fuzzy-matched):**
-```bash
-# "mock" is not a real arg but "use_mock" is — it will be auto-matched and you'll be notified
-python3 {baseDir}/scripts/ros2_cli.py launch new navigation2 navigation2.launch.py mock:=true
+options:
+  -h, --help  show this help message and exit
 ```
 
-**Output (success, all args matched):**
-```json
-{
-  "success": true,
-  "session": "launch_navigation2_navigation2",
-  "command": "ros2 launch navigation2 navigation2.launch.py use_mock:=true map:=/maps/office.yaml",
-  "package": "navigation2",
-  "launch_file": "navigation2.launch.py",
-  "status": "running",
-  "launch_args": ["use_mock:=true", "map:=/maps/office.yaml"]
-}
-```
+### CLI tf transform-point
 
-**Output (fuzzy match applied):**
-```json
-{
-  "success": true,
-  "session": "launch_navigation2_navigation2",
-  "command": "ros2 launch navigation2 navigation2.launch.py use_mock:=true",
-  "package": "navigation2",
-  "launch_file": "navigation2.launch.py",
-  "status": "running",
-  "launch_args": ["use_mock:=true"],
-  "arg_notices": [
-    "NOTICE: 'mock' not found — using closest match 'use_mock' instead. Passed as: use_mock:=true"
-  ]
-}
 ```
+usage: ros2_cli.py tf transform-point [-h] [--timeout TIMEOUT] target source x y z
 
-**Output (unknown arg — dropped, launch still proceeds):**
-```json
-{
-  "success": true,
-  "session": "launch_navigation2_navigation2",
-  "command": "ros2 launch navigation2 navigation2.launch.py",
-  "package": "navigation2",
-  "launch_file": "navigation2.launch.py",
-  "status": "running",
-  "launch_args": [],
-  "arg_notices": [
-    "NOTICE: Argument 'nonexistent_arg' does not exist in this launch file and no similar argument was found. It was NOT passed. Available args: [map, use_mock, use_sim_time]"
-  ]
-}
-```
+positional arguments:
+  target                Target frame
+  source                Source frame
+  x                     Point x
+  y                     Point y
+  z                     Point z
 
-Error (session already exists):
-```json
-{
-  "error": "Session 'launch_navigation2_navigation2' already exists",
-  "suggestion": "Use 'launch kill launch_navigation2_navigation2' to kill first",
-  "session": "launch_navigation2_navigation2"
-}
+options:
+  -h, --help            show this help message and exit
+  --timeout TIMEOUT, -t TIMEOUT
+                        Timeout
 ```
 
----
+### CLI tf transform-vector
 
-## launch list / launch ls `[keyword]`
-
-Without a keyword, lists running launch sessions in tmux. With a keyword, searches all installed ROS 2 packages for launch files whose path contains the keyword (case-insensitive).
+```
+usage: ros2_cli.py tf transform-vector [-h] [--timeout TIMEOUT] target source x y z
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `keyword` | No | Substring to search for in package names or launch file paths |
+positional arguments:
+  target                Target frame
+  source                Source frame
+  x                     Vector x
+  y                     Vector y
+  z                     Vector z
 
-**List running sessions (no keyword):**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch list
+options:
+  -h, --help            show this help message and exit
+  --timeout TIMEOUT, -t TIMEOUT
+                        Timeout
 ```
 
-**Output (no keyword):**
-```json
-{
-  "all_sessions": ["launch_navigation2_navigation2", "launch_turtlesim_turtlesim"],
-  "launch_sessions": ["launch_navigation2_navigation2"],
-  "launch_sessions_detail": [
-    {
-      "session": "launch_navigation2_navigation2",
-      "command": "ros2 launch navigation2 navigation2.launch.py",
-      "status": "running"
-    }
-  ]
-}
-```
+### CLI tf tree
 
-**Search for launch files by keyword:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch list navigation
 ```
+usage: ros2_cli.py tf tree [-h] [--duration DURATION]
 
-**Output (with keyword):**
-```json
-{
-  "keyword": "navigation",
-  "matches": [
-    {
-      "package": "navigation2",
-      "launch_file": "navigation2.launch.py",
-      "full_path": "/opt/ros/humble/share/navigation2/launch/navigation2.launch.py"
-    },
-    {
-      "package": "nav2_bringup",
-      "launch_file": "bringup_launch.py",
-      "full_path": "/opt/ros/humble/share/nav2_bringup/launch/bringup_launch.py"
-    }
-  ],
-  "count": 2
-}
+options:
+  -h, --help            show this help message and exit
+  --duration DURATION, -d DURATION
+                        Seconds to collect TF data (default: 2.0)
 ```
 
-**Common keywords:**
+### CLI tf validate
 
-| Intent | Keyword |
-|--------|---------|
-| Navigation stack | `navigation` or `nav2` |
-| Robot description / URDF | `robot_description` or `urdf` |
-| Teleop / joystick | `teleop` |
-| Camera / sensors | `camera` or `sensor` |
-| Control framework | `ros2_control` or `controller` |
-| Simulation | `gazebo` or `sim` |
+```
+usage: ros2_cli.py tf validate [-h] [--duration DURATION]
 
----
+options:
+  -h, --help            show this help message and exit
+  --duration DURATION, -d DURATION
+                        Seconds to collect TF data (default: 2.0)
+```
 
-## launch kill `<session>`
+### CLI launch new
 
-Kill a running launch session.
+```
+usage: ros2_cli.py launch new [-h] [--param PARAMS] [--config-path CONFIG_PATH] [--preset PRESET]
+                              [--timeout TIMEOUT]
+                              package launch_file [args ...]
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `session` | Yes | Session name to kill (must start with `launch_`) |
+positional arguments:
+  package               Package name containing the launch file
+  launch_file           Launch file name (without path)
+  args                  Additional launch arguments (name:=value)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch kill launch_navigation2_navigation2
+options:
+  -h, --help            show this help message and exit
+  --param PARAMS        Inline parameters as comma-separated key:=value pairs (e.g. --param
+                        use_sim_time:=true,robot_name:=my_robot)
+  --config-path CONFIG_PATH
+                        Path to a YAML config file or directory of YAML files; files are forwarded
+                        to launched nodes via --ros-args --params-file. When a directory is given,
+                        all .yaml/.yml files are loaded in alphabetical order (last file wins on
+                        duplicate keys).
+  --preset PRESET       Parameter preset name to apply (saved via 'params preset-save'); preset
+                        values have lower priority than explicit args and --param
+  --timeout TIMEOUT     Timeout for launch to start (default: 30)
 ```
 
-**Output:**
-```json
-{
-  "success": true,
-  "session": "launch_navigation2_navigation2",
-  "message": "Session 'launch_navigation2_navigation2' killed"
-}
-```
+### CLI launch list
 
----
+```
+usage: ros2_cli.py launch list [-h] [keyword]
 
-## launch foxglove `[port]`
+positional arguments:
+  keyword     Optional keyword to search installed packages for matching launch files (use 'all'
+              to list every launch file)
 
-Launch foxglove_bridge in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
+options:
+  -h, --help  show this help message and exit
+```
 
-| Argument | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `port` | No | 8765 | Foxglove bridge port |
+### CLI launch ls
 
-**Run foxglove_bridge:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch foxglove
 ```
+usage: ros2_cli.py launch ls [-h] [keyword]
 
-**Run with custom port:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py launch foxglove 9000
-```
+positional arguments:
+  keyword     Optional keyword to search for launch files
 
-**Output:**
-```json
-{
-  "success": true,
-  "session": "launch_foxglove_bridge_port8765",
-  "command": "ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765",
-  "package": "foxglove_bridge",
-  "launch_file": "foxglove_bridge_launch.xml",
-  "port": 8765,
-  "status": "running"
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
-Error (session already exists):
-```json
-{
-  "error": "Session 'launch_foxglove_bridge_port8765' already exists",
-  "suggestion": "Use 'launch restart launch_foxglove_bridge_port8765' to restart, or 'launch kill launch_foxglove_bridge_port8765' to kill first",
-  "session": "launch_foxglove_bridge_port8765"
-}
-```
+### CLI launch kill
 
-Error (package not found):
-```json
-{
-  "error": "Package 'foxglove_bridge' not found",
-  "suggestion": "Install for your ROS 2 distro with:\n  sudo apt install ros-$ROS_DISTRO-foxglove-bridge\n\nOr build from source:\n  git clone https://github.com/foxglove/ros2-foxglove-bridge.git",
-  "current_distro": "jazzy"
-}
 ```
+usage: ros2_cli.py launch kill [-h] session
 
-Error (launch file not found):
-```json
-{
-  "error": "Launch file 'foxglove_bridge_launch.xml' not found in foxglove_bridge package",
-  "suggestion": "The foxglove_bridge package is installed but may be for a different ROS distro.\nCurrent distro: jazzy\n\nReinstall for your distro:\n  sudo apt install ros-jazzy-foxglove-bridge\n\nOr check installed packages:\n  dpkg -l | grep foxglove",
-  "package_path": "/opt/ros/jazzy/share/foxglove_bridge"
-}
-```
+positional arguments:
+  session     Session name to kill
 
----
+options:
+  -h, --help  show this help message and exit
+```
 
-## launch restart `<session>`
+### CLI launch restart
 
-Restart a launch session. Kills the existing session and re-launches with the same parameters that were used originally. Works for all session types (both `launch` and `launch foxglove`).
+```
+usage: ros2_cli.py launch restart [-h] session
 
-Session metadata is saved when launching and used for restart.
+positional arguments:
+  session     Session name to restart
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `session` | Yes | Session name to restart |
+options:
+  -h, --help  show this help message and exit
+```
 
-**Restart any launch session:**
-```bash
-# Restart a generic launch
-python3 {baseDir}/scripts/ros2_cli.py launch restart launch_navigation2_navigation2
+### CLI launch foxglove
 
-# Restart foxglove_bridge
-python3 {baseDir}/scripts/ros2_cli.py launch restart launch_foxglove_bridge_port8765
 ```
+usage: ros2_cli.py launch foxglove [-h] [port]
+
+positional arguments:
+  port        Foxglove bridge port (default: 8765)
 
-**Output:**
-```json
-{
-  "success": true,
-  "session": "launch_navigation2_navigation2",
-  "command": "ros2 launch navigation2 navigation2.launch.py",
-  "status": "running",
-  "message": "Session restarted"
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
-Error (session not found):
-```json
-{
-  "error": "Session 'launch_navigation2_navigation2' does not exist",
-  "suggestion": "Use 'launch' to start a new session",
-  "available_sessions": []
-}
+### CLI foxglove start
+
 ```
+usage: ros2_cli.py foxglove start [-h] [port]
+
+positional arguments:
+  port        Foxglove bridge port (default: 8765)
 
-Error (no metadata):
-```json
-{
-  "error": "No metadata found for session 'launch_navigation2_navigation2'",
-  "suggestion": "Use 'launch' to start a fresh session",
-  "session": "launch_navigation2_navigation2"
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI foxglove stop
 
-## run new `<package>` `<executable>` [args...]
+```
+usage: ros2_cli.py foxglove stop [-h] [--port PORT]
 
-Run a ROS 2 executable in a tmux session. System ROS is assumed to be already sourced. The local workspace is sourced automatically if found.
+options:
+  -h, --help   show this help message and exit
+  --port PORT  Optional port filter; stops only the bridge on this port
+```
 
-**Auto-detect:** Executable names are fuzzy-matched (e.g., "teleop" → "teleop_node").
+### CLI foxglove status
 
-**Workspace sourcing:** If the executable is in a local workspace, the skill automatically sources it. Set `ROS2_LOCAL_WS` environment variable if the workspace is not in the default search paths (`~/ros2_ws`, `~/colcon_ws`, `~/dev_ws`, `~/workspace`, `~/ros2`).
+```
+usage: ros2_cli.py foxglove status [-h] [--port PORT]
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `package` | Yes | Package name containing the executable |
-| `executable` | Yes | Executable name (found in `lib/<package>/`) |
-| `args` | No | Additional arguments |
+options:
+  -h, --help   show this help message and exit
+  --port PORT  Optional port filter; report only the matching bridge
+```
 
-| Option | Required | Default | Description |
-|--------|----------|---------|-------------|
-| `--presets NAME` | No | — | Comma-separated preset names to apply before running |
-| `--params "k:=v"` | No | — | Inline parameters (comma-separated key:=value or key:value) |
-| `--config-path PATH` | No | auto | Path to config directory |
+### CLI run new
 
-**Run an executable:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py run new my_robot_pkg teleop
 ```
+usage: ros2_cli.py run new [-h] [--presets PRESETS] [--params PARAMS] [--config-path CONFIG_PATH]
+                           package executable [args ...]
 
-**Run with arguments:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py run new my_robot_pkg teleop --speed 1.0
+positional arguments:
+  package               Package name containing the executable
+  executable            Executable name
+  args                  Additional arguments
+
+options:
+  -h, --help            show this help message and exit
+  --presets PRESETS     Preset parameters to load before running (comma-separated)
+  --params PARAMS       Parameters to set (comma-separated key:=value or key:value pairs)
+  --config-path CONFIG_PATH
+                        Path to config directory (auto-discovered if not provided)
 ```
+
+### CLI run list
 
-**Run with parameters:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py run new my_robot_pkg teleop --params "speed:1.0,max_velocity:2.0"
 ```
+usage: ros2_cli.py run list [-h]
 
-**Run with presets:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py run new my_robot_pkg teleop --presets indoor
+options:
+  -h, --help  show this help message and exit
 ```
 
-**Output:**
-```json
-{
-  "success": true,
-  "session": "run_my_robot_pkg_teleop",
-  "command": "ros2 run my_robot_pkg teleop",
-  "package": "my_robot_pkg",
-  "executable": "teleop",
-  "args": [],
-  "status": "running"
-}
+### CLI run ls
+
 ```
+usage: ros2_cli.py run ls [-h]
 
-Error (session already exists):
-```json
-{
-  "error": "Session 'run_my_robot_pkg_teleop' already exists",
-  "suggestion": "Use 'run restart run_my_robot_pkg_teleop' to restart, or 'run kill run_my_robot_pkg_teleop' to kill first",
-  "session": "run_my_robot_pkg_teleop"
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI run kill
 
-## run list / run ls
+```
+usage: ros2_cli.py run kill [-h] session
 
-List running run sessions in tmux.
+positional arguments:
+  session     Session name to kill
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py run list
+options:
+  -h, --help  show this help message and exit
 ```
 
-**Output:**
-```json
-{
-  "all_sessions": ["run_my_robot_pkg_teleop", "launch_navigation2_navigation2"],
-  "run_sessions": ["run_my_robot_pkg_teleop"],
-  "run_sessions_detail": [
-    {
-      "session": "run_my_robot_pkg_teleop",
-      "command": "ros2 run my_robot_pkg teleop",
-      "status": "running"
-    }
-  ]
-}
-```
+### CLI run restart
 
----
+```
+usage: ros2_cli.py run restart [-h] session
 
-## run kill `<session>`
+positional arguments:
+  session     Session name to restart
 
-Kill a running run session.
+options:
+  -h, --help  show this help message and exit
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `session` | Yes | Session name to kill (must start with `run_`) |
+### CLI interface list
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py run kill run_my_robot_pkg_teleop
 ```
+usage: ros2_cli.py interface list [-h]
 
-**Output:**
-```json
-{
-  "success": true,
-  "session": "run_my_robot_pkg_teleop",
-  "message": "Session 'run_my_robot_pkg_teleop' killed"
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI interface ls
 
-## run restart `<session>`
+```
+usage: ros2_cli.py interface ls [-h]
 
-Restart a run session. Kills the existing session and re-launches with the same parameters.
+options:
+  -h, --help  show this help message and exit
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `session` | Yes | Session name to restart |
+### CLI interface show
 
-**Restart a run session:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py run restart run_my_robot_pkg_teleop
 ```
+usage: ros2_cli.py interface show [-h] [--depth DEPTH] type
 
-**Output:**
-```json
-{
-  "success": true,
-  "session": "run_my_robot_pkg_teleop",
-  "command": "ros2 run my_robot_pkg teleop",
-  "status": "running",
-  "message": "Session restarted"
-}
-```
+positional arguments:
+  type           Interface type, e.g. std_msgs/msg/String, std_srvs/srv/SetBool,
+                 nav2_msgs/action/NavigateToPose, or shorthand std_msgs/String
 
-Error (session not found):
-```json
-{
-  "error": "Session 'run_my_robot_pkg_teleop' does not exist",
-  "suggestion": "Use 'run' to start a new session",
-  "available_sessions": []
-}
+options:
+  -h, --help     show this help message and exit
+  --depth DEPTH  Recursively expand composite field types N levels deep (default: 0 = flat)
 ```
 
----
+### CLI interface proto
 
-## interface list
+```
+usage: ros2_cli.py interface proto [-h] type
 
-List all interface types (messages, services, actions) installed on this ROS 2 system. Reads from the ament resource index — no running ROS 2 graph required.
+positional arguments:
+  type        Interface type, e.g. std_msgs/msg/String, geometry_msgs/msg/Twist
 
-**ROS 2 CLI equivalent:** `ros2 interface list`
+options:
+  -h, --help  show this help message and exit
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| (none) | — | No arguments |
+### CLI interface packages
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py interface list
 ```
+usage: ros2_cli.py interface packages [-h]
 
-Output:
-```json
-{
-  "messages": [
-    "geometry_msgs/msg/Twist",
-    "std_msgs/msg/Bool",
-    "std_msgs/msg/String"
-  ],
-  "services": [
-    "std_srvs/srv/Empty",
-    "std_srvs/srv/SetBool"
-  ],
-  "actions": [
-    "nav2_msgs/action/NavigateToPose"
-  ],
-  "total": 6
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI interface package
 
-## interface show `<type>`
+```
+usage: ros2_cli.py interface package [-h] package
 
-Show the field structure of a message, service, or action type. Accepts canonical formats (`pkg/msg/Name`, `pkg/srv/Name`, `pkg/action/Name`) and shorthand (`pkg/Name` — tries message, then service, then action).
+positional arguments:
+  package     Package name (e.g. std_msgs, geometry_msgs)
 
-**ROS 2 CLI equivalent:** `ros2 interface show <type>`
+options:
+  -h, --help  show this help message and exit
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `type` | Yes | Interface type string |
+### CLI bag info
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py interface show std_msgs/msg/String
-python3 {baseDir}/scripts/ros2_cli.py interface show std_srvs/srv/SetBool
-python3 {baseDir}/scripts/ros2_cli.py interface show nav2_msgs/action/NavigateToPose
-python3 {baseDir}/scripts/ros2_cli.py interface show std_msgs/String
 ```
+usage: ros2_cli.py bag info [-h] bag_path
 
-Output (message):
-```json
-{
-  "type": "std_msgs/msg/String",
-  "kind": "message",
-  "fields": {"data": "string"}
-}
-```
+positional arguments:
+  bag_path    Path to a bag directory, metadata.yaml, or storage file
 
-Output (service):
-```json
-{
-  "type": "std_srvs/srv/SetBool",
-  "kind": "service",
-  "request": {"data": "boolean"},
-  "response": {"success": "boolean", "message": "string"}
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
-Output (action):
-```json
-{
-  "type": "nav2_msgs/action/NavigateToPose",
-  "kind": "action",
-  "goal": {
-    "pose": "geometry_msgs/PoseStamped",
-    "behavior_tree": "string"
-  },
-  "result": {"result": "nav2_msgs/NavigationResult"},
-  "feedback": {
-    "current_pose": "geometry_msgs/PoseStamped",
-    "navigation_time": "builtin_interfaces/Duration",
-    "number_of_recoveries": "int16",
-    "distance_remaining": "float32"
-  }
-}
-```
+### CLI component types
 
-Output (unknown type):
-```json
-{"error": "Unknown interface type: bad_pkg/msg/Nope", "hint": "Use formats like std_msgs/msg/String, std_srvs/srv/SetBool, nav2_msgs/action/NavigateToPose, or shorthand std_msgs/String"}
 ```
+usage: ros2_cli.py component types [-h]
 
----
+options:
+  -h, --help  show this help message and exit
+```
 
-## interface proto `<type>`
+### CLI component list
 
-Show a default-value prototype of a message, service, or action type. Unlike `interface show` (which returns field type strings), `proto` instantiates the type with its default values — useful as a copy-paste template for `ros2 topic pub` payloads. Reads from the ament resource index — no running ROS 2 graph required.
+```
+usage: ros2_cli.py component list [-h] [--timeout TIMEOUT]
 
-**ROS 2 CLI equivalent:** `ros2 interface proto <type>`
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Seconds to wait per container service (default: 5.0)
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `type` | Yes | Interface type string |
+### CLI component ls
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py interface proto std_msgs/msg/String
-python3 {baseDir}/scripts/ros2_cli.py interface proto geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py interface proto std_srvs/srv/SetBool
 ```
+usage: ros2_cli.py component ls [-h] [--timeout TIMEOUT]
 
-Output (message):
-```json
-{
-  "type": "std_msgs/msg/String",
-  "kind": "message",
-  "proto": {"data": ""}
-}
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Seconds to wait per container service (default: 5.0)
 ```
 
-Output (nested message):
-```json
-{
-  "type": "geometry_msgs/msg/Twist",
-  "kind": "message",
-  "proto": {
-    "linear":  {"x": 0.0, "y": 0.0, "z": 0.0},
-    "angular": {"x": 0.0, "y": 0.0, "z": 0.0}
-  }
-}
-```
+### CLI component load
 
-Output (service):
-```json
-{
-  "type": "std_srvs/srv/SetBool",
-  "kind": "service",
-  "request":  {"data": false},
-  "response": {"success": false, "message": ""}
-}
 ```
+usage: ros2_cli.py component load [-h] [--node-name NODE_NAME] [--node-namespace NODE_NAMESPACE]
+                                  [--remap [REMAP_RULES ...]] [--log-level LOG_LEVEL]
+                                  [--timeout TIMEOUT]
+                                  container package_name plugin_name
 
----
+positional arguments:
+  container             Container node name (e.g. /my_container)
+  package_name          Package containing the plugin (e.g. demo_nodes_cpp)
+  plugin_name           Fully-qualified plugin class name (e.g. demo_nodes_cpp::Talker)
 
-## interface packages
+options:
+  -h, --help            show this help message and exit
+  --node-name NODE_NAME
+                        Override the loaded node's name
+  --node-namespace NODE_NAMESPACE
+                        Override the loaded node's namespace
+  --remap [REMAP_RULES ...]
+                        Remap rules (e.g. /from:=/to)
+  --log-level LOG_LEVEL
+                        Log level for the loaded node (uint8: 0=unset, 10=DEBUG, 20=INFO, 30=WARN,
+                        40=ERROR, 50=FATAL)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 5.0)
+```
 
-List all packages that define at least one ROS 2 interface. Reads from the ament resource index — no running ROS 2 graph required.
+### CLI component unload
 
-**ROS 2 CLI equivalent:** `ros2 interface packages`
+```
+usage: ros2_cli.py component unload [-h] [--timeout TIMEOUT] container unique_id
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| (none) | — | No arguments |
+positional arguments:
+  container          Container node name (e.g. /my_container)
+  unique_id          Unique ID of the component to unload (from component load or component list)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py interface packages
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Service call timeout in seconds (default: 5.0)
 ```
 
-Output:
-```json
-{
-  "packages": [
-    "action_msgs",
-    "builtin_interfaces",
-    "geometry_msgs",
-    "nav2_msgs",
-    "rcl_interfaces",
-    "sensor_msgs",
-    "std_msgs",
-    "std_srvs"
-  ],
-  "count": 8
-}
+### CLI component kill
+
 ```
+usage: ros2_cli.py component kill [-h] session
 
----
+positional arguments:
+  session     Session name to kill (e.g. comp_demo_nodes_cpp_standalone_talker)
 
-## interface package `<package>`
+options:
+  -h, --help  show this help message and exit
+```
 
-List all interface types (messages, services, actions) defined by a single package. Reads from the ament resource index — no running ROS 2 graph required.
+### CLI component standalone
 
-**ROS 2 CLI equivalent:** `ros2 interface package <package>`
+```
+usage: ros2_cli.py component standalone [-h]
+                                        [--container-type {component_container,component_container_mt,component_container_isolated}]
+                                        [--node-name NODE_NAME] [--node-namespace NODE_NAMESPACE]
+                                        [--remap [REMAP_RULES ...]] [--log-level LOG_LEVEL]
+                                        [--timeout TIMEOUT]
+                                        package_name plugin_name
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `package` | Yes | Package name (e.g. `std_msgs`, `geometry_msgs`) |
+positional arguments:
+  package_name          Package containing the component plugin
+  plugin_name           Fully-qualified plugin class name (e.g. demo_nodes_cpp::Talker)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py interface package std_msgs
-python3 {baseDir}/scripts/ros2_cli.py interface package geometry_msgs
+options:
+  -h, --help            show this help message and exit
+  --container-type {component_container,component_container_mt,component_container_isolated}
+                        Container executable to use (default: component_container)
+  --node-name NODE_NAME
+                        Override the loaded node's name
+  --node-namespace NODE_NAMESPACE
+                        Override the loaded node's namespace
+  --remap [REMAP_RULES ...]
+                        Remap rules (e.g. /from:=/to)
+  --log-level LOG_LEVEL
+                        Log level for the loaded node (uint8: 0=unset, 10=DEBUG, 20=INFO, 30=WARN,
+                        40=ERROR, 50=FATAL)
+  --timeout TIMEOUT     Total timeout for container start + component load (default: 10.0s)
 ```
+
+### CLI daemon status
 
-Output:
-```json
-{
-  "package": "std_msgs",
-  "messages": [
-    "std_msgs/msg/Bool",
-    "std_msgs/msg/Float32",
-    "std_msgs/msg/Int32",
-    "std_msgs/msg/String"
-  ],
-  "services": [],
-  "actions": [],
-  "total": 4
-}
 ```
+usage: ros2_cli.py daemon status [-h]
 
-Output (unknown package):
-```json
-{"error": "Package 'nonexistent_pkg' not found or has no interfaces"}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI daemon start
+
+```
+usage: ros2_cli.py daemon start [-h]
 
-## bag info `<bag_path>`
+options:
+  -h, --help  show this help message and exit
+```
 
-Show metadata for a ROS 2 bag: duration, starting time, storage format, message count, and the topic list with per-topic message counts.
+### CLI daemon stop
 
-**No live ROS 2 graph required.** Parses `metadata.yaml` from the bag directory using the filesystem only. Works with any storage backend (`sqlite3`, `mcap`, etc.).
+```
+usage: ros2_cli.py daemon stop [-h]
 
-**ROS 2 CLI equivalent:** `ros2 bag info <bag_path>`
+options:
+  -h, --help  show this help message and exit
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `bag_path` | Yes | Path to a bag directory (containing `metadata.yaml`), or directly to the `metadata.yaml` file, or to any storage file inside the bag directory |
+### CLI daemon-fast start
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py bag info /path/to/my_bag
-python3 {baseDir}/scripts/ros2_cli.py bag info /path/to/my_bag/metadata.yaml
 ```
+usage: ros2_cli.py daemon-fast start [-h] [--idle-minutes IDLE_MINUTES]
 
-Output:
-```json
-{
-  "bag_path": "/absolute/path/to/my_bag",
-  "storage_identifier": "sqlite3",
-  "duration": {
-    "nanoseconds": 10000000000,
-    "seconds": 10.0
-  },
-  "starting_time": {
-    "nanoseconds_since_epoch": 1700000000000000000
-  },
-  "message_count": 1500,
-  "topic_count": 3,
-  "topics": [
-    {
-      "name": "/cmd_vel",
-      "type": "geometry_msgs/msg/Twist",
-      "serialization_format": "cdr",
-      "offered_qos_profiles": "",
-      "message_count": 100
-    },
-    {
-      "name": "/odom",
-      "type": "nav_msgs/msg/Odometry",
-      "serialization_format": "cdr",
-      "offered_qos_profiles": "",
-      "message_count": 1000
-    },
-    {
-      "name": "/scan",
-      "type": "sensor_msgs/msg/LaserScan",
-      "serialization_format": "cdr",
-      "offered_qos_profiles": "",
-      "message_count": 400
-    }
-  ]
-}
+options:
+  -h, --help            show this help message and exit
+  --idle-minutes IDLE_MINUTES
+                        Exit after this long without a request (default 0: run until `daemon-fast
+                        stop`; auto-started daemons use 30)
 ```
 
-Topics are sorted alphabetically by name. The optional `compression_format`, `compression_mode`, and `files` fields are included when present in the bag metadata.
+### CLI daemon-fast stop
 
-Error (metadata not found):
-```json
-{
-  "error": "metadata.yaml not found in '/path/to/dir'. Provide the path to a bag directory that contains metadata.yaml.",
-  "hint": "Provide the path to a bag directory that contains metadata.yaml."
-}
 ```
+usage: ros2_cli.py daemon-fast stop [-h]
 
-Error (PyYAML not installed):
-```json
-{"error": "PyYAML is required for bag info: pip install pyyaml"}
+options:
+  -h, --help  show this help message and exit
 ```
 
-### Bag remote service control (Lyrical Luth and newer)
+### CLI daemon-fast status
 
-On Lyrical Luth and newer, `ros2 bag record` exposes ROS 2 services on the recording node that allow another node or agent to control an ongoing recording session remotely:
+```
+usage: ros2_cli.py daemon-fast status [-h]
 
-| Service | Type | Effect |
-|---------|------|--------|
-| `~/record` | `std_srvs/srv/Empty` | Start recording (if not already running) |
-| `~/stop` | `std_srvs/srv/Empty` | Stop and finalise the current bag |
-| `~/pause` | `std_srvs/srv/Empty` | Pause recording (messages buffered, not written) |
-| `~/resume` | `std_srvs/srv/Empty` | Resume a paused recording |
-| `~/split` | `std_srvs/srv/Empty` | Close the current bag file and open a new one |
+options:
+  -h, --help  show this help message and exit
+```
 
-The services are relative to the recording node's namespace (default `~` = the node's own namespace, typically `/ros2bag_…`). Discover the exact names with `services list` and use `services call` to invoke them:
+### CLI pkg list
 
-```bash
-# Discover the recording node's services
-python3 {baseDir}/scripts/ros2_cli.py services list
+```
+usage: ros2_cli.py pkg list [-h]
 
-# Pause an active recording
-python3 {baseDir}/scripts/ros2_cli.py services call /ros2bag_record/pause '{}'
+options:
+  -h, --help  show this help message and exit
+```
 
-# Split to a new file
-python3 {baseDir}/scripts/ros2_cli.py services call /ros2bag_record/split '{}'
+### CLI pkg ls
 
-# Stop the recording
-python3 {baseDir}/scripts/ros2_cli.py services call /ros2bag_record/stop '{}'
 ```
+usage: ros2_cli.py pkg ls [-h]
 
-These services are not available on Humble, Iron, Jazzy, or Kilted. On those distros, the recording node does not expose control services.
+options:
+  -h, --help  show this help message and exit
+```
 
----
+### CLI pkg prefix
 
-## ros2 trace (Lyrical Luth — native CLI only)
+```
+usage: ros2_cli.py pkg prefix [-h] package
 
-> **Not wrapped by ros2-skill.** Use the native `ros2 trace` CLI directly. ros2-skill does not provide a `trace` command.
+positional arguments:
+  package     Package name (e.g. nav2_bringup)
 
-`ros2 trace` gained two new modes in Lyrical Luth. Use the native CLI for these operations:
+options:
+  -h, --help  show this help message and exit
+```
 
-| Mode | Command | Effect |
-|------|---------|--------|
-| Snapshot | `ros2 trace snapshot` | Capture a point-in-time snapshot of the current trace buffer without stopping an ongoing session. |
-| Dual-session | `ros2 trace --dual-session` | Run two simultaneous trace sessions — one for the agent and one for the robot hardware. Useful for correlating AI decision points with low-level actuator events. |
+### CLI pkg executables
 
-Set `TRACETOOLS_RUNTIME_DISABLE=1` to suppress all tracing overhead when `ros2 trace` is not in use.
+```
+usage: ros2_cli.py pkg executables [-h] package
 
----
+positional arguments:
+  package     Package name (e.g. turtlesim)
 
-## pkg list / pkg ls
+options:
+  -h, --help  show this help message and exit
+```
 
-List all ROS 2 packages installed on this system.
+### CLI pkg xml
 
-**No live ROS 2 graph required.** Reads the ament resource index from the filesystem.
+```
+usage: ros2_cli.py pkg xml [-h] package
 
-**ROS 2 CLI equivalent:** `ros2 pkg list`
+positional arguments:
+  package     Package name (e.g. std_msgs)
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py pkg list
-python3 {baseDir}/scripts/ros2_cli.py pkg ls
+options:
+  -h, --help  show this help message and exit
 ```
+
+### CLI pkg create
 
-Output:
-```json
-{
-  "packages": [
-    "ackermann_msgs",
-    "action_msgs",
-    "geometry_msgs",
-    "...and many more..."
-  ],
-  "total": 312
-}
 ```
+usage: ros2_cli.py pkg create [-h] [--build-type {ament_cmake,ament_python,cmake}]
+                              [--dependencies [DEP ...]] [--destination-directory DIR]
+                              [--license SPDX] [--maintainer-name NAME] [--maintainer-email EMAIL]
+                              [--description TEXT] [--node-name NODE] [--library-name LIB]
+                              package_name
 
----
+positional arguments:
+  package_name          Name of the new package
 
-## pkg prefix `<package>`
+options:
+  -h, --help            show this help message and exit
+  --build-type {ament_cmake,ament_python,cmake}
+                        Build system type (default: ament_cmake)
+  --dependencies [DEP ...]
+                        Package dependencies to declare (space-separated)
+  --destination-directory DIR
+                        Directory to create the package in (default: current directory)
+  --license SPDX        SPDX license identifier (e.g. Apache-2.0, MIT)
+  --maintainer-name NAME
+                        Maintainer name for package.xml
+  --maintainer-email EMAIL
+                        Maintainer email for package.xml
+  --description TEXT    One-line package description for package.xml
+  --node-name NODE      Node name to use in generated source stubs (ament_cmake / ament_python)
+  --library-name LIB    Library name to use in generated CMakeLists.txt stubs (ament_cmake only)
+```
 
-Output the install prefix path for a package.
+### CLI logs list-runs
 
-**No live ROS 2 graph required.**
+```
+usage: ros2_cli.py logs list-runs [-h] [--limit N] [--log-dir DIR]
 
-**ROS 2 CLI equivalent:** `ros2 pkg prefix <package>`
+options:
+  -h, --help     show this help message and exit
+  --limit N      Max runs to return (default: 20, 0 = no limit)
+  --log-dir DIR  Override log directory (default: ~/.ros/log or $ROS_LOG_DIR)
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `package` | Yes | Package name (e.g. `nav2_bringup`) |
+### CLI logs query
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py pkg prefix nav2_bringup
-python3 {baseDir}/scripts/ros2_cli.py pkg prefix turtlesim
 ```
+usage: ros2_cli.py logs query [-h] [--run RUN_ID] [--severity {DEBUG,INFO,WARN,ERROR,FATAL}]
+                              [--node NAME] [--after TIME] [--before TIME] [--text SUBSTR]
+                              [--regex PATTERN] [--max N] [--log-dir DIR]
 
-Output:
-```json
-{"package": "turtlesim", "prefix": "/opt/ros/humble"}
+options:
+  -h, --help            show this help message and exit
+  --run RUN_ID          Run ID to query (default: latest)
+  --severity {DEBUG,INFO,WARN,ERROR,FATAL}
+                        Minimum severity level (default: DEBUG = all)
+  --node NAME           Filter by node name (substring match)
+  --after TIME          Lower time bound: -30s | -5m | -1h | epoch-float | ISO datetime
+  --before TIME         Upper time bound: same formats as --after
+  --text SUBSTR         Plain-text substring to match in message
+  --regex PATTERN       Python regex to match in message (case-insensitive)
+  --max N               Max entries to return (default: 200)
+  --log-dir DIR         Override log directory
 ```
 
-Error (package not found):
-```json
-{"error": "Package 'bad_pkg' not found. Is it installed and sourced?"}
-```
+### CLI logs tail
 
----
+```
+usage: ros2_cli.py logs tail [-h] [--run RUN_ID] [--initial-lines N] [--reset] [--log-dir DIR]
 
-## pkg executables `<package>`
+options:
+  -h, --help         show this help message and exit
+  --run RUN_ID       Run ID to tail (default: latest)
+  --initial-lines N  Lines from end to return on first call (default: 50)
+  --reset            Discard saved offsets and re-seed from the tail of the file
+  --log-dir DIR      Override log directory
+```
 
-List all executable files provided by a package.
+### CLI logs node-summary
 
-**No live ROS 2 graph required.** Walks `<prefix>/lib/<package>/` and returns files with the executable bit set.
+```
+usage: ros2_cli.py logs node-summary [-h] [--run RUN_ID] [--top N] [--log-dir DIR]
 
-**ROS 2 CLI equivalent:** `ros2 pkg executables <package>`
+options:
+  -h, --help     show this help message and exit
+  --run RUN_ID   Run ID to analyse (default: latest)
+  --top N        Number of top recurring message patterns to return per node (default: 5)
+  --log-dir DIR  Override log directory
+```
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `package` | Yes | Package name (e.g. `turtlesim`) |
+### CLI profile scan
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py pkg executables turtlesim
-python3 {baseDir}/scripts/ros2_cli.py pkg executables demo_nodes_cpp
 ```
+usage: ros2_cli.py profile scan [-h] [--workspace PATH] [--name NAME] [--packages PATTERNS]
+                                [--allow-live] [--robot-type TYPE] [--namespace NAMESPACE]
+                                [--transport TRANSPORT]
 
-Output:
-```json
-{
-  "package": "turtlesim",
-  "executables": ["draw_square", "mimic", "turtle_teleop_key", "turtlesim_node"],
-  "total": 4,
-  "lib_dir": "/opt/ros/humble/lib/turtlesim"
-}
+options:
+  -h, --help            show this help message and exit
+  --workspace PATH      Path to ROS 2 workspace (auto-detected if omitted)
+  --name NAME           Robot name (default: first --packages pattern, or workspace folder name)
+  --packages PATTERNS   Comma-separated fuzzy patterns to scope the scan to one robot's packages
+                        (e.g. 'lekiwi' or 'lekiwi,soarm'). Packages whose name or path contains
+                        any pattern are included; all others are skipped. Omit to scan the entire
+                        workspace.
+  --allow-live          Fall back to the live ROS 2 graph when static analysis has gaps (requires
+                        a running ROS 2 system)
+  --robot-type TYPE     Override auto-detected robot type. Valid values: humanoid, legged, aerial,
+                        underwater, surface_vessel, mobile_manipulator, arm, mobile_base, unknown
+  --namespace NAMESPACE
+                        Persist the robot namespace on the profile (e.g. /robot1)
+  --transport TRANSPORT
+                        Persist the active transport profile (e.g. dds, zenoh, rosbridge)
 ```
 
-If the package has no executables (e.g. a message-only package), `executables` is `[]` and `total` is `0`.
+### CLI profile show
 
-Error (package not found):
-```json
-{"error": "Package 'bad_pkg' not found. Is it installed and sourced?"}
 ```
+usage: ros2_cli.py profile show [-h] [--name NAME] [--section SECTION]
 
----
+options:
+  -h, --help         show this help message and exit
+  --name NAME        Robot name (default: auto-detected from .profiles/)
+  --section SECTION  Section to return: summary | detail | <launch-filename>
+```
 
-## pkg xml `<package>`
+### CLI profile rescan
 
-Output the `package.xml` manifest of a package.
+```
+usage: ros2_cli.py profile rescan [-h] [--workspace PATH] [--name NAME] [--packages PATTERNS]
+                                  [--launch-file FILENAME] [--allow-live] [--robot-type TYPE]
+                                  [--namespace NAMESPACE] [--transport TRANSPORT]
 
-**No live ROS 2 graph required.** Reads `<prefix>/share/<package>/package.xml` from the filesystem.
+options:
+  -h, --help            show this help message and exit
+  --workspace PATH      Path to ROS 2 workspace (re-uses saved path if omitted)
+  --name NAME           Robot name (default: auto-detected from .profiles/)
+  --packages PATTERNS   Comma-separated fuzzy patterns to scope the rescan. If omitted, the filter
+                        stored in the existing profile is reused. Pass an empty string ('') to
+                        remove the filter and scan the full workspace.
+  --launch-file FILENAME
+                        Partial rescan: refresh launch args for this launch file only (use the
+                        filename as shown in 'profile show', e.g. bringup.launch.py)
+  --allow-live          Allow live graph fallback during rescan
+  --robot-type TYPE     Override auto-detected robot type on a full rescan (ignored for --launch-
+                        file partial rescans). Valid values: humanoid, legged, aerial, underwater,
+                        surface_vessel, mobile_manipulator, arm, mobile_base, unknown
+  --namespace NAMESPACE
+                        Persist or override the robot namespace on rescan
+  --transport TRANSPORT
+                        Persist or override the active transport profile on rescan
+```
 
-**ROS 2 CLI equivalent:** `ros2 pkg xml <package>`
+### CLI profile list
 
-| Argument | Required | Description |
-|----------|----------|-------------|
-| `package` | Yes | Package name (e.g. `std_msgs`) |
+```
+usage: ros2_cli.py profile list [-h]
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py pkg xml std_msgs
-python3 {baseDir}/scripts/ros2_cli.py pkg xml turtlesim
+options:
+  -h, --help  show this help message and exit
 ```
 
-Output:
-```json
-{
-  "package": "std_msgs",
-  "path": "/opt/ros/humble/share/std_msgs/package.xml",
-  "xml": "<?xml version=\"1.0\"?>\n<package format=\"3\">...</package>\n"
-}
+### CLI profile ls
+
 ```
+usage: ros2_cli.py profile ls [-h]
 
-Error (package not found):
-```json
-{"error": "Package 'bad_pkg' not found. Is it installed and sourced?"}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI profile annotate
 
-## component types
+```
+usage: ros2_cli.py profile annotate [-h] [--name NAME] text
 
-List all registered `rclcpp` composable node types installed on this system.
+positional arguments:
+  text         Annotation text (natural language; stored verbatim)
 
-**No live ROS 2 graph required.** Reads the `rclcpp_components` ament resource index from the filesystem. Each package that exports composable nodes registers a resource file whose lines are component class names (e.g. `my_pkg::MyNode`).
+options:
+  -h, --help   show this help message and exit
+  --name NAME  Robot name (default: auto-detected from .profiles/)
+```
 
-**ROS 2 CLI equivalent:** `ros2 component types`
+### CLI profile set-camera-rotation
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py component types
 ```
+usage: ros2_cli.py profile set-camera-rotation [-h] [--note NOTE] [--name NAME]
+                                               match {0,90,180,-90}
+
+positional arguments:
+  match           Case-insensitive substring matched against the capture topic, e.g. 'oak' matches
+                  '/oak/rgb/image_raw'
+  {0,90,180,-90}  Rotation to apply: 0, 90, 180, or -90
 
-Output:
-```json
-{
-  "components": [
-    {"package": "composition", "type_name": "composition::Talker"},
-    {"package": "composition", "type_name": "composition::Listener"},
-    {"package": "composition", "type_name": "composition::NodeLikeListener"},
-    {"package": "my_pkg", "type_name": "my_pkg::MyNode"}
-  ],
-  "total": 4,
-  "packages": ["composition", "my_pkg"]
-}
+options:
+  -h, --help      show this help message and exit
+  --note NOTE     Optional human-readable reason, stored alongside the override
+  --name NAME     Robot name (default: auto-detected from .profiles/)
 ```
 
-Components are sorted by package name, then by declaration order within each package's resource file. The `packages` field is an alphabetically sorted list of unique package names. If any package's resource file cannot be read, a `warnings` array is included with per-package error details — remaining packages are still enumerated.
+### CLI profile set-safety-overlay
 
-Output (with per-package warning):
-```json
-{
-  "components": [{"package": "good_pkg", "type_name": "good_pkg::GoodNode"}],
-  "total": 1,
-  "packages": ["good_pkg"],
-  "warnings": [{"package": "bad_pkg", "error": "disk error"}]
-}
 ```
+usage: ros2_cli.py profile set-safety-overlay [-h] [--json JSON] [--file FILE] [--clear]
+                                              [--replace] [--name NAME]
 
-Error (`ament_index_python` not installed):
-```json
-{
-  "error": "ament_index_python is required: pip install ament-index-python",
-  "detail": "No module named 'ament_index_python'"
-}
+options:
+  -h, --help   show this help message and exit
+  --json JSON  JSON object containing the overlay to merge into the profile
+  --file FILE  Path to a JSON file containing the overlay object
+  --clear      Clear the stored overlay before applying new values
+  --replace    Replace the stored overlay instead of merging
+  --name NAME  Robot name (default: auto-detected from .profiles/)
 ```
-
----
-
-## component list
 
-List all running component containers and their loaded components. Discovers containers by scanning the live graph for `composition_interfaces/srv/ListNodes` services.
+### CLI profile set-context
 
-**ROS 2 CLI equivalent:** `ros2 component list`
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECS` | `5.0` | Seconds to wait per container service |
-
-```bash
-python3 {baseDir}/scripts/ros2_cli.py component list
-python3 {baseDir}/scripts/ros2_cli.py component ls
 ```
+usage: ros2_cli.py profile set-context [-h] [--name NAME] [--namespace NAMESPACE]
+                                       [--transport TRANSPORT]
 
-Output:
-```json
-{
-  "containers": [
-    {
-      "container": "/my_container",
-      "component_count": 2,
-      "components": [
-        {"unique_id": 1, "full_node_name": "/my_container/talker"},
-        {"unique_id": 2, "full_node_name": "/my_container/listener"}
-      ]
-    }
-  ],
-  "total_containers": 1,
-  "total_components": 2
-}
+options:
+  -h, --help            show this help message and exit
+  --name NAME           Robot name (default: auto-detected from .profiles/)
+  --namespace NAMESPACE
+                        Robot namespace to persist on the profile
+  --transport TRANSPORT
+                        Transport label to persist on the profile
 ```
 
-No containers running:
-```json
-{"containers": [], "total_containers": 0, "total_components": 0, "hint": "No component containers found. Start one with: ros2 run rclcpp_components component_container"}
+### CLI safety show
+
 ```
+usage: ros2_cli.py safety show [-h]
 
----
+options:
+  -h, --help  show this help message and exit
+```
 
-## component load `<container>` `<package_name>` `<plugin_name>` [options]
+### CLI safety enable
 
-Load a composable node into a running component container.
+```
+usage: ros2_cli.py safety enable [-h]
 
-**ROS 2 CLI equivalent:** `ros2 component load <container> <package> <plugin>`
+options:
+  -h, --help  show this help message and exit
+```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--node-name NAME` | `""` | Override the loaded node's name |
-| `--node-namespace NS` | `""` | Override the loaded node's namespace |
-| `--remap RULE [...]` | `[]` | Remap rules (e.g. `/from:=/to`) |
-| `--log-level LEVEL` | `0` | Log level for the loaded node (uint8: 0=unset, 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR, 50=FATAL) |
-| `--timeout SECS` | `5.0` | Service call timeout |
+### CLI safety disable
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py component load /my_container demo_nodes_cpp demo_nodes_cpp::Talker
-python3 {baseDir}/scripts/ros2_cli.py component load /my_container demo_nodes_cpp demo_nodes_cpp::Talker --node-name my_talker
 ```
+usage: ros2_cli.py safety disable [-h]
 
-Output:
-```json
-{
-  "success": true,
-  "container": "/my_container",
-  "package_name": "demo_nodes_cpp",
-  "plugin_name": "demo_nodes_cpp::Talker",
-  "full_node_name": "/my_container/talker",
-  "unique_id": 1
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI safety set-velocity
 
-## component unload `<container>` `<unique_id>` [options]
+```
+usage: ros2_cli.py safety set-velocity [-h] [--linear LINEAR] [--angular ANGULAR]
+                                       [--axis {linear_x_max,linear_y_max,linear_z_max,angular_x_max,angular_y_max,angular_z_max}]
+                                       [--value VALUE] [--topic TOPIC]
 
-Unload a composable node from a component container by its unique ID (from `component load` or `component list`).
+options:
+  -h, --help            show this help message and exit
+  --linear LINEAR       Linear velocity norm limit in m/s
+  --angular ANGULAR     Angular velocity norm limit in rad/s
+  --axis {linear_x_max,linear_y_max,linear_z_max,angular_x_max,angular_y_max,angular_z_max}
+                        Optional per-axis limit key
+  --value VALUE         Per-axis limit value for --axis
+  --topic TOPIC         Scope safety checks to this command topic (repeat with multiple calls)
+```
 
-**ROS 2 CLI equivalent:** `ros2 component unload <container> <unique_id>`
+### CLI safety set-geofence
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--timeout SECS` | `5.0` | Service call timeout |
+```
+usage: ros2_cli.py safety set-geofence [-h] --mode {circle,rectangle} [--frame FRAME] [--cx CX]
+                                       [--cy CY] [--radius RADIUS] [--xmin XMIN] [--xmax XMAX]
+                                       [--ymin YMIN] [--ymax YMAX]
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py component unload /my_container 1
+options:
+  -h, --help            show this help message and exit
+  --mode {circle,rectangle}
+                        Geofence shape
+  --frame FRAME         Reference frame for geofence coordinates (default: map)
+  --cx CX               Circle center x
+  --cy CY               Circle center y
+  --radius RADIUS       Circle radius in meters
+  --xmin XMIN           Rectangle min x
+  --xmax XMAX           Rectangle max x
+  --ymin YMIN           Rectangle min y
+  --ymax YMAX           Rectangle max y
 ```
+
+### CLI safety block
 
-Output:
-```json
-{"success": true, "container": "/my_container", "unique_id": 1}
 ```
+usage: ros2_cli.py safety block [-h] command_name [command_subname]
 
----
+positional arguments:
+  command_name     Top-level command name, e.g. topics
+  command_subname  Optional subcommand name, e.g. publish
 
-## component standalone `<package_name>` `<plugin_name>` [options]
+options:
+  -h, --help       show this help message and exit
+```
 
-Run a composable node in its own standalone container. Starts a fresh `rclcpp_components/component_container` in a tmux session and immediately loads the specified plugin into it. The container node is named `standalone_<plugin_class>` (derived from the plugin name, e.g. `demo_nodes_cpp::Talker` → `/standalone_talker`).
+### CLI safety unblock
 
-**ROS 2 CLI equivalent:** `ros2 component standalone <package> <plugin>`
+```
+usage: ros2_cli.py safety unblock [-h] command_name [command_subname]
 
-**Requires:** tmux, rclcpp_components, composition_interfaces
+positional arguments:
+  command_name     Top-level command name, e.g. topics
+  command_subname  Optional subcommand name, e.g. publish
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--container-type TYPE` | `component_container` | Container executable (`component_container`, `component_container_mt`, `component_container_isolated`) |
-| `--node-name NAME` | `""` | Override the loaded node's name |
-| `--node-namespace NS` | `""` | Override the loaded node's namespace |
-| `--remap RULE [...]` | `[]` | Remap rules (e.g. `/from:=/to`) |
-| `--log-level LEVEL` | `0` | Log level for the loaded node (uint8: 0=unset, 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR, 50=FATAL) |
-| `--timeout SECS` | `10.0` | Total timeout for container start + component load |
+options:
+  -h, --help       show this help message and exit
+```
 
-> **Optional output key:** `warning` is present when a local workspace is detected but not yet built — the command still proceeds.
+### CLI safety validate
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py component standalone demo_nodes_cpp demo_nodes_cpp::Talker
 ```
+usage: ros2_cli.py safety validate [-h] --topic TOPIC --msg MSG [--msg-type MSG_TYPE]
 
-**Output (success):**
-```json
-{
-  "success": true,
-  "session": "comp_demo_nodes_cpp_standalone_talker",
-  "container": "/standalone_talker",
-  "container_type": "component_container",
-  "package_name": "demo_nodes_cpp",
-  "plugin_name": "demo_nodes_cpp::Talker",
-  "full_node_name": "/talker",
-  "unique_id": 1,
-  "status": "running"
-}
+options:
+  -h, --help           show this help message and exit
+  --topic TOPIC        Publish topic to validate
+  --msg MSG            JSON payload to validate
+  --msg-type MSG_TYPE  Message type for payload validation
 ```
 
-> **Note:** `full_node_name` is returned verbatim from the `LoadNode` service. With `component_container` (default) the node runs in the global namespace (e.g. `/talker`). With `component_container_isolated` it is namespaced under the container (e.g. `/standalone_talker/talker`).
+### CLI safety reset
 
-**Output (session already exists):**
-```json
-{
-  "error": "Session 'comp_demo_nodes_cpp_standalone_talker' already exists",
-  "suggestion": "Use 'component kill comp_demo_nodes_cpp_standalone_talker' to kill it first",
-  "session": "comp_demo_nodes_cpp_standalone_talker"
-}
 ```
+usage: ros2_cli.py safety reset [-h] [--yes]
 
-The session can be killed with `component kill <session>` when the container is no longer needed.
+options:
+  -h, --help  show this help message and exit
+  --yes       Required confirmation flag
+```
 
----
+### CLI safety geofence enable
 
-## component kill `<session>`
+```
+usage: ros2_cli.py safety geofence enable [-h]
 
-Kill a standalone component container session. Terminates the tmux session and removes its metadata entry. Only accepts sessions with the `comp_` prefix.
+options:
+  -h, --help  show this help message and exit
+```
 
-**No live ROS 2 graph required.**
+### CLI safety geofence disable
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py component kill comp_demo_nodes_cpp_standalone_talker
 ```
+usage: ros2_cli.py safety geofence disable [-h]
 
-**Output (success):**
-```json
-{
-  "success": true,
-  "session": "comp_demo_nodes_cpp_standalone_talker",
-  "message": "Session 'comp_demo_nodes_cpp_standalone_talker' killed"
-}
+options:
+  -h, --help  show this help message and exit
 ```
 
-**Output (wrong session type):**
-```json
-{
-  "error": "Session 'run_my_node' is not a comp session",
-  "hint": "Comp sessions start with 'comp_'"
-}
+### CLI safety heartbeat start
+
 ```
+usage: ros2_cli.py safety heartbeat start [-h] [--timeout TIMEOUT] [--poll POLL]
 
-**Output (session not found):**
-```json
-{
-  "error": "Session 'comp_demo_nodes_cpp_standalone_talker' does not exist",
-  "available_sessions": []
-}
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Staleness timeout in seconds
+  --poll POLL        Polling interval in seconds
 ```
 
----
+### CLI safety heartbeat stop
 
-## daemon status
+```
+usage: ros2_cli.py safety heartbeat stop [-h]
 
-Check whether the ROS 2 daemon is running.
+options:
+  -h, --help  show this help message and exit
+```
 
-**No live ROS 2 graph required.** Reads the domain ID from `ROS_DOMAIN_ID` (default 0). Queries the `ros2cli` Python API first; falls back to PID file discovery in `~/.ros/` if `ros2cli` is not available.
+### CLI safety heartbeat ping
 
-**ROS 2 CLI equivalent:** `ros2 daemon status`
+```
+usage: ros2_cli.py safety heartbeat ping [-h]
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py daemon status
+options:
+  -h, --help  show this help message and exit
 ```
 
-Output (running):
-```json
-{"status": "running", "domain_id": 0, "pid": 12345}
+### CLI safety heartbeat status
+
 ```
+usage: ros2_cli.py safety heartbeat status [-h]
 
-Output (not running):
-```json
-{"status": "not_running", "domain_id": 0}
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI nav2 go
 
-## daemon start
+```
+usage: ros2_cli.py nav2 go [-h] [--yaw DEG] [--frame FRAME] [--timeout TIMEOUT] [--feedback]
+                           [--action ACTION]
+                           x y
 
-Start the ROS 2 daemon if it is not already running.
+positional arguments:
+  x                  Goal X position in the navigation frame (metres)
+  y                  Goal Y position in the navigation frame (metres)
 
-**No live ROS 2 graph required.** Uses `ros2cli.daemon.spawn_daemon()`. Idempotent: returns `already_running` immediately if the daemon is already up.
+options:
+  -h, --help         show this help message and exit
+  --yaw DEG          Desired heading at the goal in degrees (omit for no rotation constraint)
+  --frame FRAME      Coordinate frame for the goal pose (default: map)
+  --timeout TIMEOUT  Seconds to wait for navigation to complete (default: 120.0)
+  --feedback         Collect and return Nav2 feedback messages in the output
+  --action ACTION    Cancel only this action server (default: all Nav2 action servers)
+```
 
-**ROS 2 CLI equivalent:** `ros2 daemon start`
+### CLI nav2 cancel
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py daemon start
 ```
+usage: ros2_cli.py nav2 cancel [-h] [--action ACTION] [--timeout TIMEOUT]
 
-Output (started):
-```json
-{"status": "started", "domain_id": 0, "pid": 12345}
+options:
+  -h, --help         show this help message and exit
+  --action ACTION    Cancel only this action server (default: all Nav2 action servers)
+  --timeout TIMEOUT  Seconds to wait for the cancel service (default: 10)
 ```
+
+### CLI nav2 status
 
-Output (already running):
-```json
-{"status": "already_running", "domain_id": 0, "pid": 12345}
 ```
+usage: ros2_cli.py nav2 status [-h] [--timeout TIMEOUT]
 
-Output (ros2cli unavailable):
-```json
-{
-  "error": "ros2cli Python package not available",
-  "hint": "Install ros2cli or run 'ros2 daemon start' in a shell",
-  "domain_id": 0
-}
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Seconds to wait for feedback/status topics (default: 5)
 ```
 
----
+### CLI nav2 go-waypoints
 
-## daemon stop
+```
+usage: ros2_cli.py nav2 go-waypoints [-h] [--yaw DEG] [--frame FRAME] [--timeout TIMEOUT]
+                                     [--stop-on-failure] [--no-stop-on-failure] [--action ACTION]
+                                     x,y [x,y ...]
 
-Stop the ROS 2 daemon.
+positional arguments:
+  x,y                   One or more waypoints in 'x,y' format (e.g. 1.0,2.0 3.5,-1.0)
 
-**No live ROS 2 graph required.** Uses `ros2cli.daemon.shutdown_daemon()` if available; falls back to `SIGTERM` via PID file. Idempotent: returns `not_running` immediately if the daemon is already stopped.
+options:
+  -h, --help            show this help message and exit
+  --yaw DEG             Desired heading at each waypoint in degrees (omit for no constraint)
+  --frame FRAME         Coordinate frame for all waypoints (default: map)
+  --timeout TIMEOUT     Seconds to wait per waypoint (default: 120)
+  --stop-on-failure     Stop waypoint sequence on first failure (default: True)
+  --no-stop-on-failure  Continue waypoint sequence even after a failed waypoint
+  --action ACTION       Action server name (default: /navigate_to_pose)
+```
 
-**ROS 2 CLI equivalent:** `ros2 daemon stop`
+### CLI nav2 rotate
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py daemon stop
 ```
+usage: ros2_cli.py nav2 rotate [-h] [--timeout TIMEOUT] degrees
 
-Output (stopped):
-```json
-{"status": "stopped", "domain_id": 0}
+positional arguments:
+  degrees            Angle to rotate in degrees (positive = counter-clockwise)
+
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Seconds to wait for the spin to complete (default: 30)
 ```
+
+### CLI nav2 move-timed
 
-Output (not running):
-```json
-{"status": "not_running", "domain_id": 0}
 ```
+usage: ros2_cli.py nav2 move-timed [-h] --duration SEC --speed SPEED
+                                   [--direction {fwd,back,left,right}] [--topic TOPIC]
 
-Output (stop signal sent, daemon still exiting):
-```json
-{
-  "status": "stop_requested",
-  "domain_id": 0,
-  "note": "Daemon may take a moment to exit",
-  "pid": 12345
-}
+options:
+  -h, --help            show this help message and exit
+  --duration SEC        How long to move in seconds
+  --speed SPEED         Speed magnitude: m/s for fwd/back, rad/s for left/right
+  --direction {fwd,back,left,right}
+                        Movement direction (default: fwd)
+  --topic TOPIC         cmd_vel topic override (default: auto-discover)
 ```
 
----
+### CLI nav2 costmap-clear
 
-## Command Quick Reference
+```
+usage: ros2_cli.py nav2 costmap-clear [-h] [--layer {local,global,both}] [--timeout TIMEOUT]
 
-### 1. Explore a Robot System
+options:
+  -h, --help            show this help message and exit
+  --layer {local,global,both}
+                        Which costmap layer to clear (default: both)
+  --timeout TIMEOUT     Service call timeout in seconds (default: 10)
+```
 
-```bash
-python3 {baseDir}/scripts/ros2_cli.py version
-python3 {baseDir}/scripts/ros2_cli.py topics list
-python3 {baseDir}/scripts/ros2_cli.py nodes list
-python3 {baseDir}/scripts/ros2_cli.py services list
-python3 {baseDir}/scripts/ros2_cli.py actions list
+### CLI nav2 map list
 
-# Discover installed packages and what they provide
-python3 {baseDir}/scripts/ros2_cli.py pkg list
-python3 {baseDir}/scripts/ros2_cli.py pkg prefix turtlesim
-python3 {baseDir}/scripts/ros2_cli.py pkg executables turtlesim
-python3 {baseDir}/scripts/ros2_cli.py pkg xml turtlesim
+```
+usage: ros2_cli.py nav2 map list [-h] [--maps-dir DIR]
 
-# Find a topic by type, then inspect it
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
-# → get the discovered topic name, then:
-python3 {baseDir}/scripts/ros2_cli.py topics type <discovered_topic>
-python3 {baseDir}/scripts/ros2_cli.py interface proto <confirmed_type>
+options:
+  -h, --help      show this help message and exit
+  --maps-dir DIR  Directory to scan for map YAML files (default: maps/)
 ```
+
+### CLI nav2 map save
 
-### 2. Move a Robot
+```
+usage: ros2_cli.py nav2 map save [-h] [--name NAME] [--timeout TIMEOUT]
 
-**Emergency stop:**
-```bash
-python3 {baseDir}/scripts/ros2_cli.py estop
+options:
+  -h, --help         show this help message and exit
+  --name NAME        Output filename stem (default: map)
+  --timeout TIMEOUT  Service call timeout in seconds (default: 10)
 ```
 
-### 3. Read Sensor Data
+### CLI nav2 map load
 
-**Always use auto-discovery first** to find the correct sensor topics.
+```
+usage: ros2_cli.py nav2 map load [-h] [--timeout TIMEOUT] NAME
 
-```bash
-# Step 1: Discover sensor topics by message type
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
-python3 {baseDir}/scripts/ros2_cli.py topics find nav_msgs/msg/Odometry
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/JointState
-# → record each discovered topic name
+positional arguments:
+  NAME               Map name or path (appends .yaml if no extension)
 
-# Step 2: Subscribe to discovered topics (use the names from Step 1, not hardcoded names)
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe <LASER_TOPIC> --duration 3
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe <ODOM_TOPIC> --duration 10 --max-messages 50
-python3 {baseDir}/scripts/ros2_cli.py topics subscribe <JOINT_STATE_TOPIC> --duration 5
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Service call timeout in seconds (default: 10)
 ```
 
-### 4. Use Services
+### CLI nav2 map delete
+
+```
+usage: ros2_cli.py nav2 map delete [-h] [--maps-dir DIR] [--confirm] NAME
 
-**Always use auto-discovery first** to find available services and their request/response structures.
+positional arguments:
+  NAME            Map name (stem or full path to .yaml file)
 
-```bash
-# Step 1: Discover available services
-python3 {baseDir}/scripts/ros2_cli.py services list
+options:
+  -h, --help      show this help message and exit
+  --maps-dir DIR  Directory where maps are stored (default: maps/)
+  --confirm       Safety interlock — must be set to actually delete
+```
 
-# Step 2: Find services by type (optional)
-python3 {baseDir}/scripts/ros2_cli.py services find std_srvs/srv/Empty
-python3 {baseDir}/scripts/ros2_cli.py services find turtlesim/srv/Spawn
+### CLI nav2 mode get
 
-# Step 3: Get service request/response structure
-python3 {baseDir}/scripts/ros2_cli.py services details /spawn
+```
+usage: ros2_cli.py nav2 mode get [-h] [--timeout TIMEOUT]
 
-# Step 4: Call the service with properly-structured payload
-python3 {baseDir}/scripts/ros2_cli.py services call /spawn \
-  '{"x":3.0,"y":3.0,"theta":0.0,"name":"turtle2"}'
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout for lifecycle queries (default: 5)
 ```
 
-### 5. Actions
+### CLI nav2 mode set
 
-**Always use auto-discovery first** to find available actions and their goal/result structures.
+```
+usage: ros2_cli.py nav2 mode set [-h] [--timeout TIMEOUT] {mapfree,mapping,navigation}
 
-```bash
-# Step 1: Discover available actions
-python3 {baseDir}/scripts/ros2_cli.py actions list
+positional arguments:
+  {mapfree,mapping,navigation}
+                        Target navigation mode
 
-# Step 2: Find actions by type (optional)
-python3 {baseDir}/scripts/ros2_cli.py actions find turtlesim/action/RotateAbsolute
-python3 {baseDir}/scripts/ros2_cli.py actions find nav2_msgs/action/NavigateToPose
+options:
+  -h, --help            show this help message and exit
+  --timeout TIMEOUT     Timeout for lifecycle transitions (default: 10)
+```
 
-# Step 3: Get action goal/result structure
-python3 {baseDir}/scripts/ros2_cli.py actions details /turtle1/rotate_absolute
+### CLI nav2 mission run
 
-# Step 4: Send goal with properly-structured payload
-python3 {baseDir}/scripts/ros2_cli.py actions send /turtle1/rotate_absolute \
-  '{"theta":1.57}'
+```
+usage: ros2_cli.py nav2 mission run [-h] [--name NAME] [--mission-id MISSION_ID] [--steps STEPS]
+                                    [--file FILE]
 
-# Step 5: Monitor feedback — always echo after sending a goal
-python3 {baseDir}/scripts/ros2_cli.py actions echo /turtle1/rotate_absolute --timeout 30
+options:
+  -h, --help            show this help message and exit
+  --name NAME           Mission display name
+  --mission-id MISSION_ID
+                        Explicit mission id (default: generated)
+  --steps STEPS         Mission steps as a JSON string
+  --file FILE           Path to a JSON file containing mission steps
 ```
 
-**After every `actions send`, immediately run `actions echo` on the same action server** to monitor feedback.
+### CLI nav2 mission pause
 
-### 6. Change Parameters
+```
+usage: ros2_cli.py nav2 mission pause [-h] mission_id
 
-**Always use auto-discovery first** to list available parameters for a node.
+positional arguments:
+  mission_id  Mission id
 
-```bash
-# Step 1: Discover nodes
-python3 {baseDir}/scripts/ros2_cli.py nodes list
+options:
+  -h, --help  show this help message and exit
+```
 
-# Step 2: List parameters for a node
-python3 {baseDir}/scripts/ros2_cli.py params list /turtlesim
+### CLI nav2 mission resume
 
-# Step 3: Get current parameter value
-python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+```
+usage: ros2_cli.py nav2 mission resume [-h] mission_id
 
-# Step 4: Set parameter value
-python3 {baseDir}/scripts/ros2_cli.py params set /turtlesim:background_r 255
+positional arguments:
+  mission_id  Mission id
 
-# Step 5: Read back after set — always verify the change took effect
-python3 {baseDir}/scripts/ros2_cli.py params get /turtlesim:background_r
+options:
+  -h, --help  show this help message and exit
 ```
 
-**After every `params set`, always run `params get` on the same parameter** to confirm the change was accepted.
+### CLI nav2 mission cancel
 
-### 7. Goal-Oriented Commands (publish-until)
+```
+usage: ros2_cli.py nav2 mission cancel [-h] mission_id
 
-For any goal with a sensor-based stop condition — joint angles, temperature limits, proximity, battery level — use `publish-until` with the appropriate monitor topic and condition flag. **Always discover both the command topic and the monitor topic before executing** — never hardcode names.
+positional arguments:
+  mission_id  Mission id
 
-| User intent | Discover command topic | Discover monitor topic | Condition |
-|-------------|----------------------|----------------------|-----------|
-| Stop near obstacle | `topics find geometry_msgs/Twist` + `TwistStamped` | `topics find sensor_msgs/LaserScan` → field `ranges.0` | `--below 0.5` |
-| Stop at range | same | `topics find sensor_msgs/Range` → field `range` | `--below D` |
-| Stop at temperature | — | `topics find sensor_msgs/Temperature` → field `temperature` | `--above T` |
-| Stop at battery level | — | `topics find sensor_msgs/BatteryState` → field `percentage` | `--below P` |
-| Joint reach angle | `topics find trajectory_msgs/JointTrajectory` or similar | `topics find sensor_msgs/JointState` → field `position.0` | `--equals A` or `--delta D` |
-| Multi-joint distance | same | `topics find sensor_msgs/JointState` → fields `position.0 position.1` | `--euclidean --delta D` |
+options:
+  -h, --help  show this help message and exit
+```
 
-**`--euclidean`** computes `sqrt(Σ(current_i - start_i)²)` across all `--field` paths. Use it for curved or diagonal paths. **Composite field shorthand**: `--field pose.pose.position` auto-expands to `x, y, z`.
+### CLI nav2 mission status
 
-```bash
-# Example: stop when front range sensor reads < 0.5 m
-# Step 1: discover velocity topic
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
+```
+usage: ros2_cli.py nav2 mission status [-h] mission_id
 
-# Step 2: discover laser scan topic
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/LaserScan
+positional arguments:
+  mission_id  Mission id
 
-# Step 3: execute with discovered names
-python3 {baseDir}/scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
-  '<payload>' \
-  --monitor <SCAN_TOPIC> --field ranges.0 --below 0.5 --timeout 30
+options:
+  -h, --help  show this help message and exit
 ```
 
-### 8. Topic and Service Discovery
+### CLI nav2 place save
 
-**Never guess topic names.** Any time an operation involves a topic, discover the actual topic name from the live graph first.
+```
+usage: ros2_cli.py nav2 place save [-h] [--topic TOPIC] [--frame FRAME] [--x X] [--y Y]
+                                   [--yaw YAW] [--timeout TIMEOUT] [--snapshot]
+                                   name
 
-### Images and Camera
+positional arguments:
+  name               Place name
 
-**Always prefer compressed topics** - use much less bandwidth:
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/CompressedImage
-python3 {baseDir}/scripts/ros2_cli.py topics find sensor_msgs/msg/Image
+options:
+  -h, --help         show this help message and exit
+  --topic TOPIC      Pose topic to sample (default: /amcl_pose or /odom)
+  --frame FRAME      Reference frame for the place (default: map)
+  --x X              Explicit x position
+  --y Y              Explicit y position
+  --yaw YAW          Explicit yaw in degrees
+  --timeout TIMEOUT  Pose capture timeout in seconds
+  --snapshot         Also store a camera frame with the place (`nav2 place list` shows its path)
 ```
-Use `topics capture-image --topic <discovered>` - never `subscribe` for images.
 
-### Velocity Commands (Twist vs TwistStamped)
+### CLI nav2 place list
 
-Check both types to find the topic:
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/Twist
-python3 {baseDir}/scripts/ros2_cli.py topics find geometry_msgs/msg/TwistStamped
 ```
-Then confirm the exact type of the discovered topic:
-```bash
-python3 {baseDir}/scripts/ros2_cli.py topics type <discovered_topic>
+usage: ros2_cli.py nav2 place list [-h]
+
+options:
+  -h, --help  show this help message and exit
 ```
 
----
+### CLI nav2 place go
 
-## Agent Vocabulary: Natural-Language Trigger Words
+```
+usage: ros2_cli.py nav2 place go [-h] [--action ACTION] [--timeout TIMEOUT] [--feedback] name
 
-Maps user intent phrases to the correct ros2-skill command sequence. When a phrase below appears in a user request, use the mapped command — do not ask which command to run.
+positional arguments:
+  name               Place name
 
-### Node execution model
+options:
+  -h, --help         show this help message and exit
+  --action ACTION    NavigateToPose action name
+  --timeout TIMEOUT  Action timeout in seconds
+  --feedback         Return feedback messages
+```
 
-| User intent | Correct approach | Notes |
-|---|---|---|
-| "run X", "start node X", "launch X as a node" | `run new <package> <executable>` | Standalone process — node runs in its own OS process |
-| "load component X into container Y", "load X into component container" | `component load <container> <package> <plugin>` | Intra-process component — shares address space with container |
-| "list running containers and components" | `component list` | Shows all containers and their loaded component IDs and names |
-| "unload component X", "remove component with ID N" | `component unload <container> <unique_id>` | Removes a component without killing the container |
-| "run <plugin> standalone", "standalone container for <plugin>", "run <plugin> without an existing container" | `component standalone <package> <plugin>` | Creates its own container + loads in one step; container persists in tmux, kill with `component kill <session>` |
-| "kill standalone", "stop standalone container", "cancel standalone" | `component kill <session>` | Terminates the container's tmux session; get the session name from `component standalone` output or `run list` |
+### CLI nav2 place delete
 
-**Key distinction:** `run new` creates a standalone OS process. `component load` inserts a composable node into an already-running container (`rclcpp::ComponentManager`) — lower IPC overhead, same address space. Use `component list` to discover available containers before loading.
+```
+usage: ros2_cli.py nav2 place delete [-h] name
 
----
+positional arguments:
+  name        Place name
 
-### Parameter files and YAML config
+options:
+  -h, --help  show this help message and exit
+```
 
-| User intent | Correct command |
-|---|---|
-| "load params from file", "apply YAML params", "use config file", "load parameters from YAML" | `params load <node> <yaml_file>` |
-| "apply config to node X" | `params load <node> <yaml_file>` |
-| "use `--params-file` in launch" | Pass via `launch new <pkg> <file> --params-file <path>` |
+### CLI nav2 initial-pose
 
-**Pre-load validation (Rule 0 — mandatory):** Before loading any YAML file, run `params list <node>` and compare YAML keys against declared parameters. Any YAML key not matching a declared parameter is silently ignored. Verify each intended key is present before loading.
+```
+usage: ros2_cli.py nav2 initial-pose [-h] [--yaw DEG] [--frame FRAME] [--timeout TIMEOUT] x y
 
----
+positional arguments:
+  x                  X position of the initial pose estimate (metres)
+  y                  Y position of the initial pose estimate (metres)
 
-### Bag files
+options:
+  -h, --help         show this help message and exit
+  --yaw DEG          Heading of the initial pose estimate in degrees (default: 0)
+  --frame FRAME      Coordinate frame for the initial pose (default: map)
+  --timeout TIMEOUT  Timeout in seconds (currently unused; reserved for future use)
+```
 
-| User intent | Correct command |
-|---|---|
-| "what's in this bag", "bag file info", "how long is the bag", "what topics does the bag have" | `bag info <path>` |
+### CLI nav2 localize
 
-**Note:** `bag info` does not require a live ROS 2 graph — it reads `metadata.yaml` from the bag directory.
+```
+usage: ros2_cli.py nav2 localize [-h] [--service SERVICE] [--timeout TIMEOUT]
 
----
+options:
+  -h, --help         show this help message and exit
+  --service SERVICE  Override service name (default: /reinitialize_global_localization)
+  --timeout TIMEOUT  Service call timeout in seconds (default: 10)
+```
 
-### Testing
+### CLI nav2 diagnose
 
-| User intent | Correct command |
-|---|---|
-| "run tests for package X", "test package X", "check if tests pass" | `colcon test --packages-select <pkg>` *(direct CLI — not in ros2-skill)* |
-| "run the test suite", "run all tests" | `colcon test` *(direct CLI)* |
-| "run pytest", "run unit tests" | `python3 -m pytest <path>` *(direct CLI)* |
-| "show test results", "what tests failed" | `colcon test-result --all` *(direct CLI)* |
+```
+usage: ros2_cli.py nav2 diagnose [-h] [--timeout TIMEOUT]
 
-**Note:** Testing commands operate on the build system, not the live ROS 2 graph — they are outside the scope of `ros2_cli.py`. Use direct CLI commands. These commands do not require a running robot.
+options:
+  -h, --help         show this help message and exit
+  --timeout TIMEOUT  Timeout for graph queries (default: 5)
+```
 
----
+### CLI system battery
 
-### Diagnostics: runtime log level
+```
+usage: ros2_cli.py system battery [-h] [--topic TOPIC] [--threshold PCT] [--warn PCT]
+                                  [--timeout SEC]
 
-| User intent | Correct command |
-|---|---|
-| "enable debug logging for node X", "set log level to debug", "get more verbose output from X" | `services call <SET_LOGGER_LEVEL_SERVICE> '{"logger_name": "", "level": 10}'` |
-| "reset log level", "disable debug logging" | `services call <SET_LOGGER_LEVEL_SERVICE> '{"logger_name": "", "level": 20}'` |
+options:
+  -h, --help       show this help message and exit
+  --topic TOPIC    Read from a specific topic (default: auto-discover all BatteryState topics)
+  --threshold PCT  Critical threshold in percent (default: 20). Below this → health=critical.
+  --warn PCT       Warning threshold in percent (default: 30). Below this (but above --threshold)
+                   → health=warning.
+  --timeout SEC    Seconds to wait for a BatteryState message (default: 5)
+```
 
-**Discovery:** Find the service with `services find rcl_interfaces/srv/SetLoggerLevel`. Level values: `10` = DEBUG, `20` = INFO, `30` = WARN, `40` = ERROR. Use `logger_name: ""` for the root logger, or specify the node's logger name to narrow scope.
+### CLI system shutdown
 
----
+```
+usage: ros2_cli.py system shutdown [-h] [--confirm]
 
-### Daemon and deployment context
+options:
+  -h, --help  show this help message and exit
+  --confirm   Safety interlock — must be set to actually shut down
+```
 
-| User intent | Correct command |
-|---|---|
-| "check daemon status", "is the ROS daemon running" | `daemon status` |
-| "start the daemon", "restart daemon" | `daemon start` |
-| "stop the daemon" | `daemon stop` |
-| "what domain ID is in use", "check ROS_DOMAIN_ID" | Check env: `echo $ROS_DOMAIN_ID` *(direct shell)* |
+### CLI system reboot
 
-**Note:** `ROS_DOMAIN_ID` defaults to `0` and is user-configurable. If the graph looks unexpectedly large (too many unrecognised nodes), a domain collision with another system is likely — check with `echo $ROS_DOMAIN_ID` and verify the expected value with the user.
+```
+usage: ros2_cli.py system reboot [-h] [--confirm]
 
-**Setting `ROS_DOMAIN_ID` — important limitation:** `export ROS_DOMAIN_ID=X` in a subprocess does not propagate to the parent shell. The agent cannot persistently change this value for future `ros2_cli.py` calls — each call inherits the environment it was launched with. To apply a different domain ID for a single command, prefix it: `ROS_DOMAIN_ID=42 python3 {baseDir}/scripts/ros2_cli.py topics list`. For a persistent change, the user must set the variable in their shell before launching the agent.
+options:
+  -h, --help  show this help message and exit
+  --confirm   Safety interlock — must be set to actually reboot
+```

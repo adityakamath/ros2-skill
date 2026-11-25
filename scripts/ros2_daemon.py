@@ -206,6 +206,9 @@ def cmd_daemon_fast_start(args):
     ws_path, ws_status = source_local_ws()
     if ws_status == "found" and ws_path:
         script_lines.append(f"source {shlex.quote(ws_path)}")
+    idle_s = int(float(getattr(args, "idle_minutes", 0) or 0) * 60)
+    if idle_s > 0:
+        script_lines.append(f"export ROS2_SKILL_FASTD_IDLE_S={idle_s}")
     script_lines.append(f"exec python3 {shlex.quote(_FASTD_SCRIPT)}")
 
     fastd_dir = os.path.dirname(_FASTD_SOCKET)

@@ -71,6 +71,15 @@ _LINE_RE = re.compile(
     r'(?P<msg>.*)$'
 )
 
+# `ros2 launch` log (launch.log) wraps each line with the launch timestamp and, for node output, a process tag
+# and ANSI colour:  <ts> [INFO] [launch]: msg   |   <ts> [proc-N] <ESC>[0m[INFO] [<ts>] [node]: msg
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+_LAUNCH_LINE_RE = re.compile(
+    r'^(?P<ts0>[0-9]+\.[0-9]+)\s+(?:\[(?P<proc>[^\]]+)\]\s+)?'
+    r'\[(?P<severity>DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL)\]\s+'
+    r'(?:\[(?P<ts>[0-9]+\.[0-9]+)\]\s+)?(?:\[(?P<node>[^\]]+)\]:?\s*)?(?P<msg>.*)$'
+)
+
 _SEV_NORM: Dict[str, str] = {
     "DEBUG":    "DEBUG",
     "INFO":     "INFO",
@@ -92,20 +101,21 @@ _SEV_RANK: Dict[str, int] = {
 
 def _parse_line(line: str) -> Optional[dict]:
     """Parse one ROS 2 log line.  Returns ``None`` if the line is not a log entry."""
-    m = _LINE_RE.match(line.rstrip())
+    line = _ANSI_RE.sub("", line.rstrip())
+    m = _LINE_RE.match(line) or _LAUNCH_LINE_RE.match(line)
     if not m:
         return None
-    sev_raw = m.group("severity")
-    sev     = _SEV_NORM.get(sev_raw, sev_raw)
+    groups = m.groupdict()
+    sev = _SEV_NORM.get(groups["severity"], groups["severity"])
     try:
-        ts = float(m.group("ts"))
+        ts = float(groups.get("ts") or groups.get("ts0") or 0.0)
     except ValueError:
         ts = 0.0
     return {
         "severity":  sev,
         "timestamp": ts,
-        "node":      m.group("node") or "",
-        "message":   m.group("msg"),
+        "node":      groups.get("node") or groups.get("proc") or "",
+        "message":   groups["msg"],
     }
 
 
@@ -144,6 +154,10 @@ def _iter_runs(log_dir: pathlib.Path) -> Iterator[dict]:
         }
 
 
+def _run_size(run_dir: pathlib.Path) -> int:
+    return sum(f.stat().st_size for f in run_dir.glob("*.log"))
+
+
 def _resolve_run(
     log_dir: pathlib.Path,
     run_id:  Optional[str],
@@ -157,12 +171,12 @@ def _resolve_run(
         latest_link = log_dir / "latest"
         if latest_link.is_symlink():
             target = latest_link.resolve()
-            if target.is_dir():
+            if target.is_dir() and _run_size(target) > 0:
                 return target
-        # Fallback: most recently modified run that has log files
+        # Fallback: most recently modified run with log content (skips the CLI's own empty runs)
         candidates = [
             p for p in log_dir.iterdir()
-            if p.is_dir() and p.name != "latest" and list(p.glob("*.log"))
+            if p.is_dir() and p.name != "latest" and _run_size(p) > 0
         ]
         if not candidates:
             return None

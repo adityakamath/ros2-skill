@@ -2,40 +2,66 @@
 
 All notable changes to ros2-skill will be documented in this file.
 
-## [Unreleased] - 2026-09-01
+## [Unreleased]
 
-Mission primitives, safety policy enforcement, and watchdog monitoring. Addresses core roadmap items for deterministic mission execution, fail-safe behavior, and operator intervention paths.
+### Added
+- The fast daemon starts itself in the background on the first `snapshot`, `look`, `preflight motion`, `stop`, `publish-until` or `plan --run` (that command takes the normal path), exits after 30 idle minutes, and is not started with `ROS2_SKILL_NO_AUTOSTART=1` or `ROS2_SKILL_NO_FASTD=1`. `daemon-fast start` still runs it until `daemon-fast stop` (`--idle-minutes N` adds an idle exit). A kept velocity/odometry hub is rebuilt when the robot stack restarts underneath it.
+- Moves hosted by the fast daemon: `topics publish-until` (distance or `--rotate`), `stop` and `preflight motion` run inside the daemon (warm publisher and odometry subscription) and, because the CLI never imports rclpy for them, `plan --run` starts moving 0.15 s after the command instead of 1.2 s (a 0.1 m move: 2.3 s wall, 4.65 s originally). Halting is tied to the CLI's socket (Ctrl-C, `kill`, `kill -9`), to `estop`/`stop`, and to the controller's `cmd_vel_timeout` if the daemon dies. `ROS2_SKILL_NO_FASTD=1` disables it. See RULES-MOTION.md.
+- `notes remember|recall|forget`: free-form robot memory in `.artifacts/notes.json` (outside every profile, so it survives profile switches). `nav2 place save --snapshot` stores a camera frame with the place.
+- `braking measure|show|clear`: measures the base's coast distance with the slow-down zone off and stores the deceleration; `publish-until` uses it instead of the 0.5 m/s² default.
+- `plan` verbs that fold turns together: "rotate 90 degrees" (direction optional or trailing), "turn around", "undo that" / "rotate back" / "go back", "report the battery", "is the path ahead clear", "what is around me", "look at X", "remember that ...", "what do you remember about X".
+- `publish-until` reports `slow` when a move finished but took over twice its cruise time (a limiter was cutting the speed).
+- Cancellation: `estop`, Ctrl-C and `kill` now unwind a running command so its zero-velocity burst runs; a Nav2 goal in progress is cancelled; `mission cancel` interrupts the step in progress; `plan --run` reports `cancelled`. Shared helpers `spin_until` and `uninterruptible` in `ros2_utils`.
+- `tests/sim_ci.sh` and `.github/workflows/sim.yml`: smoke tests (including a move and an estop interrupt) against lekiwi_ros2 in headless MuJoCo, nightly and on motion-path changes. The script passes 10/10 locally against `sim:=true`; the workflow itself has not run on GitHub.
+- `snapshot`: one read-only call for LiDAR sectors, pose, tilt, battery, ToF, depth at the centre pixel, wheel speeds, e-stop/mode state, controllers, Nav2 nodes and diagnostics. About 2 s as its own process, 0.3 s when the fast daemon is running (it keeps the sensors subscribed).
+- `look [--diff S]`: captures the colour camera (profile rotation applied) and, with `--diff`, a second frame S seconds later with a change verdict computed in code. 0.35 s with the fast daemon.
+- Failed or timed-out moves report why when a limiter (collision monitor, smoother) cut the speed (`limited_downstream`, `cause`), and `plan --run` stops normally instead of latching the e-stop in that case.
+- Silent camera/depth streams report the toggle/enable services under their namespace.
+- `doctor --issues`: lists the incompatible QoS pairs behind a `QoSCompatibilityCheck` warning.
+- `plan` verbs: "save this spot as X", "list places", "delete place X", "save the map as X", "take a picture", "snapshot", and steps joined by "and".
+- The pre-motion check reads e-stop, drive mode and battery from the fast daemon when it is running (about 1 s faster to first command).
+- `plan "<goal>" --run`: executes a plan in one process (mode switch, pre-motion check, command, stop, verify) with the profile's limits. "Move forward 1 m at top speed" goes from prompt to first wheel command in about 1.8 s instead of about 19 s (measured on LeKiwi, mostly by replacing five agent round trips with one). "at top speed" / "at 0.1 m/s" phrases.
+- `stop`: routine, non-latching stop (zero velocity everywhere, waits until stationary, reports the final position). `estop` is for failures and emergencies; `plan --run` uses `stop` after normal moves and `estop` after a failed step.
+- `plan "<goal>"`: compiles goals (move/strafe/turn, go to place or x,y, patrol, look around, record waypoint, save map) into CLI commands with computed units, timeouts and limits. Executes nothing.
+- `services state`: current state of SetBool toggles (e-stop, twist switch) from replayed introspection events.
+- `nav2 mission run|pause|resume|cancel|status`, `nav2 place save|list|go|delete`, `safety show|set-velocity|set-geofence|validate|heartbeat`, `profile set-safety-overlay|set-context`.
+- `preflight motion --source teleop|nav2`: also reports e-stop, drive mode, battery and `blocked_by`.
+- One motion command at a time (lock file); `estop` interrupts the running command.
+- `references/GUIDES.md`; `COMMANDS.md` generated from the parser; `pytest --live` and `--sim`.
 
-### New Commands
+### Changed
+- `plan --run` is about 0.8 s faster end to end (4.65 s to 3.9 s for a 0.1 m move): argparse no longer does gettext lookups (about 0.1 s per call, including daemon-served calls: `snapshot` 0.31 s to 0.26 s), `publish-until` skips its discovery node when the plan passes message types, `stop` overlaps its odometry read with the zero burst, and the burst after `publish-until` is 0.2 s instead of 0.5 s.
+- `plan --run` refuses a goal if any part is not understood; before, it silently ran the parts it understood.
+- The pre-motion check re-reads odometry up to twice when the first sample is just above the stationary threshold (noise at rest peaks at 0.0099 rad/s); a moving robot still blocks.
+- Start-up: `plan` no longer imports `ros2_nav2` (and rclpy) just to list places, and a profile is no longer deep-copied twice per command (`load_profile_record(readonly=True)`): `plan: start` is 0.1 s instead of 0.3 s, a compile-only `plan` 0.25 s.
+- Start-up cost: one rclpy init per process (nested `ros2_context` shares it), no live parameter sweep in `publish-until` when a profile is loaded (about 2 s), profile reads cached per process, pre-motion state reads overlap the controller query. `ROS2_SKILL_TRACE=1` prints phase timings.
+- `SKILL.md` cut to about 130 lines and the rule files condensed; frontmatter reduced to what Claude Code reads.
+- `estop` engages the SetBool e-stop service (never a Trigger toggle) and zeroes every velocity topic.
+- Agents hand `launch`/`run`/`kill` commands to the user instead of running them.
+- Profile scan reads wildcard `/**/` node keys, toggle/joystick service configs, `hardware.yaml` and teleop-scale limits, skips driver-submodule examples, and runs about twice as fast.
+- Removed the mock-only mission executor, result schemas, goal compiler and telemetry modules.
 
-- **Mission Control:**
-  - `mission start` — begin a multi-step navigation mission from a JSON spec with pause/resume/cancel semantics
-  - `mission pause` / `mission resume` / `mission cancel` — runtime mission lifecycle control
-  - `mission status` — inspect current mission state, progress, and step history
-  - `mission list` — show all active and completed missions
-  
-- **Safety Policy:**
-  - `safety config show` / `safety config set` / `safety config reset` — view, modify, or restore default safety policy
-  - `safety check-velocity` — validate velocity commands against configured limits before publishing
-  - `safety check-position` — validate position against geofence boundaries
-  - `safety heartbeat start` / `safety heartbeat stop` / `safety heartbeat ping` — heartbeat monitoring with automatic estop on timeout
-  - `safety watchdog start` / `safety watchdog stop` / `safety watchdog status` — persistent background safety monitor
-
-### Changes
-
-- **Mission execution:** file-backed state machine for pause/resume/cancel; fail-closed on state corruption (calls Nav2 cancel + zero-velocity burst)
-- **Safety enforcement:** velocity limits (per-axis and norm), geofence (circle/rectangle), command filter (block/allowlist), heartbeat timeout monitoring
-- **Nav2 integration:** mission runner orchestrates `nav2 go` with step-level result reporting and deterministic retry behavior
-- **Fast daemon extensions:** added mission and safety command hot-paths for sub-second latency
-- **Action improvements:** enhanced status reporting and goal cancellation for mission step tracking
-- **Profile enrichment:** safety limits now extracted and stored in robot profiles for Path A usage
-- **Topic publishing:** safety checks integrated into `topics publish`, `publish-sequence`, and `publish-until` with `--skip-safety-check` override
-
-### Fixes
-
-- Mission state file locking and atomic updates prevent race conditions during concurrent control commands
-- Watchdog sentinel creation and mtime updates are now atomic to prevent false triggers
-- Safety config validation prevents invalid policy configurations from being saved
+### Fixed
+- The fast daemon's cached odometry never expired: the pre-motion check could read a stale "stationary" message from a dead publisher. It now rejects readings older than 1 s.
+- `estop` interrupting a running command left the zero-velocity burst unsent: rclpy's own SIGINT handler had already invalidated the publisher ("publisher's context is invalid"). A background job started from a non-interactive shell also ignored SIGINT entirely.
+- A `nav2 rotate` / `nav2 go` that timed out left its goal running (the robot kept spinning); it now cancels the goal and zeroes velocity.
+- `nav2 move-timed` sent no zero burst when interrupted; `mission cancel` only took effect between steps.
+- `publish-until` leaked its publisher and monitor nodes; a second move in one `plan --run` warned about duplicate node names.
+- `topics capture-image` swapped red and blue for `rgb8`/`rgba8`/`bgra8` raw images (cv2 writes BGR).
+- `topics publish` without `--msg-type` skipped the safety velocity limit; untyped Twist/TwistStamped payloads are now checked.
+- `nav2 map save` reported `success: false` for a successful slam_toolbox save (its result code 0 means success).
+- `nav2 place save` failed without `/amcl_pose`; it now falls back to the profile's odometry topic (frame `odom`) and records the topic actually used.
+- `tf validate` (and the other `tf` commands that build their own node) failed with `module 'rclpy' has no attribute 'node'`.
+- `logs query --after -30s` (as documented) was rejected by argparse; relative times are now accepted.
+- `topics hz --duration` printed a thread traceback on stderr at exit.
+- Plan step results include a service reply's message.
+- `plan` understands "back up" / "reverse" / "backwards".
+- `logs query` / `node-summary` returned nothing for `ros2 launch` logs (wrapped lines with a process tag and ANSI colour), and the default run could be an empty one.
+- Ints in float message fields (`{"z": 0}`) aborted the process.
+- `nav2 cancel` left non-NavigateToPose goals running and sent Twist to TwistStamped topics.
+- `nav2 mission`/`nav2 place` had no handler; `topics diag` crashed on byte levels; `topics hz|bw|delay` missed best-effort publishers; `topics subscribe` QoS mismatch.
+- Zero header stamps in published `TwistStamped` are filled with the current time.
+- JSON stdout stays clean when the zenoh RMW logs to stdout.
 
 ---
 

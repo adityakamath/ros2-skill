@@ -71,6 +71,7 @@ def cmd_tf_list(args):
     """List all coordinate frames."""
     try:
         import rclpy
+        import rclpy.node
         from tf2_ros import Buffer, TransformListener
     except ImportError:
         return output({
@@ -172,6 +173,7 @@ def cmd_tf_lookup(args):
 
     try:
         import rclpy
+        import rclpy.node
         from tf2_ros import Buffer, TransformListener
         import tf2_ros
     except ImportError:
@@ -249,6 +251,7 @@ def cmd_tf_echo(args):
 
     try:
         import rclpy
+        import rclpy.node
         from tf2_ros import Buffer, TransformListener
         import tf2_ros
     except ImportError:
@@ -326,6 +329,7 @@ def cmd_tf_monitor(args):
 
     try:
         import rclpy
+        import rclpy.node
         from tf2_ros import Buffer, TransformListener
         import tf2_ros
     except ImportError:
@@ -610,6 +614,7 @@ def _tf_transform_stamped(args, msg_class, data_attr):
 
     try:
         import rclpy
+        import rclpy.node
         from tf2_ros import Buffer, TransformListener
         import tf2_ros
         try:
@@ -673,6 +678,7 @@ def _collect_tf_pairs(duration):
     """
     try:
         import rclpy
+        import rclpy.node
         from tf2_msgs.msg import TFMessage
     except ImportError:
         return None, "tf2_ros or tf2_msgs not available — install with: sudo apt install ros-{distro}-tf2-ros"

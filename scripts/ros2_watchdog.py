@@ -11,6 +11,8 @@ import os
 import subprocess
 import time
 
+from ros2_safety import get_heartbeat_status, trigger_fail_safe
+
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -48,26 +50,11 @@ def main():
             f.write(json.dumps({"created_at": time.time()}) + "\n")
 
     while True:
-        try:
-            mtime = os.path.getmtime(SENTINEL)
-        except OSError:
-            mtime = 0.0
-
-        now = time.time()
-        age = now - mtime
-        if age > args.timeout:
-            event = {
-                "watchdog_fired": True,
-                "fired_at": now,
-                "sentinel_age_s": round(age, 3),
-                "timeout_s": int(args.timeout),
-                "action": args.on_timeout,
-            }
-            if args.on_timeout == "estop":
-                event["estop"] = fire_estop()
-            write_log(event)
+        status = get_heartbeat_status(timeout_s=args.timeout)
+        if status["stale"]:
+            # trigger_fail_safe() already appends the event to the heartbeat log
+            trigger_fail_safe(status["reason"], on_timeout=args.on_timeout, timeout_s=args.timeout)
             break
-
         time.sleep(max(1, int(args.poll)))
 
 

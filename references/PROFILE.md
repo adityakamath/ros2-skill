@@ -61,7 +61,12 @@ Load this file when you need to look up a specific profile field name, understan
     "maps": [{"name": "map", "type": "occupancy", "resolution": 0.05, "image": "map.pgm", "file": "map.yaml", "path": "..."}],
     ← Teleop / e-stop
     "teleop_config": {"cmd_vel_topic": "/cmd_vel", "joy_topic": "/joy", "scales": {"scale_linear_x": 0.5, "scale_angular_z": 1.0}},
-    "estop_config": {"topic": "/e_stop", "service_type": "std_srvs/srv/SetBool", "activate_buttons": [0], "deactivate_buttons": [1]},
+    "estop_config": {"service_name": "/emergency_stop", "service_type": "std_srvs/srv/SetBool", "toggle_service": "/emergency_stop_toggle"},
+    "velocity_chain": {"teleop_input": "/cmd_vel_teleop", "nav2_input": "/cmd_vel_smoothed", "output": "/cmd_vel_presafety", "mode_service": "/twist_switch"},
+    "robot_services": {"save_map": {"service": "/save_map", "type": "std_srvs/srv/SetBool", "request": {"data": true}}},  ← joystick-bound services
+    "toggles": {"emergency_stop": "/emergency_stop", "twist_switch": "/twist_switch"},  ← SetBool state services (see `services state`)
+    "hardware_fitted": {"lidar": true, "gemini2": true},  ← from hardware.yaml; absent when the robot has none
+    "lidar_scan_topic": "/scan", "imu_topics": [{"topic": "/imu_sensor_broadcaster/imu", "msg_type": "sensor_msgs/msg/Imu"}],
     ← TF / launch
     "tf_frames": {"urdf_links": ["base_link", "imu_link", ...], "map_frame": "map", "odom_frame": "odom", "base_frame": "base_link"},
     "launch_configurations": {"config": {"default": "base", "choices": ["base", "pantilt"], "description": "..."}},

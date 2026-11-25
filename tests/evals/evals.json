@@ -37,9 +37,9 @@
     {
       "id": 4,
       "prompt": "Navigate the robot to position x=2.0, y=1.5 on the map.",
-      "expected_output": "Cancels any active Nav2 goal first, then sends nav2 go 2.0 1.5, monitors until complete, reports success or failure.",
+      "expected_output": "Checks nav2 status, cancels any active goal, then sends nav2 go 2.0 1.5, monitors until complete, reports success or failure.",
       "assertions": [
-        "Runs nav2 cancel before sending the new goal (pre-motion check)",
+        "Runs nav2 status first and nav2 cancel if a goal is active (pre-motion check)",
         "Runs nav2 go 2.0 1.5 with appropriate timeout (not less than 30s)",
         "Reports the success field in output",
         "Does not hang indefinitely — uses a timeout"
@@ -48,9 +48,9 @@
     {
       "id": 5,
       "prompt": "Scan the workspace and create a robot profile for the lekiwi robot.",
-      "expected_output": "Runs profile scan --packages lekiwi, then profile show to display the summary including robot_type, velocity_topics, and safety_limits.",
+      "expected_output": "Runs profile scan --name lekiwi (package filter auto-derived), then profile show to display the summary including robot_type, velocity_topics, and safety_limits.",
       "assertions": [
-        "Runs profile scan --packages lekiwi (not a bare scan without filter)",
+        "Runs profile scan --name lekiwi or --packages lekiwi (not a bare scan without filter)",
         "Runs profile show after scan to display results",
         "Reports robot_type and at least one of velocity_topics or safety_limits",
         "Does not require a live ROS 2 graph to complete (works offline)"
@@ -59,11 +59,12 @@
     {
       "id": 6,
       "prompt": "Capture an image from the robot's camera and save it.",
-      "expected_output": "Finds the camera topic, verifies camera_info K matrix is non-zero, captures one image with capture-image, saves to .artifacts/ directory.",
+      "expected_output": "Finds the camera topic and captures one image with capture-image, saving to the skill's .artifacts/ directory. No per-capture calibration check.",
       "assertions": [
-        "Verifies camera_info exists and K matrix is non-zero before capturing",
+        "Discovers the camera topic with topics find (camera topics are not in the profile)",
         "Uses topics capture-image command (not topics subscribe)",
-        "Saves output to {baseDir}/.artifacts/ — not to /tmp",
+        "Saves output under ${CLAUDE_SKILL_DIR}/.artifacts/ — not to /tmp",
+        "Does not re-run the camera_info calibration check for a plain capture request",
         "Reports image_rotated_deg field in output (even if 0)"
       ]
     },
@@ -87,6 +88,28 @@
         "Uses services call /trigger_sweep with correct JSON payload",
         "Reports the full service response in output",
         "Does not guess the service type without introspecting first"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Start the robot bringup so I can drive it.",
+      "expected_output": "Finds the bringup launch file and gives the user the exact `launch new <package> <file>` command to run themselves, without executing it.",
+      "assertions": [
+        "Finds the launch file via launch list <keyword> or the profile launch_files",
+        "Does not run launch new, launch restart or launch kill itself",
+        "Gives the user the complete launch command with any needed args",
+        "Offers to continue (profile rescan gate, preflight) once the user confirms the launch is up"
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Run a patrol: go to (1,0), then (0,1), then spin 180 degrees.",
+      "expected_output": "Starts a detached Nav2 mission with nav2 mission run and the three steps, then reports status.",
+      "assertions": [
+        "Uses nav2 mission run with --steps JSON (go, go, rotate steps), not a nonexistent top-level mission command",
+        "Checks nav2 status for an active goal before starting",
+        "Verifies progress with nav2 mission status <id>",
+        "Does not invent step types outside go, rotate, move_timed, initial_pose, localize, costmap_clear, map_load, mode_set"
       ]
     }
   ]

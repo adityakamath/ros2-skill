@@ -393,11 +393,9 @@ python3 scripts/ros2_cli.py control list-controller-types
 
 # List hardware components and their lifecycle states
 python3 scripts/ros2_cli.py control list-hardware-components
-python3 scripts/ros2_cli.py control lhc
 
 # List hardware interfaces (command and state interfaces)
 python3 scripts/ros2_cli.py control list-hardware-interfaces
-python3 scripts/ros2_cli.py control lhi
 ```
 
 ### Explicit load → configure → activate workflow
@@ -509,6 +507,8 @@ python3 scripts/ros2_cli.py topics battery --topic <BATTERY_TOPIC>
 
 ## 13. Launch Management
 
+> Under Claude, the agent does not run `new`, `restart` or `kill` itself: it gives the user the command (RULES-CORE.md Rule 5). `list` is read-only.
+
 ```bash
 # List running launch sessions
 python3 scripts/ros2_cli.py launch list
@@ -538,6 +538,8 @@ python3 scripts/ros2_cli.py launch foxglove 9000
 ---
 
 ## 14. Run Management
+
+> Under Claude, the agent does not run `new`, `restart` or `kill` itself: it gives the user the command (RULES-CORE.md Rule 5). `list` is read-only.
 
 ```bash
 # List running run sessions
@@ -658,100 +660,54 @@ python3 scripts/ros2_cli.py nav2 initial-pose 0.0 0.0 --yaw 0
 
 ---
 
-## 17. Mission Control
+## 17. Missions and Named Places
 
-Multi-step navigation missions with pause/resume/cancel semantics. Mission state is persisted to `.artifacts/missions/<id>.json`.
+Missions run detached and persist to `.artifacts/missions/<id>.json`. Step `type` is one of `go`, `rotate`, `move_timed`, `initial_pose`, `localize`, `costmap_clear`, `map_load`, `mode_set`; the other keys are that command's arguments.
 
 ```bash
-# Start a mission (runs detached in background)
-python3 scripts/ros2_cli.py mission start '{
-  "id": "patrol_office",
-  "steps": [
-    {"type": "nav2_go", "x": 2.0, "y": 0.0, "yaw": 0},
-    {"type": "wait", "duration": 3},
-    {"type": "nav2_go", "x": 0.0, "y": 2.0, "yaw": 90},
-    {"type": "nav2_rotate", "angle": 180}
-  ]
-}'
+python3 scripts/ros2_cli.py nav2 mission run --name patrol_office --steps '[
+  {"type": "go", "x": 2.0, "y": 0.0, "yaw": 0},
+  {"type": "go", "x": 0.0, "y": 2.0, "yaw": 90},
+  {"type": "rotate", "degrees": 180}
+]'
+python3 scripts/ros2_cli.py nav2 mission status <mission_id>
+python3 scripts/ros2_cli.py nav2 mission pause <mission_id>
+python3 scripts/ros2_cli.py nav2 mission resume <mission_id>
+python3 scripts/ros2_cli.py nav2 mission cancel <mission_id>
 
-# Pause a running mission
-python3 scripts/ros2_cli.py mission pause patrol_office
-
-# Resume a paused mission
-python3 scripts/ros2_cli.py mission resume patrol_office
-
-# Cancel a mission
-python3 scripts/ros2_cli.py mission cancel patrol_office
-
-# Check mission status
-python3 scripts/ros2_cli.py mission status patrol_office
-
-# List all missions
-python3 scripts/ros2_cli.py mission list
-python3 scripts/ros2_cli.py mission list --active-only
+# Named places (stored in .artifacts/places/)
+python3 scripts/ros2_cli.py nav2 place save dock            # samples the current pose
+python3 scripts/ros2_cli.py nav2 place save door --x 3.0 --y 1.5 --yaw 90
+python3 scripts/ros2_cli.py nav2 place list
+python3 scripts/ros2_cli.py nav2 place go dock --feedback
 ```
 
-**Mission step types:**
-- `nav2_go`: Navigate to x,y with optional yaw (degrees)
-- `nav2_rotate`: Rotate by angle (degrees)
-- `wait`: Pause for duration (seconds)
-- `service_call`: Call a service with request JSON
-
-**Fail-safe behavior:** If the mission state file becomes corrupted or disappears, the runner calls `nav2 cancel` and sends a zero-velocity burst before exiting.
+If the mission state file disappears or becomes unreadable mid-run, the runner cancels Nav2 and sends a zero-velocity burst.
 
 ---
 
 ## 18. Safety Policy
 
-Velocity limits, geofencing, command filtering, and heartbeat monitoring with automatic estop.
+Stored in `.presets/safety.json`; enforced before `topics publish`, `publish-sequence`, `publish-until` and `nav2 go`.
 
 ```bash
-# View current safety policy
-python3 scripts/ros2_cli.py safety config show
+python3 scripts/ros2_cli.py safety show
+python3 scripts/ros2_cli.py safety set-velocity --linear 0.5 --angular 1.0
+python3 scripts/ros2_cli.py safety set-velocity --axis linear_x_max --value 0.3
+python3 scripts/ros2_cli.py safety set-geofence --mode circle --cx 0 --cy 0 --radius 5
+python3 scripts/ros2_cli.py safety set-geofence --mode rectangle --xmin -2 --xmax 2 --ymin -3 --ymax 3
+python3 scripts/ros2_cli.py safety block system shutdown        # blocklist a command (unblock removes it)
+python3 scripts/ros2_cli.py safety validate --topic /cmd_vel --msg '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
+python3 scripts/ros2_cli.py safety reset --yes
 
-# Enable velocity limits
-python3 scripts/ros2_cli.py safety config set --velocity-limits-enabled true --linear-max-norm 0.5 --angular-max-norm 1.0
-
-# Enable geofence (circle mode)
-python3 scripts/ros2_cli.py safety config set --geofence-enabled true --geofence-mode circle --geofence-center-x 0.0 --geofence-center-y 0.0 --geofence-radius 5.0
-
-# Enable geofence (rectangle mode)
-python3 scripts/ros2_cli.py safety config set --geofence-enabled true --geofence-mode rectangle --geofence-x-min -2.0 --geofence-x-max 2.0 --geofence-y-min -3.0 --geofence-y-max 3.0
-
-# Enable command filter (blocklist mode)
-python3 scripts/ros2_cli.py safety config set --command-filter-enabled true --command-filter-mode blocklist --blocklist "system shutdown,system reboot,rm -rf"
-
-# Enable command filter (allowlist mode)
-python3 scripts/ros2_cli.py safety config set --command-filter-enabled true --command-filter-mode allowlist --allowlist "topics publish,nav2 go,mission start"
-
-# Reset to default policy
-python3 scripts/ros2_cli.py safety config reset --confirm
-
-# Manual validation (dry-run checks before actual command)
-python3 scripts/ros2_cli.py safety check-velocity '{"linear":{"x":1.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}'
-python3 scripts/ros2_cli.py safety check-position --x 5.0 --y 5.0 --frame-id map
-
-# Start heartbeat monitoring (fires estop on timeout)
-python3 scripts/ros2_cli.py safety heartbeat start --timeout 5 --on-timeout estop
-
-# Keep heartbeat alive
+# Heartbeat: a tmux watchdog estops if no ping arrives within the timeout
+python3 scripts/ros2_cli.py safety heartbeat start --timeout 5 --poll 1
 python3 scripts/ros2_cli.py safety heartbeat ping
-
-# Stop heartbeat monitoring
+python3 scripts/ros2_cli.py safety heartbeat status
 python3 scripts/ros2_cli.py safety heartbeat stop
-
-# Background watchdog (runs in tmux session, monitors sentinel file)
-python3 scripts/ros2_cli.py safety watchdog start --timeout 5 --poll 1
-python3 scripts/ros2_cli.py safety watchdog status
-python3 scripts/ros2_cli.py safety watchdog stop
 ```
 
-**Override for single command:** Pass `--skip-safety-check` to bypass velocity/geofence checks (logged).
-
-```bash
-# Emergency override (logs the bypass)
-python3 scripts/ros2_cli.py topics publish /cmd_vel '{"linear":{"x":2.0,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' --skip-safety-check
-```
+There is no per-command bypass; `safety disable` / `safety enable` toggle all checks.
 
 ---
 

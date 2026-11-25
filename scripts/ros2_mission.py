@@ -14,6 +14,7 @@ import io
 import json
 import os
 import pathlib
+import signal
 import sys
 import time
 import uuid
@@ -78,6 +79,11 @@ def _is_success(result):
     if result.get("blocked"):
         return False
     return True
+
+
+def uninterruptible():
+    from ros2_utils import uninterruptible as _u  # noqa: PLC0415
+    return _u()
 
 
 def _mission_fail_safe(mission_id: str, reason: str):
@@ -171,7 +177,12 @@ def run_mission(mission_id: str):
         state["current_step_type"] = step.get("type")
         save_state(state)
 
-        result = _capture_output(handler, _build_step_args(step)[1])
+        try:
+            result = _capture_output(handler, _build_step_args(step)[1])
+        except KeyboardInterrupt:  # `mission cancel` signals the runner: the step's own cleanup has cancelled the goal
+            with uninterruptible():
+                _mission_fail_safe(mission_id, "mission canceled")
+            return 2
         state = load_state(mission_id) or state
         state.setdefault("history", []).append({
             "index": index,
@@ -197,7 +208,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Run a file-backed Nav2 mission")
     parser.add_argument("--mission-id", required=True)
     args = parser.parse_args(argv)
-    return run_mission(args.mission_id)
+    signal.signal(signal.SIGINT, signal.default_int_handler)  # both unwind like Ctrl-C, also between steps
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    try:
+        return run_mission(args.mission_id)
+    except KeyboardInterrupt:
+        with uninterruptible():
+            _mission_fail_safe(args.mission_id, "mission canceled")
+        return 2
 
 
 if __name__ == "__main__":

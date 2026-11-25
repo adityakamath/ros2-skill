@@ -13,7 +13,42 @@ from unittest.mock import Mock, patch, MagicMock, call
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import ros2_mission
+import ros2_safety
 import ros2_watchdog
+
+
+class TestWatchdogFailSafeHardened(unittest.TestCase):
+    """Test the explicit stale-session and disconnect fail-safe path."""
+
+    def test_trigger_fail_safe_logs_event_and_calls_estop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            sentinel = base / ".artifacts" / "heartbeat.sentinel"
+            log = base / ".artifacts" / "heartbeat.log"
+            sentinel.parent.mkdir(parents=True, exist_ok=True)
+            sentinel.write_text(json.dumps({"created_at": time.time() - 30.0}), encoding="utf-8")
+
+            with patch("ros2_safety.subprocess.run") as mock_run:
+                mock_run.return_value = Mock(returncode=0, stdout="stopped", stderr="")
+                result = ros2_safety.trigger_fail_safe(
+                    reason="heartbeat stale",
+                    base_dir=str(base),
+                    on_timeout="estop",
+                )
+
+            self.assertTrue(result["watchdog_fired"])
+            self.assertEqual(result["reason"], "heartbeat stale")
+            self.assertEqual(result["action"], "estop")
+            self.assertTrue(log.exists())
+            self.assertEqual(mock_run.call_count, 1)
+
+    def test_get_heartbeat_status_marks_missing_sentinel_as_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            status = ros2_safety.get_heartbeat_status(base_dir=str(base), timeout_s=5)
+            self.assertFalse(status["sentinel_exists"])
+            self.assertTrue(status["stale"])
+            self.assertEqual(status["reason"], "missing sentinel")
 
 
 class TestWatchdogTimeout(unittest.TestCase):

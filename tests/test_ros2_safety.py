@@ -44,6 +44,17 @@ class TestSafetyCore(unittest.TestCase):
         self.assertIsInstance(capped, dict)
         self.assertLessEqual(abs(float(capped["linear"]["x"])), cfg_cap["velocity_limits"]["linear_max_norm"])
 
+    def test_untyped_velocity_payload_is_still_limited(self):
+        cfg = copy.deepcopy(ros2_safety.DEFAULT_CONFIG)
+        cfg["velocity_limits"]["on_violation"] = "reject"
+        fast = {"linear": {"x": 5.0, "y": 0.0, "z": 0.0}, "angular": {"x": 0.0, "y": 0.0, "z": 0.0}}
+        for payload in (fast, {"twist": fast}):
+            ok, action, _, _ = ros2_safety.validate_publish("/cmd_vel", payload, "", config=cfg)
+            self.assertFalse(ok)
+            self.assertEqual(action, "block")
+        ok, _, _, _ = ros2_safety.validate_publish("/chatter", {"data": "hi"}, "", config=cfg)
+        self.assertTrue(ok)
+
     def test_check_command_modes_and_exceptions(self):
         cfg_block = copy.deepcopy(ros2_safety.DEFAULT_CONFIG)
         cfg_block["command_filter"].update({
@@ -111,6 +122,48 @@ class TestSafetyCore(unittest.TestCase):
             allowed, reason, detail = ros2_safety.check_command("custom_guard", None, config=saved)
             self.assertTrue(allowed)
             self.assertEqual(detail.get("mode"), "blocklist")
+
+    def test_profile_overlay_prefers_matching_namespace_and_transport(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profiles_dir = os.path.join(tmp, ".profiles")
+            os.makedirs(profiles_dir, exist_ok=True)
+
+            matching_profile = {
+                "robot_name": "robot1",
+                "namespace": "/robot1",
+                "transport": "zenoh",
+                "summary": {
+                    "namespace": "/robot1",
+                    "transport": "zenoh",
+                    "robot_type": "mobile_base",
+                },
+                "safety_overrides": {
+                    "velocity_limits": {"linear_max_norm": 0.12},
+                },
+            }
+            other_profile = {
+                "robot_name": "robot2",
+                "namespace": "/robot2",
+                "transport": "dds",
+                "summary": {
+                    "namespace": "/robot2",
+                    "transport": "dds",
+                    "robot_type": "mobile_base",
+                },
+                "safety_overrides": {
+                    "velocity_limits": {"linear_max_norm": 0.9},
+                },
+            }
+
+            with open(os.path.join(profiles_dir, "robot1_profile.json"), "w", encoding="utf-8") as fh:
+                json.dump(matching_profile, fh)
+            with open(os.path.join(profiles_dir, "robot2_profile.json"), "w", encoding="utf-8") as fh:
+                json.dump(other_profile, fh)
+
+            with patch.dict(os.environ, {"ROS_NAMESPACE": "/robot1", "RMW_IMPLEMENTATION": "rmw_zenoh_cpp"}, clear=False):
+                cfg = ros2_safety.load_config(base_dir=tmp)
+
+            self.assertEqual(cfg["velocity_limits"]["linear_max_norm"], 0.12)
 
 
 class TestSafetyHooks(unittest.TestCase):

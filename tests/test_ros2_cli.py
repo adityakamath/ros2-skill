@@ -110,6 +110,19 @@ MINIMAL_ARGS = [
     # version / context / estop
     ("version",  None,               ["version"]),
     ("context",  None,               ["context"]),
+    ("plan",     None,               ["plan", "move", "forward", "1", "m"]),
+    ("snapshot", None,               ["snapshot", "--only", "scan"]),
+    ("notes", "remember",            ["notes", "remember", "dock", "is", "left"]),
+    ("notes", "recall",              ["notes", "recall", "dock"]),
+    ("notes", "forget",              ["notes", "forget", "1"]),
+    ("braking", "measure",           ["braking", "measure", "--distance", "0.3"]),
+    ("braking", "show",              ["braking", "show"]),
+    ("braking", "clear",             ["braking", "clear"]),
+    ("look",     None,               ["look", "--diff", "1"]),
+    ("stop",     None,               ["stop"]),
+    ("nav2",     "mission",          ["nav2", "mission", "status", "m1"]),
+    ("nav2",     "place",            ["nav2", "place", "list"]),
+    ("services", "state",         ["services", "state", "/emergency_stop"]),
     ("estop",    None,               ["estop"]),
     # topics — canonical
     ("topics",   "list",             ["topics", "list"]),
@@ -303,6 +316,7 @@ MINIMAL_ARGS = [
     ("profile",  "annotate", ["profile", "annotate", "test annotation"]),
     ("profile",  "set-camera-rotation", ["profile", "set-camera-rotation", "oak", "90"]),
     ("profile",  "set-safety-overlay", ["profile", "set-safety-overlay", "--json", "{}"]),
+    ("profile",  "set-context", ["profile", "set-context", "--namespace", "/robot1", "--transport", "zenoh"]),
     # nav2
     ("nav2", "go",           ["nav2", "go", "1.0", "2.0"]),
     ("nav2", "rotate",       ["nav2", "rotate", "90"]),
@@ -517,6 +531,15 @@ class TestKillSessionGraceful(unittest.TestCase):
             result = self.mod.kill_session("launch_test_session", graceful_timeout=0.05)
 
         self.assertTrue(result)
+
+
+class TestDiagLevel(unittest.TestCase):
+    def test_byte_level_arriving_as_a_list_is_handled(self):
+        if not check_rclpy_available():
+            self.skipTest("rclpy not available")
+        import ros2_topic
+        parsed = ros2_topic._parse_diag_array({"status": [{"level": [2], "name": "motor", "message": "hot"}]})
+        self.assertEqual(parsed[0]["level"] if isinstance(parsed, list) else parsed["status"][0]["level"], 2)
 
 
 class TestOutput(unittest.TestCase):
@@ -2090,10 +2113,12 @@ class TestComponentStandaloneLogic(unittest.TestCase):
         self.assertIn("already exists", captured2[0]["error"])
         self.assertIn("error", self._run(True, tmux_ok=False))
         # Container not ready
-        r_alive = self._run(container_ready=False, container_node_alive=True)
+        r_alive = self._run(container_ready=False, container_node_alive=True,
+                            args_override=self._make_args(timeout=0.2))
         self.assertIn("error", r_alive)
         self.assertTrue(r_alive.get("container_started"))
-        r_dead = self._run(container_ready=False, container_node_alive=False)
+        r_dead = self._run(container_ready=False, container_node_alive=False,
+                           args_override=self._make_args(timeout=0.2))
         self.assertIn("error", r_dead)
         self.assertFalse(r_dead.get("container_started"))
         # Alt container path discovered
@@ -3313,8 +3338,8 @@ class TestEstopBranching(unittest.TestCase):
         import ros2_topic
         cls.mod = ros2_topic
 
-    def _run_estop(self, topics, msg_has_twist, explicit_topic=None):
-        """Run cmd_estop with a mocked ROS graph. Return (output_dict, msg_instance)."""
+    def _run_estop(self, topics, msg_has_twist, explicit_topic=None, services=(), service_resp=None):
+        """Run cmd_estop with a mocked ROS graph. Return (output_dict, msg_instance, call_service_mock)."""
         import types
         # Use spec to control hasattr(msg, 'twist') — MagicMock only exposes listed attrs.
         if msg_has_twist:
@@ -3325,43 +3350,64 @@ class TestEstopBranching(unittest.TestCase):
 
         mock_node = MagicMock()
         mock_node.get_topic_names.return_value = topics
-        args = types.SimpleNamespace(topic=explicit_topic)
+        mock_node.get_service_names.return_value = list(services)
+        args = types.SimpleNamespace(topic=explicit_topic, no_service=False)
+        call = MagicMock(return_value=(service_resp, None))
 
         with patch.object(self.mod, 'ros2_context', MagicMock()), \
              patch.object(self.mod, 'ROS2CLI', return_value=mock_node), \
              patch.object(self.mod, 'get_msg_type', return_value=mock_msg_class), \
+             patch.object(self.mod, 'call_ros_service', call), \
              patch.object(self.mod.time, 'sleep'), \
              patch('sys.stdout', new_callable=StringIO) as buf:
             self.mod.cmd_estop(args)
-        return json.loads(buf.getvalue()), mock_msg
+        return json.loads(buf.getvalue()), mock_msg, call
 
-    def test_estop_autodetect_twist_and_error(self):
-        """cmd_vel preferred; fallback to first; Twist/TwistStamped both zeroed; no-vel-topic → error."""
-        r1, _ = self._run_estop([('/base/vel', ['geometry_msgs/msg/Twist']),
-                                  ('/cmd_vel', ['geometry_msgs/msg/Twist'])], msg_has_twist=False)
-        self.assertEqual(r1['topic'], '/cmd_vel')
-        r2, _ = self._run_estop([('/base/velocity', ['geometry_msgs/msg/Twist']),
-                                  ('/robot/vel', ['geometry_msgs/msg/Twist'])], msg_has_twist=False)
-        self.assertEqual(r2['topic'], '/base/velocity')
-        # Twist: zeroes top-level; TwistStamped: zeroes nested
-        _, msg_plain = self._run_estop([('/cmd_vel', ['geometry_msgs/msg/Twist'])],
-                                       msg_has_twist=False)
+    def test_estop_zeroes_every_velocity_topic_and_errors_without_any(self):
+        """All velocity topics are zeroed (a twist switch ignores zeros on an unselected input); Twist and TwistStamped both."""
+        r1, _, _ = self._run_estop([('/cmd_vel_teleop', ['geometry_msgs/msg/Twist']),
+                                    ('/base_controller/cmd_vel', ['geometry_msgs/msg/Twist']),
+                                    ('/scan', ['sensor_msgs/msg/LaserScan'])], msg_has_twist=False)
+        self.assertEqual(r1['topics'], ['/cmd_vel_teleop', '/base_controller/cmd_vel'])
+        r2, _, _ = self._run_estop([('/a', ['geometry_msgs/msg/Twist']), ('/b', ['geometry_msgs/msg/Twist'])],
+                                   msg_has_twist=False, explicit_topic='/b')
+        self.assertEqual(r2['topics'], ['/b'])
+        _, msg_plain, _ = self._run_estop([('/cmd_vel', ['geometry_msgs/msg/Twist'])], msg_has_twist=False)
         self.assertEqual(msg_plain.linear.x, 0.0)
         self.assertEqual(msg_plain.angular.z, 0.0)
-        _, msg_stamped = self._run_estop([('/cmd_vel', ['geometry_msgs/msg/TwistStamped'])],
-                                         msg_has_twist=True)
+        _, msg_stamped, _ = self._run_estop([('/cmd_vel', ['geometry_msgs/msg/TwistStamped'])], msg_has_twist=True)
         self.assertEqual(msg_stamped.twist.linear.x, 0.0)
         self.assertEqual(msg_stamped.twist.angular.z, 0.0)
-        # No velocity topic → error
         import types
         mock_node = MagicMock()
         mock_node.get_topic_names.return_value = [('/scan', ['sensor_msgs/msg/LaserScan'])]
+        mock_node.get_service_names.return_value = []
         with patch.object(self.mod, 'ros2_context', MagicMock()), \
              patch.object(self.mod, 'ROS2CLI', return_value=mock_node), \
              patch('sys.stdout', new_callable=StringIO) as buf, \
              self.assertRaises(SystemExit):
-            self.mod.cmd_estop(types.SimpleNamespace(topic=None))
+            self.mod.cmd_estop(types.SimpleNamespace(topic=None, no_service=False))
         self.assertIn('error', json.loads(buf.getvalue()))
+
+    def test_estop_engages_setbool_service_but_never_a_trigger_toggle(self):
+        resp = MagicMock(success=True)
+        topics = [('/cmd_vel', ['geometry_msgs/msg/Twist'])]
+        r, _, call = self._run_estop(topics, msg_has_twist=False, service_resp=resp, services=[
+            ('/emergency_stop_toggle', ['std_srvs/srv/Trigger']),
+            ('/emergency_stop', ['std_srvs/srv/SetBool'])])
+        self.assertEqual(call.call_args.args[2], '/emergency_stop')
+        self.assertTrue(r['estop_service']['engaged'])
+        r, _, call = self._run_estop(topics, msg_has_twist=False,
+                                     services=[('/emergency_stop_toggle', ['std_srvs/srv/Trigger'])])
+        call.assert_not_called()
+        self.assertFalse(r['estop_service']['engaged'])
+
+    def test_find_estop_services(self):
+        found = self.mod._find_estop_services([('/ns/emergency_stop', ['std_srvs/srv/SetBool']),
+                                               ('/set_mode', ['std_srvs/srv/SetBool']),
+                                               ('/estop', ['std_srvs/srv/Trigger'])])
+        self.assertEqual(found, ['/ns/emergency_stop'])
+        self.assertEqual(self.mod._find_estop_services([('/set_mode', ['std_srvs/srv/SetBool'])], '/set_mode'), ['/set_mode'])
 
 
 # ---------------------------------------------------------------------------
@@ -5459,6 +5505,26 @@ class TestFoxglove(unittest.TestCase):
         self.assertIsNone(args_no_port.port)
         args_with_port = p.parse_args(["foxglove", "stop", "--port", "9090"])
         self.assertEqual(args_with_port.port, 9090)
+
+
+class TestProfileContext(unittest.TestCase):
+    """Parser coverage for profile context selection commands."""
+
+    def test_profile_scan_accepts_namespace_and_transport(self):
+        from ros2_cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["profile", "scan", "--namespace", "/robot1", "--transport", "zenoh"])
+        self.assertEqual(args.namespace, "/robot1")
+        self.assertEqual(args.transport, "zenoh")
+
+    def test_profile_set_context_is_registered(self):
+        from ros2_cli import DISPATCH, build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["profile", "set-context", "--namespace", "/robot2"])
+        self.assertEqual(args.namespace, "/robot2")
+        self.assertIn(("profile", "set-context"), DISPATCH)
 
 
 class TestSystem(unittest.TestCase):

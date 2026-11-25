@@ -9,10 +9,12 @@ import copy
 import json
 import math
 import os
+import subprocess
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from ros2_utils import check_tmux, kill_session, output, run_cmd, session_exists
+from ros2_profile import load_profile_record
 
 
 _DEFAULT_SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -284,28 +286,10 @@ def _load_profile_safety_overlay(base_dir: Optional[str] = None) -> Dict[str, An
         if not os.path.isdir(profiles_dir):
             return {}
 
-        candidates = []
-        for name in os.listdir(profiles_dir):
-            if not name.endswith("_profile.json"):
-                continue
-            path = os.path.join(profiles_dir, name)
-            try:
-                candidates.append((os.path.getmtime(path), path))
-            except OSError:
-                continue
-
-        for _mtime, path in sorted(candidates, key=lambda item: item[0], reverse=True):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    profile = json.load(f)
-            except Exception:
-                continue
-            if not isinstance(profile, dict):
-                continue
-            summary = profile.get("summary")
+        profile = load_profile_record(profiles_dir=profiles_dir, readonly=True)
+        if isinstance(profile, dict):
             overlay = profile.get("safety_overrides")
-            if isinstance(summary, dict) and summary:
-                return copy.deepcopy(overlay) if isinstance(overlay, dict) else {}
+            return copy.deepcopy(overlay) if isinstance(overlay, dict) else {}
         return {}
     except Exception:
         return {}
@@ -343,6 +327,12 @@ def save_config(config: Dict[str, Any], base_dir: Optional[str] = None) -> Dict[
         json.dump(validated, f, indent=2)
         f.write("\n")
     return validated
+
+
+def _looks_like_velocity(msg_data: Dict[str, Any]) -> bool:
+    """Untyped payload shaped like Twist (linear/angular) or TwistStamped (twist.linear/angular)."""
+    body = msg_data.get("twist") if isinstance(msg_data.get("twist"), dict) else msg_data
+    return isinstance(body, dict) and ("linear" in body or "angular" in body)
 
 
 def is_velocity_msg_type(msg_type: str) -> bool:
@@ -390,7 +380,7 @@ def check_velocity(
     vlim = cfg.get("velocity_limits", {})
     if not vlim.get("enabled", True):
         return True, None, {}
-    if not is_velocity_msg_type(msg_type):
+    if not is_velocity_msg_type(msg_type) and not (not msg_type and _looks_like_velocity(msg_data)):
         return True, None, {}
 
     scoped_topics = [str(t) for t in vlim.get("topics", []) if isinstance(t, str)]
@@ -642,6 +632,88 @@ def heartbeat_touch(base_dir: Optional[str] = None) -> Dict[str, Any]:
             f.write(json.dumps({"created_at": now}) + "\n")
     os.utime(sentinel, (now, now))
     return {"path": sentinel, "timestamp": now}
+
+
+def get_heartbeat_status(base_dir: Optional[str] = None, timeout_s: Optional[int] = None) -> Dict[str, Any]:
+    """Return the current heartbeat health and the fail-safe reason when stale."""
+    paths = _resolve_runtime_paths(base_dir)
+    sentinel = paths["heartbeat_sentinel"]
+    exists = os.path.exists(sentinel)
+    timeout = int(timeout_s if timeout_s is not None else load_config(base_dir=base_dir).get("heartbeat", {}).get("timeout_s", 5))
+    last_mtime = os.path.getmtime(sentinel) if exists else None
+    stale = (not exists) or (last_mtime is not None and (time.time() - float(last_mtime)) > timeout)
+    if not exists:
+        reason = "missing sentinel"
+    elif stale:
+        reason = "heartbeat stale"
+    else:
+        reason = "ok"
+    return {
+        "running": session_exists(_WATCHDOG_SESSION),
+        "session": _WATCHDOG_SESSION,
+        "heartbeat_enabled": bool(load_config(base_dir=base_dir).get("heartbeat", {}).get("enabled", False)),
+        "sentinel": sentinel,
+        "sentinel_exists": exists,
+        "sentinel_mtime": last_mtime,
+        "timeout_s": timeout,
+        "stale": stale,
+        "reason": reason,
+    }
+
+
+def trigger_fail_safe(
+    reason: str,
+    base_dir: Optional[str] = None,
+    on_timeout: str = "estop",
+    timeout_s: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Fail closed when the watchdog or session loses contact.
+
+    This writes the standardized fail-safe event to the heartbeat log and, when
+    configured, invokes the CLI emergency stop command.
+    """
+    paths = _resolve_runtime_paths(base_dir)
+    os.makedirs(paths["artifacts_dir"], exist_ok=True)
+    sentinel = paths["heartbeat_sentinel"]
+    log_path = paths["heartbeat_log"]
+    heartbeat_cfg = load_config(base_dir=base_dir)
+    hb = heartbeat_cfg.get("heartbeat", {})
+    timeout = int(timeout_s if timeout_s is not None else hb.get("timeout_s", 5))
+    if os.path.exists(sentinel):
+        age = time.time() - float(os.path.getmtime(sentinel))
+    else:
+        age = None
+
+    event = {
+        "watchdog_fired": True,
+        "timestamp": time.time(),
+        "reason": str(reason),
+        "fired_at": time.time(),
+        "sentinel": sentinel,
+        "sentinel_exists": os.path.exists(sentinel),
+        "sentinel_age_s": round(age, 3) if age is not None else None,
+        "timeout_s": timeout,
+        "action": on_timeout,
+        "estop": None,
+    }
+
+    if on_timeout == "estop":
+        try:
+            proc = subprocess.run(["python3", os.path.join(_DEFAULT_SKILL_ROOT, "scripts", "ros2_cli.py"), "estop"], capture_output=True, text=True)
+            event["estop"] = {
+                "returncode": proc.returncode,
+                "stdout": proc.stdout.strip(),
+                "stderr": proc.stderr.strip(),
+            }
+        except Exception as exc:  # pragma: no cover - environment-specific failure path
+            event["estop"] = {"error": str(exc)}
+
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(event, sort_keys=True) + "\n")
+
+    event["action"] = on_timeout
+    event["watchdog_fired"] = True
+    return event
 
 
 def _parse_validate_payload(payload: str) -> Dict[str, Any]:

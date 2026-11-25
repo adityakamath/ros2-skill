@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ros2_utils import output
+from ros2_capabilities import infer_capabilities, generate_capability_summary
 
 
 # ---------------------------------------------------------------------------
@@ -1280,7 +1281,8 @@ def _find_node_block(d, node_names, depth=0):
     if not isinstance(d, dict) or depth > 5:
         return None
     for k, v in d.items():
-        if k in node_names and isinstance(v, dict):
+        # Match plain names and namespaced/wildcard forms such as "/**/ekf_node".
+        if isinstance(k, str) and k.rstrip("/").rsplit("/", 1)[-1] in node_names and isinstance(v, dict):
             return v.get("ros__parameters") or v
         if isinstance(v, dict):
             found = _find_node_block(v, node_names, depth + 1)
@@ -1381,7 +1383,10 @@ def _extract_ros2_control_config(all_yaml_files):
         if not isinstance(node, dict) or depth > 8:
             return
         # controller_manager block — has update_rate + controller type declarations
-        cm = node.get("controller_manager")
+        # Match "controller_manager" and namespaced/wildcard forms such as "/**/controller_manager".
+        cm = next((v for k, v in node.items()
+                   if isinstance(k, str) and k.rstrip("/").rsplit("/", 1)[-1] == "controller_manager"
+                   and isinstance(v, dict)), None)
         if isinstance(cm, dict):
             cm_params = cm.get("ros__parameters") or {}
             if isinstance(cm_params, dict):
@@ -1699,6 +1704,7 @@ def _extract_localization_config(all_yaml_files):
                 if re.match(r"^(odom|imu|pose|twist|gps)\d+$", sk)
                 and isinstance(ekf[sk], str)
             }
+            sources = {k: (v if v.startswith("/") else "/" + v) for k, v in sources.items()}
             if sources:
                 result["fused_sources"] = sources
 
@@ -2203,6 +2209,13 @@ def _merge_launch_args(arg_meta, live_args):
         if entry:               # skip args with no metadata from either source
             result[name] = entry
     return result
+
+
+def _outside_modules(files):
+    """Drop files under a ``modules/`` directory (driver submodules ship example controller configs
+    that are not this robot's), unless that would leave nothing."""
+    kept = [f for f in files if "/modules/" not in str(f).replace("\\", "/")]
+    return kept or files
 
 
 def _extract_active_controllers(all_launch_files):
@@ -2975,8 +2988,8 @@ def _run_static_scan(ws_path, distro, allow_live=False,
                 out.append(p)
         return out
 
-    all_urdf_files = _dedup_urdf_list(all_urdf_files)
-    primary_urdf_files = _dedup_urdf_list(primary_urdf_files)
+    all_urdf_files = _outside_modules(_dedup_urdf_list(all_urdf_files))
+    primary_urdf_files = _outside_modules(_dedup_urdf_list(primary_urdf_files))
 
     # --- 3. Safety limits from YAML ---
     # Each YAML file that contains at least one velocity limit is stored as a
@@ -3061,7 +3074,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 
     # --- 4b. ros2_control config ---
     scan_steps.append("ros2_control_config")
-    ros2_ctrl = _extract_ros2_control_config(all_yaml_files)
+    ros2_ctrl = _extract_ros2_control_config(_outside_modules(all_yaml_files))
 
     # --- 4c. Hardware interfaces from URDF <ros2_control> tags ---
     # Deduplicate by (plugin, frozenset(joints)) fingerprint — the same physical
@@ -3108,6 +3121,15 @@ def _run_static_scan(ws_path, distro, allow_live=False,
     scan_steps.append("teleop_config")
     teleop_config, estop_config = _extract_teleop_and_estop(all_yaml_files)
     teleop_limits = _extract_teleop_limits(primary_yaml_files)
+    # Robot-specific extras (idempotent SetBool e-stop, joystick-bound services, twist-switch chain,
+    # fitted hardware). A toggle config's SetBool e-stop wins over the joystick's Trigger toggle.
+    from ros2_robot_config import extract_robot_config
+    robot_extras = extract_robot_config(all_yaml_files, _load_yaml)
+    estop_config = robot_extras.pop("estop_config", None) or estop_config
+    teleop_config = teleop_config or robot_extras.pop("teleop_config", None)
+    robot_extras.pop("teleop_config", None)
+    teleop_limits = teleop_limits or robot_extras.pop("teleop_limits", None)
+    robot_extras.pop("teleop_limits", None)
 
     # --- 4g. TF frame inventory ---
     scan_steps.append("tf_frames")
@@ -3115,7 +3137,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
 
     # --- 4h. Active controllers ---
     scan_steps.append("active_controllers")
-    active_controllers = _extract_active_controllers(all_launch_files)
+    active_controllers = _extract_active_controllers(_outside_modules(all_launch_files))
 
     # --- 4i. Maps, sensor filter pipeline, IMU config, package deps ---
     scan_steps.append("extended_configs")
@@ -3250,8 +3272,17 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         },
     }
 
+    # Robots whose speed limits live only in the joystick scales (the controller enforces none)
+    # use those as the binding limits.
+    if teleop_limits and not any(v for v in safety_limits["binding"].values()):
+        safety_limits = {"sources": teleop_limits.get("sources", []), "binding": dict(teleop_limits["binding"])}
+
     # --- 10. Launch file details (one entry per file, keyed by filename) ---
     launch_file_details = {}
+    # `ros2 launch --show-args` costs ~1.4 s per file and is I/O bound: query all files concurrently.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        live_args_by_file = dict(zip(all_launch_files, pool.map(_query_launch_args, all_launch_files)))
     for lf in all_launch_files:
         key = _make_detail_key(lf, launch_file_details)
         pkg_dir = pathlib.Path(lf).parent.parent  # heuristic: <pkg>/launch/<file>
@@ -3282,7 +3313,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         arg_meta = _extract_launch_arg_choices(lf)
         # Live parse second (best-effort, requires ros2 CLI): may provide the
         # resolved default when it differs from the literal in the source file.
-        live_args = _query_launch_args(lf)
+        live_args = live_args_by_file.get(lf) or {}
         launch_args = _merge_launch_args(arg_meta, live_args)
 
         launch_file_details[key] = {
@@ -3355,6 +3386,7 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         "nav2_config": nav2_config,
         "teleop_config": teleop_config,
         "estop_config": estop_config,
+        "robot_extras": robot_extras,
         "teleop_limits": teleop_limits,
         "tf_frames": tf_frames,
         "launch_configurations": launch_configurations,
@@ -3395,24 +3427,13 @@ def _select_default_profile():
     Returns ``(None, None)`` when no profile has been scanned yet, or none of
     the profile files on disk are usable.
     """
-    try:
-        if not _PROFILES_DIR.exists():
-            return None, None
-        profiles = sorted(_PROFILES_DIR.glob("*_profile.json"),
-                           key=lambda p: p.stat().st_mtime, reverse=True)
-        for p in profiles:
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            if data.get("summary"):
-                return p.name[:-len("_profile.json")], data
+    profile = load_profile_record()
+    if not profile:
         return None, None
-    except Exception:
-        return None, None
+    return profile.get("robot_name"), profile
 
 
-def load_profile_summary():
+def load_profile_summary(readonly=False):
     """Return the ``summary`` dict of the best available robot profile, or ``None``.
 
     This is the **public entry point** for other skill modules that want to
@@ -3425,8 +3446,10 @@ def load_profile_summary():
     - No profile has been scanned yet (no ``.profiles/`` directory or no JSON
       files inside it).
     - No profile file can be read, parsed, or has a non-empty summary.
+
+    ``readonly=True`` returns the cached object without copying it: for callers that only read.
     """
-    _, profile = _select_default_profile()
+    profile = load_profile_record(readonly=readonly)
     return profile.get("summary") if profile else None
 
 
@@ -3453,6 +3476,154 @@ def _save_profile(profile, name="robot"):
     p = _profile_path(name)
     p.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
     return str(p)
+
+
+def _normalize_profile_namespace(namespace):
+    """Return a canonical ROS namespace string, or None when unset."""
+    if namespace is None:
+        return None
+    value = str(namespace).strip()
+    if not value or value == "/":
+        return None
+    value = value.strip("/")
+    return f"/{value}" if value else None
+
+
+def _normalize_profile_transport(transport):
+    """Return a canonical transport label, or None when unset."""
+    if transport is None:
+        return None
+    value = str(transport).strip().lower()
+    if not value:
+        return None
+    if "zenoh" in value:
+        return "zenoh"
+    if value in {"dds", "fastrtps", "cyclonedds"} or "fastrtps" in value or "cyclonedds" in value:
+        return "dds"
+    if value.startswith("rmw_"):
+        return "dds"
+    if "rosbridge" in value:
+        return "rosbridge"
+    return value
+
+
+def _profile_context_from_env():
+    """Return the ambient profile selectors derived from environment variables."""
+    profile_name = os.environ.get("ROS2_SKILL_PROFILE") or os.environ.get("ROS2_SKILL_PROFILE_NAME")
+    namespace = _normalize_profile_namespace(
+        os.environ.get("ROS2_SKILL_NAMESPACE") or os.environ.get("ROS_NAMESPACE")
+    )
+    transport = _normalize_profile_transport(
+        os.environ.get("ROS2_SKILL_TRANSPORT")
+        or os.environ.get("ROS2_TRANSPORT")
+        or os.environ.get("RMW_IMPLEMENTATION")
+    )
+    return profile_name, namespace, transport
+
+
+def _profile_matches_context(profile, profile_name=None, namespace=None, transport=None):
+    """Return True when a profile matches the requested context selectors."""
+    if not isinstance(profile, dict):
+        return False
+    if profile_name and profile.get("robot_name") != profile_name:
+        return False
+    if namespace is not None and profile.get("namespace") != namespace:
+        return False
+    if transport is not None and profile.get("transport") != transport:
+        return False
+    return True
+
+
+_RECORD_CACHE = {}
+
+
+def load_profile_record(profile_name=None, namespace=None, transport=None, profiles_dir=None, readonly=False):
+    """Return the best matching profile dict, or None. Cached per process until a profile file changes
+    (one command can look the profile up a dozen times).
+
+    The result is a private copy unless *readonly* is set: the cached object itself, which the caller must not mutate
+    (copying a full profile costs about 0.07 s).
+    """
+    import copy
+    search_dir = pathlib.Path(profiles_dir) if profiles_dir else _PROFILES_DIR
+    try:
+        stamp = tuple(sorted((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in search_dir.glob("*_profile.json")))
+    except OSError:
+        stamp = None
+    key = (profile_name, namespace, transport, str(search_dir), stamp)
+    if stamp is not None and key in _RECORD_CACHE:
+        cached = _RECORD_CACHE[key]
+        return cached if readonly else copy.deepcopy(cached)
+    record = _load_profile_record_uncached(profile_name, namespace, transport, profiles_dir)
+    if stamp is not None:
+        _RECORD_CACHE.clear()
+        _RECORD_CACHE[key] = record
+        return record if readonly else copy.deepcopy(record)
+    return record
+
+
+def _load_profile_record_uncached(profile_name=None, namespace=None, transport=None, profiles_dir=None):
+    """Return the best matching profile dict, or None when no usable profile exists."""
+    if profile_name is None and namespace is None and transport is None:
+        env_profile_name, env_namespace, env_transport = _profile_context_from_env()
+        profile_name = env_profile_name
+        namespace = env_namespace
+        transport = env_transport
+
+    search_dir = pathlib.Path(profiles_dir) if profiles_dir else _PROFILES_DIR
+
+    if profile_name:
+        profile = _load_profile(profile_name) if search_dir == _PROFILES_DIR else None
+        if profile is None and search_dir.exists():
+            safe_name = re.sub(r"[^\w\-]", "_", profile_name.lower())
+            candidate = search_dir / f"{safe_name}_profile.json"
+            if candidate.exists():
+                try:
+                    profile = json.loads(candidate.read_text(encoding="utf-8"))
+                except Exception:
+                    profile = None
+        if profile and _profile_matches_context(profile, profile_name=profile_name,
+                                               namespace=namespace, transport=transport):
+            return profile
+        return profile
+
+    try:
+        if not search_dir.exists():
+            return None
+        candidates = sorted(
+            search_dir.glob("*_profile.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        best_profile = None
+        best_score = -1
+        for p in candidates:
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not data.get("summary"):
+                continue
+            score = 0
+            if namespace is not None and data.get("namespace") == namespace:
+                score += 1
+            if transport is not None and data.get("transport") == transport:
+                score += 1
+            if score > best_score:
+                best_score = score
+                best_profile = data
+        if best_profile is not None and best_score > 0:
+            return best_profile
+        for p in candidates:
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if data.get("summary"):
+                return data
+        return None
+    except Exception:
+        return None
 
 
 def _strip_nulls(obj):
@@ -3491,15 +3662,17 @@ def _deep_merge_dicts(base, override):
     return result
 
 
-def _build_profile(robot_name, workspace, distro, scan_result):
+def _build_profile(robot_name, workspace, distro, scan_result, namespace=None, transport=None):
     """Assemble the final tiered profile dict from a scan result."""
     sr = scan_result
-    return {
+    base_profile = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "robot_name": robot_name,
         "workspace": workspace,
         "ros_distro": distro,
+        "namespace": namespace,
+        "transport": transport,
         # safety_overrides: structured per-robot policy tweaks layered on top
         # of the global safety defaults when ros2-skill loads config.
         "safety_overrides": {},
@@ -3532,6 +3705,8 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             # launch_files: the filenames as they exist in the workspace.
             # Each entry is a key into the detail section.
             "launch_files": sorted(sr["launch_file_details"].keys()),
+            "namespace": namespace,
+            "transport": transport,
             "urdf_files": sr["all_urdf_files"],
             "velocity_topics": [
                 {"topic": t, "type": sr["velocity_topic_types"][t]}
@@ -3575,6 +3750,8 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             "hardware_interfaces": sr["hardware_interfaces"],
             # ---- Sensors ---------------------------------------------------
             "lidar_config": sr["lidar_config"],
+            # Static topic conventions the Path A fast path relies on; omitted when empty.
+            **{k: sr[k] for k in ("lidar_scan_topic", "imu_topics", "gps_topics", "joint_command_topics") if sr.get(k)},
             "camera_configs": sr["camera_configs"],
             # ---- Navigation ------------------------------------------------
             "localization_config": sr["localization_config"],
@@ -3582,6 +3759,7 @@ def _build_profile(robot_name, workspace, distro, scan_result):
             # ---- Teleop / e-stop -------------------------------------------
             "teleop_config": sr["teleop_config"],
             "estop_config": sr["estop_config"],
+            **sr["robot_extras"],
             # teleop_limits: per-axis velocity scales from teleop YAML files.
             # Mirrors safety_limits structure: sources (one per file) + binding
             # (minimum across all teleop configs).  The binding values are the
@@ -3633,6 +3811,14 @@ def _build_profile(robot_name, workspace, distro, scan_result):
         # ------------------------------------------------------------------ #
         "detail": _strip_nulls(sr["launch_file_details"]),
     }
+    
+    # ------------------------------------------------------------------ #
+    # CAPABILITIES — inferred high-level robot actions from primitives    #
+    # ------------------------------------------------------------------ #
+    # Add capabilities section to summary after building base profile
+    base_profile["summary"]["capabilities"] = infer_capabilities(base_profile["summary"])
+    
+    return base_profile
 
 
 # ---------------------------------------------------------------------------
@@ -3647,6 +3833,8 @@ def cmd_profile_scan(args):
     allow_live = getattr(args, "allow_live", False)
     robot_type_override = getattr(args, "robot_type", None)
     pkg_filter = getattr(args, "packages", None)
+    namespace = _normalize_profile_namespace(getattr(args, "namespace", None))
+    transport = _normalize_profile_transport(getattr(args, "transport", None))
 
     # Auto-scope: if --name was given but --packages was not, derive the package
     # filter from the robot name.  This ensures "profile scan --name lekiwi"
@@ -3709,15 +3897,22 @@ def cmd_profile_scan(args):
             if derived and derived != "robot":
                 robot_name = derived
 
+    existing = _load_profile(robot_name)
+    if namespace is None and existing:
+        namespace = existing.get("namespace")
+    if transport is None and existing:
+        transport = existing.get("transport")
+
     # --- Build and save profile ---
     profile = _build_profile(
         robot_name=robot_name,
         workspace=ws_path or "",
         distro=distro,
         scan_result=scan_result,
+        namespace=namespace,
+        transport=transport,
     )
 
-    existing = _load_profile(robot_name)
     if existing:
         for field in ("annotations", "camera_rotation_overrides", "safety_overrides"):
             if field in existing:
@@ -3740,6 +3935,8 @@ def cmd_profile_scan(args):
         "launch_files_found": sorted(scan_result["launch_file_details"].keys()),
         "packages_found": len(scan_result["ws_packages"]),
         "packages_scanned": scan_result["ws_packages"],
+        "namespace": profile.get("namespace"),
+        "transport": profile.get("transport"),
         "robot_type": scan_result["robot_type"],
         "robot_features": scan_result["robot_features"],
         "robot_type_evidence": scan_result["robot_type_evidence"],
@@ -3800,6 +3997,8 @@ def cmd_profile_show(args):
             "generated_at": profile.get("generated_at"),
             "workspace": profile.get("workspace"),
             "ros_distro": profile.get("ros_distro"),
+            "namespace": profile.get("namespace"),
+            "transport": profile.get("transport"),
             "summary": summary,
             # annotations: free-text notes added by the user via 'profile annotate'.
             # Always included so agents see them at session-start without an extra call.
@@ -4018,13 +4217,55 @@ def cmd_profile_set_safety_overlay(args):
     })
 
 
+def cmd_profile_set_context(args):
+    """Persist namespace and transport metadata on the current robot profile."""
+    robot_name = getattr(args, "name", None) or "robot"
+    namespace = _normalize_profile_namespace(getattr(args, "namespace", None))
+    transport = _normalize_profile_transport(getattr(args, "transport", None))
+
+    if namespace is None and transport is None:
+        output({"error": "Provide --namespace and/or --transport."})
+        return
+
+    existing = _load_profile(robot_name)
+    if existing is None:
+        if _PROFILES_DIR.exists():
+            profiles = sorted(_PROFILES_DIR.glob("*_profile.json"))
+            if len(profiles) == 1:
+                robot_name = profiles[0].name.replace("_profile.json", "")
+                existing = _load_profile(robot_name)
+
+    if existing is None:
+        output({
+            "error": "No profile found to update.",
+            "hint": "Run: python3 ros2_cli.py profile scan [--workspace PATH]",
+        })
+        return
+
+    if namespace is not None:
+        existing["namespace"] = namespace
+        existing.setdefault("summary", {})["namespace"] = namespace
+    if transport is not None:
+        existing["transport"] = transport
+        existing.setdefault("summary", {})["transport"] = transport
+    _save_profile(existing, name=robot_name)
+
+    output({
+        "success": True,
+        "robot_name": robot_name,
+        "namespace": existing.get("namespace"),
+        "transport": existing.get("transport"),
+        "hint": "Run 'profile show' to confirm the active profile context.",
+    })
+
+
 def load_camera_rotation_overrides():
     """Return the list of camera rotation overrides for the best available profile.
 
     Mirrors ``load_profile_summary()``: silent, never raises, never blocks.
     Returns ``[]`` when no profile or no overrides exist.
     """
-    _, profile = _select_default_profile()
+    profile = load_profile_record()
     if not profile:
         return []
     return profile.get("camera_rotation_overrides", []) or []
@@ -4091,6 +4332,11 @@ def cmd_profile_rescan(args):
     # that a rescan cannot re-derive any better than it did the first time.
     preserved_camera_overrides = (existing or {}).get("camera_rotation_overrides", [])
 
+    if getattr(args, "namespace", None) is None and existing:
+        args.namespace = existing.get("namespace")
+    if getattr(args, "transport", None) is None and existing:
+        args.transport = existing.get("transport")
+
     args.name = robot_name
     if user_ws is None and existing:
         # Re-use the workspace from the existing profile.
@@ -4142,6 +4388,8 @@ def cmd_profile_list(args):
                 "robot_name": data.get("robot_name", p.stem),
                 "generated_at": data.get("generated_at"),
                 "ros_distro": data.get("ros_distro"),
+                "namespace": data.get("namespace"),
+                "transport": data.get("transport"),
                 "robot_type": data.get("summary", {}).get("robot_type"),
                 "launch_files": data.get("summary", {}).get("launch_files", []),
             })

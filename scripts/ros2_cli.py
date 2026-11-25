@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import re
 import sys
 
 # ---------------------------------------------------------------------------
@@ -251,6 +252,7 @@ def _add_subscribe_args(p):
 
 
 def build_parser():
+    argparse._ = lambda text: text  # skip gettext lookups (~0.06 s over 700 calls); output is English only
     parser = argparse.ArgumentParser(
         description="ROS 2 Skill CLI - Control ROS 2 robots directly via rclpy",
         epilog=(
@@ -285,9 +287,58 @@ def build_parser():
     p.add_argument("--include-schemas", dest="include_schemas", action="store_true", default=False,
                    help="Expand topic type schemas into the output")
 
-    estop = sub.add_parser("estop", help="Emergency stop for mobile robots (publishes zero velocity)")
+    p = sub.add_parser("plan", help="Compile a goal (e.g. 'move forward 1 m then turn left 90') into CLI commands; executes nothing")
+    p.add_argument("goal", nargs="+", help="Goal text; steps separated by 'then' or ';'")
+    p.add_argument("--run", action="store_true", default=False,
+                   help="Execute the plan in one process: mode switch, pre-motion check, command, stop and verify (stops and latches the e-stop on any failure)")
+
+    p = sub.add_parser("notes", help="Free-form robot memory that persists across sessions and profiles: remember / recall / forget")
+    nsub = p.add_subparsers(dest="subcommand", required=True)
+    nr = nsub.add_parser("remember", help="Store a note")
+    nr.add_argument("text", nargs="+", help="The note")
+    nr.add_argument("--tag", action="append", default=[], help="Tag (repeatable), e.g. dock, map")
+    nq = nsub.add_parser("recall", help="List notes, newest first; every query word must match")
+    nq.add_argument("query", nargs="*", help="Words to match (none lists all)")
+    nq.add_argument("--tag", default=None, help="Only notes with this tag")
+    nq.add_argument("--limit", type=int, default=20, help="Maximum notes (default 20)")
+    nf = nsub.add_parser("forget", help="Delete a note by id")
+    nf.add_argument("id", type=int, help="Note id from `notes recall`")
+
+    p = sub.add_parser("braking", help="Measure the base's coast distance and use it for the slow-down zone of publish-until")
+    bsub = p.add_subparsers(dest="subcommand", required=True)
+    bsub.add_parser("show", help="Show the stored measurement")
+    bsub.add_parser("clear", help="Delete the stored measurement (back to the 0.5 m/s² default)")
+    bm = bsub.add_parser("measure", help="Drive short moves with the decel zone off and store v²/(2·coast); moves the robot")
+    bm.add_argument("--distance", type=float, default=0.4, help="Metres per run (0.1-1.0, default 0.4)")
+    bm.add_argument("--speed", type=float, default=0.2, help="m/s (0.05-0.5, default 0.2; still capped by the safety limits)")
+    bm.add_argument("--runs", type=int, default=2, help="Runs, alternating forward and back (default 2)")
+
+    p = sub.add_parser("snapshot", help="Read-only robot state in one call: LiDAR sectors, pose, tilt, battery, ToF, depth, wheels, e-stop/mode, controllers, Nav2 nodes, diagnostics")
+    p.add_argument("--only", default=None, help="Comma-separated subset: scan,imu,odom,battery,tof,depth,joints,diagnostics,state,controllers")
+    p.add_argument("--window", type=float, default=1.5, help="Max seconds to wait for sensors (default: 1.5; returns early once all have reported)")
+    p.add_argument("--rates", action="store_true", default=False, help="Hold the whole window and report each topic's rate in Hz")
+
+    p = sub.add_parser("look", help="Capture a camera frame (picks the colour camera) and save it; --diff S captures a second frame S seconds later and reports whether the view changed")
+    p.add_argument("--topic", default=None, help="Image topic (default: the colour camera)")
+    p.add_argument("--output", default="look.jpg", help="Output filename in .artifacts/ (default: look.jpg)")
+    p.add_argument("--diff", type=float, default=None, help="Seconds before a second capture; reports changed_pixels_pct and changed")
+    p.add_argument("--timeout", type=float, default=5.0, help="Seconds to wait for each frame")
+    p.add_argument("--no-profile", dest="no_profile", action="store_true", default=False, help="Skip profile camera rotation")
+
+    stop = sub.add_parser("stop", help="Routine stop: publish zero velocity on every velocity topic and optionally verify; does not latch the e-stop service")
+    stop.add_argument("--topic", dest="topic", default=None, help="Zero only this velocity topic (default: every velocity topic)")
+    stop.add_argument("--verify-odom-topic", dest="verify_odom_topic", default=None,
+                      help="Wait until velocity reads back as zero on this odom topic and report the final position")
+    stop.add_argument("--verify-timeout", dest="verify_timeout", type=float, default=5.0,
+                      help="Max seconds to wait for the robot to be stationary (default: 5)")
+    stop.add_argument("--velocity-threshold", dest="velocity_threshold", type=float, default=0.01,
+                      help="Max speed (m/s, rad/s) that counts as stationary (default: 0.01)")
+
+    estop = sub.add_parser("estop", help="Emergency stop: engage the SetBool e-stop service if present, then publish zero velocity on every velocity topic")
     estop.add_argument("--topic", dest="topic", default=None,
-                       help="Custom velocity topic (default: auto-detect)")
+                       help="Zero only this velocity topic (default: every velocity topic)")
+    estop.add_argument("--no-service", dest="no_service", action="store_true", default=False,
+                       help="Skip the e-stop service; only publish zero velocity")
     estop.add_argument("--verify-odom-topic", dest="verify_odom_topic", default=None,
                        help="If given, also confirm velocity reads back as zero on this odom topic "
                             "in the same node/process (avoids a second 'topics subscribe' call)")
@@ -355,6 +406,8 @@ def build_parser():
     p.add_argument("topic", nargs="?", help="Topic name (e.g. /cmd_vel)")
     p.add_argument("--window", type=int, default=10,
                    help="Number of inter-message intervals to sample (default: 10)")
+    p.add_argument("--duration", type=float, default=None,
+                   help="Sample for this many seconds instead of a message count (overrides --window)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Max wait time in seconds (default: 10)")
     p = tsub.add_parser("find", help="Find topics by message type")
@@ -554,6 +607,11 @@ def build_parser():
     p.add_argument("--timeout", type=float, default=30.0,
                    help="Collection window in seconds when --duration is not set (default: 30)")
 
+    p = ssub.add_parser("state",
+                        help="Current state of SetBool toggle services (e-stop, twist switch, ...) from replayed introspection events")
+    p.add_argument("services", nargs="+", help="Service names (e.g. /emergency_stop /twist_switch)")
+    p.add_argument("--timeout", type=float, default=2.0, help="Seconds to wait for replayed events (default: 2)")
+
     # ------------------------------------------------------------------
     # nodes
     # ------------------------------------------------------------------
@@ -726,6 +784,11 @@ def build_parser():
                    help="Max seconds to wait for one odom message (default: 2)")
     p.add_argument("--velocity-threshold", dest="velocity_threshold", type=float, default=0.01,
                    help="Max |linear| (m/s) and |angular.z| (rad/s) to call the robot stationary (default: 0.01)")
+    p.add_argument("--source", choices=["teleop", "nav2"], default="teleop",
+                   help="Velocity input the motion will use: teleop (topics publish*) or nav2 (nav2 go/rotate/mission). "
+                        "With a twist switch, a command on the unselected input is ignored (default: teleop)")
+    p.add_argument("--verbose", action="store_true", default=False,
+                   help="Include the full controller description and odometry covariances")
 
     p = pfsub.add_parser("joint-command",
         help="Check controller-active + current joint positions in a single node spin "
@@ -899,6 +962,8 @@ def build_parser():
         p.add_argument("--report-failed", "-rf", dest="report_failed",
                        action="store_true", default=False,
                        help="Print report sections for failed checks only")
+        p.add_argument("--issues", action="store_true", default=False,
+                       help="List the incompatible QoS pairs behind a QoSCompatibilityCheck warning (adds ~6 s)")
         p.add_argument("--exclude-packages", "-ep", dest="exclude_packages",
                        action="store_true", default=False,
                        help="Skip network-bound checks (PackageCheck's version lookup and "
@@ -1100,6 +1165,24 @@ def build_parser():
     p.add_argument("port", nargs="?", type=int, default=8765, help="Foxglove bridge port (default: 8765)")
 
     # ------------------------------------------------------------------
+    # foxglove (top-level command)
+    # ------------------------------------------------------------------
+    foxglove = sub.add_parser("foxglove", help="Foxglove bridge lifecycle")
+    fsub = foxglove.add_subparsers(dest="subcommand")
+
+    p = fsub.add_parser("start", help="Start a Foxglove bridge session")
+    p.add_argument("port", nargs="?", type=int, default=8765,
+                   help="Foxglove bridge port (default: 8765)")
+
+    p = fsub.add_parser("stop", help="Stop a Foxglove bridge session")
+    p.add_argument("--port", dest="port", type=int, default=None,
+                   help="Optional port filter; stops only the bridge on this port")
+
+    p = fsub.add_parser("status", help="Check Foxglove bridge state")
+    p.add_argument("--port", dest="port", type=int, default=None,
+                   help="Optional port filter; report only the matching bridge")
+
+    # ------------------------------------------------------------------
     # run
     # ------------------------------------------------------------------
     run = sub.add_parser("run", help="Run ROS 2 executables in tmux sessions")
@@ -1229,7 +1312,9 @@ def build_parser():
              "commands by avoiding rclpy.init()/shutdown() per call; optional, "
              "always falls back safely if not running)")
     daemonfastsub = daemonfast.add_subparsers(dest="subcommand")
-    daemonfastsub.add_parser("start",  help="Start the fast daemon in a tmux session")
+    dfs = daemonfastsub.add_parser("start",  help="Start the fast daemon in a tmux session (it also starts itself on the first command that benefits)")
+    dfs.add_argument("--idle-minutes", dest="idle_minutes", type=float, default=0.0,
+                     help="Exit after this long without a request (default 0: run until `daemon-fast stop`; auto-started daemons use 30)")
     daemonfastsub.add_parser("stop",   help="Stop the fast daemon")
     daemonfastsub.add_parser("status", help="Check whether the fast daemon is running and reachable")
 
@@ -1407,6 +1492,10 @@ def build_parser():
                    help="Override auto-detected robot type. "
                         "Valid values: humanoid, legged, aerial, underwater, "
                         "surface_vessel, mobile_manipulator, arm, mobile_base, unknown")
+    p.add_argument("--namespace", default=None, metavar="NAMESPACE",
+                   help="Persist the robot namespace on the profile (e.g. /robot1)")
+    p.add_argument("--transport", default=None, metavar="TRANSPORT",
+                   help="Persist the active transport profile (e.g. dds, zenoh, rosbridge)")
 
     # show
     p = psub.add_parser("show",
@@ -1437,6 +1526,10 @@ def build_parser():
                         "(ignored for --launch-file partial rescans). "
                         "Valid values: humanoid, legged, aerial, underwater, "
                         "surface_vessel, mobile_manipulator, arm, mobile_base, unknown")
+    p.add_argument("--namespace", default=None, metavar="NAMESPACE",
+                   help="Persist or override the robot namespace on rescan")
+    p.add_argument("--transport", default=None, metavar="TRANSPORT",
+                   help="Persist or override the active transport profile on rescan")
 
     # list
     psub.add_parser("list", help="List all robot profiles in .profiles/")
@@ -1480,6 +1573,18 @@ def build_parser():
                    help="Replace the stored overlay instead of merging")
     p.add_argument("--name", default="robot", metavar="NAME",
                    help="Robot name (default: auto-detected from .profiles/)")
+
+    # set-context
+    p = psub.add_parser(
+        "set-context",
+        help="Persist profile namespace and transport metadata",
+    )
+    p.add_argument("--name", default="robot", metavar="NAME",
+                   help="Robot name (default: auto-detected from .profiles/)")
+    p.add_argument("--namespace", default=None, metavar="NAMESPACE",
+                   help="Robot namespace to persist on the profile")
+    p.add_argument("--transport", default=None, metavar="TRANSPORT",
+                   help="Transport label to persist on the profile")
 
     # ------------------------------------------------------------------
     # safety
@@ -1588,13 +1693,13 @@ def build_parser():
     p.add_argument("--feedback", action="store_true",
                    help="Collect and return Nav2 feedback messages in the output")
     p.add_argument("--action", default=_NAV2_ACTION_DEFAULT,
-                   help=f"Action server name (default: {_NAV2_ACTION_DEFAULT})")
+                   help="Cancel only this action server (default: all Nav2 action servers)")
 
     # cancel
     p = nav2sub.add_parser("cancel",
-                           help="Cancel all active NavigateToPose goals and send a zero-velocity burst")
+                           help="Cancel active goals on all Nav2 action servers (navigate, waypoints, spin, backup, ...) and send a zero-velocity burst")
     p.add_argument("--action", default=_NAV2_ACTION_DEFAULT,
-                   help=f"Action server name (default: {_NAV2_ACTION_DEFAULT})")
+                   help="Cancel only this action server (default: all Nav2 action servers)")
     p.add_argument("--timeout", type=float, default=10.0,
                    help="Seconds to wait for the cancel service (default: 10)")
 
@@ -1793,6 +1898,7 @@ def build_parser():
     p.add_argument("--y", type=float, default=None, help="Explicit y position")
     p.add_argument("--yaw", type=float, default=None, help="Explicit yaw in degrees")
     p.add_argument("--timeout", type=float, default=2.0, help="Pose capture timeout in seconds")
+    p.add_argument("--snapshot", action="store_true", default=False, help="Also store a camera frame with the place (`nav2 place list` shows its path)")
 
     nav2placesub.add_parser("list", help="List stored places")
 
@@ -1848,6 +1954,16 @@ def build_parser():
 DISPATCH = {
     ("version", None): cmd_version,
     ("context", None): cmd_context,
+    ("stop", None): ("ros2_topic", "cmd_stop"),
+    ("snapshot", None): ("ros2_snapshot", "cmd_snapshot"),
+    ("notes", "remember"): ("ros2_notes", "cmd_notes"),
+    ("notes", "recall"): ("ros2_notes", "cmd_notes"),
+    ("notes", "forget"): ("ros2_notes", "cmd_notes"),
+    ("braking", "measure"): ("ros2_braking", "cmd_braking"),
+    ("braking", "show"): ("ros2_braking", "cmd_braking"),
+    ("braking", "clear"): ("ros2_braking", "cmd_braking"),
+    ("look", None): ("ros2_snapshot", "cmd_look"),
+    ("plan", None): ("ros2_plan", "cmd_plan"),
     ("estop", None): ("ros2_topic", "cmd_estop"),
     # topics — canonical
     ("topics", "list"): ("ros2_topic", "cmd_topics_list"),
@@ -1889,6 +2005,7 @@ DISPATCH = {
     ("services", "ls"): ("ros2_service", "cmd_services_list"),
     ("services", "info"): ("ros2_service", "cmd_services_info"),
     ("services", "echo"): ("ros2_service", "cmd_services_echo"),
+    ("services", "state"): ("ros2_robot_state", "cmd_services_state"),
     # nodes — canonical
     ("nodes", "list"): ("ros2_node", "cmd_nodes_list"),
     ("nodes", "details"): ("ros2_node", "cmd_nodes_details"),
@@ -2037,6 +2154,7 @@ DISPATCH = {
     ("profile", "annotate"): ("ros2_profile", "cmd_profile_annotate"),
     ("profile", "set-camera-rotation"): ("ros2_profile", "cmd_profile_set_camera_rotation"),
     ("profile", "set-safety-overlay"): ("ros2_profile", "cmd_profile_set_safety_overlay"),
+    ("profile", "set-context"): ("ros2_profile", "cmd_profile_set_context"),
     # safety
     ("safety", "show"):         ("ros2_safety", "cmd_safety_show"),
     ("safety", "enable"):       ("ros2_safety", "cmd_safety_enable"),
@@ -2066,6 +2184,8 @@ DISPATCH = {
     ("nav2", "initial-pose"):  ("ros2_nav2", "cmd_nav2_initial_pose"),
     ("nav2", "map"):           cmd_nav2_map,
     ("nav2", "mode"):          cmd_nav2_mode,
+    ("nav2", "mission"):       cmd_nav2_mission,
+    ("nav2", "place"):         cmd_nav2_place,
     ("nav2", "localize"):      ("ros2_nav2", "cmd_nav2_localize"),
     ("nav2", "diagnose"):      ("ros2_nav2", "cmd_nav2_diagnose"),
     ("nav2", "move-timed"):    ("ros2_nav2", "cmd_nav2_move_timed"),
@@ -2106,9 +2226,38 @@ def _apply_global_overrides(args):
 # Entry point
 # ---------------------------------------------------------------------------
 
+_PARSER = None
+
+
+def _isolate_native_stdout():
+    """Keep the JSON stream clean: native middleware code (e.g. rmw_zenoh WARN lines) writes straight
+    to fd 1, which would corrupt the JSON. Point fd 1 at stderr and give Python the real stdout."""
+    try:
+        real = os.fdopen(os.dup(1), "w", buffering=1, encoding="utf-8")
+        os.dup2(2, 1)
+        sys.stdout = real
+    except (OSError, ValueError):
+        pass
+
+
+def _join_relative_times(argv):
+    """`--after -30s` -> `--after=-30s` (argparse would read `-30s` as an option)."""
+    out = []
+    for i, tok in enumerate(argv):
+        if i and argv[i - 1] in ("--after", "--before") and re.fullmatch(r"-\d+(?:\.\d+)?[smhd]?", tok):
+            out[-1] = f"{argv[i - 1]}={tok}"
+        else:
+            out.append(tok)
+    return out
+
+
 def main():
-    parser = build_parser()
-    args = parser.parse_args()
+    global _PARSER
+    _isolate_native_stdout()
+    from ros2_utils import _route_sigterm_to_interrupt
+    _route_sigterm_to_interrupt()  # Ctrl-C, kill and estop's SIGINT unwind the command (its `finally` halts the robot)
+    parser = _PARSER = build_parser()
+    args = parser.parse_args(_join_relative_times(sys.argv[1:]))
     _apply_global_overrides(args)
 
     if not args.command:
@@ -2138,13 +2287,36 @@ def main():
 
     key = (command, subcommand)
     handler = DISPATCH.get(key)
+    try:
+        from ros2_fastmotion import maybe_autostart
+        maybe_autostart(command, subcommand, args)  # background; this command does not wait for it
+    except Exception:
+        pass
     if handler:
         try:
-            if isinstance(handler, tuple):
-                module_name, func_name = handler
-                module = importlib.import_module(module_name)
-                handler = getattr(module, func_name)
-            handler(args)
+            from ros2_motion_lock import MotionBusy, is_motion, motion_lock
+            from ros2_fastmotion import try_serve
+
+            def run():
+                served = try_serve(command, subcommand, args)  # the fast daemon answers before rclpy is even imported
+                if served is not None:
+                    return output(served)
+                fn = handler
+                if isinstance(fn, tuple):
+                    fn = getattr(importlib.import_module(fn[0]), fn[1])
+                fn(args)
+
+            if is_motion(command, subcommand, args) and not getattr(args, "dry_run", False):
+                with motion_lock(" ".join(sys.argv[1:4])):
+                    run()
+            else:
+                run()
+        except MotionBusy as busy:
+            output({"error": str(busy), "blocked": True, "owner": busy.owner,
+                    "hint": "Only one motion command may run at a time (Rule 23). Wait for it, or run `estop` to interrupt it."})
+        except KeyboardInterrupt:  # Ctrl-C, SIGTERM or estop: the command's `finally` has already halted the robot
+            output({"error": "interrupted", "cancelled": True})
+            sys.exit(130)
         except Exception as e:
             output({"error": str(e), "type": type(e).__name__})
     else:

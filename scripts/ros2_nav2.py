@@ -21,6 +21,7 @@ import json
 import math
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import threading
@@ -32,7 +33,7 @@ import rclpy
 
 from ros2_utils import (
     ROS2CLI, call_ros_service, get_action_type, get_msg_type, get_srv_type, msg_to_dict, dict_to_msg,
-    output, ros2_context,
+    output, ros2_context, spin_until, uninterruptible,
 )
 
 # Default action server name for NavigateToPose.
@@ -42,7 +43,7 @@ _NAV2_ACTION = "/navigate_to_pose"
 _NAV_TIMEOUT = 120.0
 
 _MISSION_DIR = pathlib.Path(__file__).resolve().parent.parent / ".artifacts" / "missions"
-_PLACE_DIR = pathlib.Path(__file__).resolve().parent.parent / ".artifacts" / "places"
+from ros2_places import PLACE_DIR as _PLACE_DIR  # noqa: E402  (shared with `plan`, which must not import rclpy)
 
 
 # ---------------------------------------------------------------------------
@@ -137,9 +138,13 @@ def _send_navigate_to_pose(node, action_class, action_name, goal_dict,
         feedback_callback=_fb_cb if collect_feedback else None,
     )
 
-    end = time.time() + timeout
-    while time.time() < end and not future.done():
-        rclpy.spin_once(node, timeout_sec=0.1)
+    def _late_goal():  # interrupted while the goal was being accepted: cancel it if it was
+        if future.done() and future.result() is not None and future.result().accepted:
+            _cancel_goal_and_halt(node, future.result())
+        else:
+            _publish_zero_burst(node)
+
+    spin_until(node, future, time.time() + timeout, on_cancel=_late_goal)
 
     if not future.done():
         future.cancel()
@@ -151,15 +156,14 @@ def _send_navigate_to_pose(node, action_class, action_name, goal_dict,
 
     result_future = goal_handle.get_result_async()
 
-    end = time.time() + timeout
-    while time.time() < end and not result_future.done():
-        rclpy.spin_once(node, timeout_sec=0.1)
+    spin_until(node, result_future, time.time() + timeout, on_cancel=lambda: _cancel_goal_and_halt(node, goal_handle))
 
     if not result_future.done():
         result_future.cancel()
+        with uninterruptible():  # a timeout is a cancel path too: never leave the goal running
+            _cancel_goal_and_halt(node, goal_handle)
         raise RuntimeError(
-            f"Navigation timeout after {timeout}s — goal still active. "
-            "Call 'nav2 cancel' to stop the robot."
+            f"Navigation timeout after {timeout}s — the goal was cancelled and velocity zeroed."
         )
 
     wrapped = result_future.result()
@@ -173,6 +177,16 @@ def _send_navigate_to_pose(node, action_class, action_name, goal_dict,
     return success, status, result_dict, fb
 
 
+def _cancel_goal_and_halt(node, goal_handle):
+    """Interrupt path for a running Nav2 goal: cancel it (so it cannot resume later) and zero the base."""
+    if goal_handle is not None:
+        future = goal_handle.cancel_goal_async()
+        end = time.time() + 1.5
+        while time.time() < end and not future.done():
+            rclpy.spin_once(node, timeout_sec=0.05)
+    _publish_zero_burst(node)
+
+
 def _status_name(status_int: int) -> str:
     _MAP = {0: "UNKNOWN", 1: "ACCEPTED", 2: "EXECUTING", 3: "CANCELING",
             4: "SUCCEEDED", 5: "CANCELED", 6: "ABORTED"}
@@ -180,28 +194,23 @@ def _status_name(status_int: int) -> str:
 
 
 def _publish_zero_burst(node):
-    """Publish 3 zero-velocity messages to the first Twist topic found.
+    """Publish 3 zero-velocity messages to every velocity topic, using each topic's own type.
 
     Best-effort — errors are silently ignored so cancel still reports success.
     """
     try:
-        from geometry_msgs.msg import Twist  # noqa: PLC0415
-        topics = node.get_topic_names_and_types()
-        vel_topic = None
-        for name, types in topics:
-            for t in types:
-                if "Twist" in t and "cmd_vel" in name.lower():
-                    vel_topic = name
-                    break
-            if vel_topic:
-                break
-
-        if vel_topic:
-            pub = node.create_publisher(Twist, vel_topic, 10)
-            zero = Twist()
-            for _ in range(3):
-                pub.publish(zero)
-                rclpy.spin_once(node, timeout_sec=0.02)
+        from ros2_topic import VELOCITY_TYPES, _zero_msg  # noqa: PLC0415
+        from ros2_utils import get_msg_type  # noqa: PLC0415
+        pubs = []
+        for name, types in node.get_topic_names_and_types():
+            vtype = next((t for t in types if t in VELOCITY_TYPES), None)
+            msg_class = get_msg_type(vtype) if vtype else None
+            if msg_class:
+                pubs.append((node.create_publisher(msg_class, name, 10), _zero_msg(msg_class)))
+        for _ in range(3):
+            for pub, msg in pubs:
+                pub.publish(msg)
+            rclpy.spin_once(node, timeout_sec=0.02)
     except Exception:
         pass
 
@@ -269,17 +278,8 @@ def _save_place(place: dict) -> pathlib.Path:
 
 
 def _list_places() -> list[dict]:
-    if not _PLACE_DIR.exists():
-        return []
-    places = []
-    for path in sorted(_PLACE_DIR.glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if isinstance(data, dict) and data.get("name"):
-            places.append(data)
-    return places
+    from ros2_places import list_places
+    return list_places(_PLACE_DIR)
 
 
 def _current_pose_from_topic(topic_name: str, timeout: float) -> Optional[dict]:
@@ -429,9 +429,7 @@ def cmd_nav2_rotate(args):
             goal_msg = dict_to_msg(action_class.Goal, goal_dict)
             future = client.send_goal_async(goal_msg)
 
-            end = time.time() + args.timeout
-            while time.time() < end and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
+            spin_until(node, future, time.time() + args.timeout, on_cancel=lambda: _publish_zero_burst(node))
 
             if not future.done():
                 future.cancel()
@@ -443,15 +441,16 @@ def cmd_nav2_rotate(args):
                                "error": "Spin goal rejected by Nav2"})
 
             result_future = goal_handle.get_result_async()
-            end = time.time() + args.timeout
-            while time.time() < end and not result_future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
+            spin_until(node, result_future, time.time() + args.timeout,
+                       on_cancel=lambda: _cancel_goal_and_halt(node, goal_handle))
 
             if not result_future.done():
                 result_future.cancel()
+                with uninterruptible():  # a timeout is a cancel path too: never leave the spin running
+                    _cancel_goal_and_halt(node, goal_handle)
                 return output({
-                    "error": f"Spin timeout after {args.timeout}s — goal still active. "
-                             "Call 'nav2 cancel' to stop.",
+                    "error": f"Spin timeout after {args.timeout}s — the goal was cancelled and velocity zeroed.",
+                    "hint": "A spin completes on the EKF yaw: wheels off the ground or a stuck IMU never reach the target.",
                 })
 
             wrapped = result_future.result()
@@ -471,9 +470,14 @@ def cmd_nav2_rotate(args):
         output({"error": str(e)})
 
 
+_NAV2_CANCEL_ACTIONS = ("/navigate_to_pose", "/navigate_through_poses", "/follow_waypoints",
+                        "/spin", "/backup", "/drive_on_heading", "/wait")
+
+
 def cmd_nav2_cancel(args):
-    """Cancel all active NavigateToPose goals and send a zero-velocity burst."""
-    action_name = getattr(args, "action", _NAV2_ACTION)
+    """Cancel active goals on every Nav2 action server (or just --action) and send a zero-velocity burst."""
+    explicit = getattr(args, "action", None)
+    actions = [explicit] if explicit and explicit != _NAV2_ACTION else list(_NAV2_CANCEL_ACTIONS)
     timeout = args.timeout
 
     try:
@@ -481,35 +485,30 @@ def cmd_nav2_cancel(args):
 
         with ros2_context():
             node = ROS2CLI()
-            client = node.create_client(CancelGoal, action_name + "/_action/cancel_goal")
+            cancelled, unavailable = {}, []
+            for action_name in actions:
+                client = node.create_client(CancelGoal, action_name + "/_action/cancel_goal")
+                if not client.wait_for_service(timeout_sec=timeout if len(actions) == 1 else 0.5):
+                    unavailable.append(action_name)
+                    node.destroy_client(client)
+                    continue
+                future = client.call_async(CancelGoal.Request())  # empty goal_id = cancel ALL goals
+                end = time.time() + timeout
+                while time.time() < end and not future.done():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+                resp = future.result() if future.done() else None
+                cancelled[action_name] = len(resp.goals_canceling) if resp and resp.goals_canceling else 0
+                node.destroy_client(client)
 
-            if not client.wait_for_service(timeout_sec=timeout):
-                return output({
-                    "error": (
-                        f"navigate_to_pose cancel service not available after {timeout}s "
-                        "— is Nav2 running and a goal active?"
-                    )
-                })
-
-            req = CancelGoal.Request()  # empty goal_id = cancel ALL goals
-            future = client.call_async(req)
-
-            end = time.time() + timeout
-            while time.time() < end and not future.done():
-                rclpy.spin_once(node, timeout_sec=0.1)
-
-            if not future.done():
-                return output({"error": "Timeout waiting for cancel response"})
-
-            resp = future.result()
-            goals_cancelled = len(resp.goals_canceling) if resp and resp.goals_canceling else 0
-
+            if not cancelled:
+                return output({"error": f"No Nav2 action server answered ({', '.join(unavailable)}) — is Nav2 running?"})
             _publish_zero_burst(node)
 
         output({
             "cancelled": True,
-            "goals_cancelled": goals_cancelled,
-            "action": action_name,
+            "goals_cancelled": sum(cancelled.values()),
+            "per_action": cancelled,
+            "unavailable": unavailable,
             "zero_velocity_sent": True,
             "note": "Call 'estop' as well if the robot does not decelerate.",
         })
@@ -884,9 +883,10 @@ def cmd_nav2_map_save(args):
                 req.name.data = map_name
                 resp, err = _call_service(node, "/slam_toolbox/save_map", SaveMap, req, timeout)
                 if not err and resp is not None:
-                    result = resp.result if hasattr(resp, 'result') else True
+                    # slam_toolbox SaveMap: result 0 == RESULT_SUCCESS
+                    result = resp.result if hasattr(resp, 'result') else 0
                     return output({
-                        "success": bool(result),
+                        "success": result == 0,
                         "method": "slam_toolbox",
                         "service": "/slam_toolbox/save_map",
                         "name": map_name,
@@ -1447,11 +1447,13 @@ def cmd_nav2_move_timed(args):
                 twist.angular.z = -speed
 
             end = time.time() + duration
-            while time.time() < end:
-                pub.publish(msg)
-                rclpy.spin_once(node, timeout_sec=0.05)
-
-            _publish_zero_burst(node)
+            try:
+                while time.time() < end:
+                    pub.publish(msg)
+                    rclpy.spin_once(node, timeout_sec=0.05)
+            finally:  # also on Ctrl-C / SIGTERM / estop
+                with uninterruptible():
+                    _publish_zero_burst(node)
 
         return output({
             "moved": True,
@@ -1686,9 +1688,18 @@ def cmd_nav2_mission_cancel(args):
     state["status"] = "canceling"
     _save_mission_state(state)
 
-    # Best-effort local fail-safe if the runner is already gone.
+    # A live runner is signalled so the step in progress is interrupted now (its cleanup cancels the Nav2 goal and
+    # zeroes the base); without this the cancel would only take effect between steps.
     pid = state.get("runner_pid")
+    signalled = False
     if pid:
+        try:
+            if b"ros2_mission" in pathlib.Path(f"/proc/{int(pid)}/cmdline").read_bytes():
+                os.kill(int(pid), signal.SIGTERM)
+                signalled = True
+        except OSError:
+            pass
+    if pid and not signalled:
         try:
             os.kill(int(pid), 0)
         except OSError:
@@ -1699,7 +1710,7 @@ def cmd_nav2_mission_cancel(args):
             except Exception:
                 pass
 
-    return output({"cancel_requested": True, **_mission_summary(state)})
+    return output({"cancel_requested": True, "runner_signalled": signalled, **_mission_summary(state)})
 
 
 def cmd_nav2_mission_status(args):
@@ -1708,6 +1719,16 @@ def cmd_nav2_mission_status(args):
     if state is None:
         return output({"error": f"Mission '{mission_id}' not found"})
     return output({"mission": state, "summary": _mission_summary(state)})
+
+
+def _profile_odom_topic() -> Optional[str]:
+    """Odometry topic from the loaded profile (first fused source), or None."""
+    try:
+        from ros2_profile import load_profile_summary
+        fused = (load_profile_summary(readonly=True) or {}).get("localization_config", {}).get("fused_sources") or {}
+        return next(iter(fused.values()), None)
+    except Exception:
+        return None
 
 
 def cmd_nav2_place_save(args):
@@ -1725,15 +1746,19 @@ def cmd_nav2_place_save(args):
     yaw_deg = getattr(args, "yaw", None)
     if x is None or y is None:
         pose = _current_pose_from_topic(topic_name, timeout)
+        if pose is None and not getattr(args, "topic", None):
+            odom = _profile_odom_topic()
+            pose = _current_pose_from_topic(odom, timeout) if odom else None
         if pose is None:
             return output({
                 "error": "Could not capture current pose",
-                "hint": "Provide --x/--y/--yaw explicitly or use a running /amcl_pose or /odom topic.",
+                "hint": "Provide --x/--y/--yaw explicitly or use a running /amcl_pose or odometry topic.",
             })
         x = pose["x"]
         y = pose["y"]
         yaw_deg = pose["yaw_deg"]
         frame = pose.get("frame", frame)
+        topic_name = pose.get("source_topic", topic_name)
 
     place = {
         "name": place_name,
@@ -1744,6 +1769,12 @@ def cmd_nav2_place_save(args):
         "source_topic": topic_name,
         "created_at": time.time(),
     }
+    if getattr(args, "snapshot", False):  # a frame to look at before deciding to go there
+        from ros2_snapshot import capture_frame
+        shot = capture_frame(str(_place_path(place_name).with_suffix(".jpg")), timeout=timeout + 3.0)
+        place["image"] = shot.get("path") if "error" not in shot else None
+        if "error" in shot:
+            place["image_error"] = shot["error"]
     saved_path = _save_place(place)
     return output({"saved": True, "place": place, "file": str(saved_path)})
 
@@ -1804,4 +1835,5 @@ def cmd_nav2_place_delete(args):
     if not path.exists():
         return output({"error": f"Place '{place_name}' not found"})
     path.unlink()
+    path.with_suffix(".jpg").unlink(missing_ok=True)
     return output({"deleted": True, "name": place_name, "file": str(path)})

@@ -139,15 +139,84 @@ def _get_service_event_qos():
 # rclpy lifecycle
 # ---------------------------------------------------------------------------
 
+_CONTEXT_DEPTH = 0
+_TRACE_T0 = __import__("time").perf_counter()
+
+
+def trace(label):
+    """Phase timing on stderr when ROS2_SKILL_TRACE=1 (finds where start-up time goes)."""
+    if os.environ.get("ROS2_SKILL_TRACE"):
+        print(f"[trace] {__import__('time').perf_counter() - _TRACE_T0:6.3f}s {label}", file=sys.stderr)
+
+
+def _route_sigterm_to_interrupt():
+    """SIGINT and SIGTERM unwind as KeyboardInterrupt so `finally` blocks halt the robot; main thread only.
+
+    SIGINT is set explicitly: a background job started from a non-interactive shell inherits SIG_IGN for it,
+    and `estop` interrupts a running command with SIGINT.
+    """
+    import signal
+    import threading
+
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+        signal.signal(signal.SIGTERM, signal.default_int_handler)
+
+
 @contextmanager
-def ros2_context():
-    """Initialise rclpy on entry and shut it down on exit."""
-    _ensure_rclpy()
-    rclpy.init()
+def uninterruptible():
+    """Ignore SIGINT/SIGTERM inside the block: the committed section that zeroes velocity must not be cut short."""
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    saved = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
         yield
     finally:
-        rclpy.shutdown()
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
+
+
+def spin_until(node, future, end, on_cancel=None, step=0.1):
+    """Spin *node* until *future* is done or time *end*; True if done.
+
+    On Ctrl-C / SIGTERM / estop's SIGINT, *on_cancel* runs (cancel the goal, zero the base) and the interrupt is re-raised.
+    """
+    try:
+        while time.time() < end and not future.done():
+            rclpy.spin_once(node, timeout_sec=step)
+    except KeyboardInterrupt:
+        if on_cancel is not None:
+            with uninterruptible():
+                try:
+                    on_cancel()
+                except Exception:
+                    pass
+        raise
+    return future.done()
+
+
+@contextmanager
+def ros2_context():
+    """Initialise rclpy on entry and shut it down on exit; nested uses share one init."""
+    global _CONTEXT_DEPTH
+    _ensure_rclpy()
+    if _CONTEXT_DEPTH == 0:
+        # rclpy's own SIGINT handler would shut the context down mid-command, and the zero-velocity burst in a
+        # `finally` could then no longer publish. With it off, SIGINT/SIGTERM raise KeyboardInterrupt and unwind normally.
+        from rclpy.signals import SignalHandlerOptions
+        rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+        _route_sigterm_to_interrupt()
+    _CONTEXT_DEPTH += 1
+    try:
+        yield
+    finally:
+        _CONTEXT_DEPTH -= 1
+        if _CONTEXT_DEPTH == 0:
+            rclpy.shutdown()
 
 
 def call_ros_service(node, srv_type, service_name, request, timeout=5.0, retries=1,
@@ -408,8 +477,29 @@ def dict_to_msg(msg_type, data):
             else:
                 setattr(msg, key, value)
         else:
-            setattr(msg, key, value)
+            setattr(msg, key, _coerce_primitive(field_types.get(key, ''), value))
     return msg
+
+
+def _coerce_primitive(field_type, value):
+    """Make JSON numbers fit the ROS field type.
+
+    rosidl's C converter *aborts the process* (assertion) when an int is assigned to a float field,
+    and JSON like ``{"z": 0}`` is routine. Floats get float(); integer fields accept whole-number floats.
+    """
+    if not isinstance(field_type, str):
+        return value
+    base = re.sub(r"^sequence<(.+?)(?:,\s*\d+)?>$", r"\1", field_type)
+    base = re.sub(r"\[\d*\]$", "", base)
+    if isinstance(value, list):
+        return [_coerce_primitive(base, v) for v in value]
+    if isinstance(value, bool):
+        return value
+    if base in ("float", "double") and isinstance(value, int):
+        return float(value)
+    if base.startswith(("int", "uint", "byte", "octet")) and isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
 
 
 def resolve_field(d, path):
