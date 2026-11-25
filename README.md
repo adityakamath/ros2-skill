@@ -22,6 +22,10 @@ python3 ~/.claude/skills/ros2-skill/scripts/ros2_cli.py version
 
 Then ask Claude, e.g. "what topics are there?", "drive forward 1 m", "look around", "stop". Build the profile once with `profile scan --name <robot>` (the agent does this when none exists). `ros2_cli.py --help` lists every command; [`references/COMMANDS.md`](references/COMMANDS.md) is generated from it.
 
+## Speed
+
+`plan "<goal>" --run` compiles and runs a plain goal in one call. The fast daemon (`daemon-fast`, started automatically on the first command that benefits, 30-minute idle exit, `ROS2_SKILL_NO_FASTD=1` to disable) keeps the sensors and the velocity publisher warm: `snapshot` and `look` answer in about 0.3 s, and a closed-loop move starts about 0.15 s after the command. Halting a daemon-hosted move works from Ctrl-C, `kill`, `estop`, or a lost daemon (the controller's `cmd_vel_timeout` ends it); see `references/RULES-MOTION.md`.
+
 ## Layout
 
 | Path | Contents |
@@ -39,7 +43,8 @@ Generated at runtime inside the skill directory (gitignored): `.artifacts/` (cap
 source /opt/ros/$ROS_DISTRO/setup.bash
 python3 -m pytest tests/ -q                      # unit tests; ROS-dependent ones skip without ROS
 pytest tests/test_sim_smoke.py --sim             # read-only smoke tests against a running graph (sim:=true or the robot)
-ROS2_SIM_MOTION=1 pytest tests/test_sim_smoke.py --sim   # also a 0.1 m closed-loop move
+ROS2_SIM_MOTION=1 pytest tests/test_sim_smoke.py --sim   # also a 0.1 m closed-loop move and an estop interrupt
+tests/sim_ci.sh                                  # launches lekiwi_ros2 sim:=true and runs the smoke tests (CI: .github/workflows/sim.yml; it rewrites the profile, so it refuses on a machine with one unless SIM_CI_FORCE=1)
 pytest tests/test_live_validation.py --live      # drives the real robot
 ```
 

@@ -81,18 +81,20 @@ CLI nav2 mission run --file steps.json [--mission-id <id>]
 CLI nav2 mission status|pause|resume|cancel <mission_id>
 ```
 
+`mission cancel` signals the runner, so the step in progress is interrupted at once (its Nav2 goal is cancelled and velocity zeroed); `pause` takes effect after the current step.
+
 Step `type` values: `go`, `rotate`, `move_timed`, `initial_pose`, `localize`, `costmap_clear`, `map_load`, `mode_set`. The other keys in a step are that command's arguments (`CLI nav2 <type> --help`). Flow: queued → running → paused → completed, failed or canceled.
 
 ## Named places and maps
 
 ```bash
-CLI nav2 place save <name> [--x X --y Y --yaw DEG]   # without coordinates, samples the current pose
+CLI nav2 place save <name> [--x X --y Y --yaw DEG] [--snapshot]   # without coordinates, samples the current pose; --snapshot stores a camera frame
 CLI nav2 place list | go <name> [--feedback] | delete <name>
 CLI nav2 map list|save|load|delete
 CLI nav2 mode get|set mapfree|mapping|navigation
 ```
 
-Places persist in `.artifacts/places/`. Re-use them rather than asking for coordinates again.
+Places persist in `.artifacts/places/` (a frame, if saved, is `<name>.jpg` beside it), outside every profile, so they survive profile switches. Re-use them rather than asking for coordinates again. Free-form facts (dock location, map date) go in `notes remember|recall|forget` (`.artifacts/notes.json`).
 
 ## Robots with a twist switch and a service e-stop (e.g. LeKiwi)
 
@@ -100,5 +102,5 @@ Places persist in `.artifacts/places/`. Re-use them rather than asking for coord
 - **State without polling.** Servers that enable service introspection replay their last call, so `services state` reads the current e-stop, mode and patrol state. `null` means the toggle was never called since the server started (the defaults are e-stop off, teleop mode).
 - **E-stop semantics.** `/emergency_stop` (SetBool) disables motor torque: wheels coast. `/emergency_stop_toggle` is the joystick's Trigger and flips state, so the skill never calls it.
 - **Look around.** A fixed camera means turning the base: `plan "look around N views"` captures a frame, reads the pose with `tf lookup`, and rotates 360/N between views. Claude reads the saved images directly.
-- **On blocks.** With the wheels off the ground, Nav2 Spin/NavigateToPose never complete (the IMU sees no rotation), so wheels keep spinning until `nav2 cancel`. Use `publish-until` for stand tests.
+- **On blocks.** With the wheels off the ground, Nav2 Spin/NavigateToPose never complete (the EKF yaw does not change); the command times out, cancels its goal and zeroes velocity (it used to leave the wheels spinning). Use `publish-until` for stand tests. In `sim:=true` a spin completes normally.
 - **Smoke tests.** With the stack running (`sim:=true` or the real robot, started by you): `pytest tests/test_sim_smoke.py --sim`. Add `ROS2_SIM_MOTION=1` to also drive a 0.1 m closed-loop move.

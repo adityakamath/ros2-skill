@@ -79,7 +79,7 @@ Never guess names. The velocity topic may be `/base_controller/cmd_vel`, the typ
 5. Log directory: `$ROS_LOG_DIR`, else `$ROS_HOME/log`, else `~/.ros/log` (for diagnostics, no command).
 6. `context` for a one-call graph snapshot (topics capped at 50).
 7. `profile show`. If there is no profile, run `profile scan --name <robot>` (one robot), `--packages a,b --name label` (several), or bare `profile scan`. Use `safety_limits.binding` as `--max-vel` / `--max-ang`; this makes the four-source sweep unnecessary.
-8. Optional speedup: `daemon-fast start`.
+8. Optional speedup: `daemon-fast start`. Without it the daemon starts itself in the background on the first `snapshot`, `look`, `preflight motion`, `stop`, `publish-until` or `plan --run` and exits after 30 idle minutes (`ROS2_SKILL_NO_AUTOSTART=1` prevents that).
 
 Do not repeat these per command. Re-run only if the robot is relaunched or nodes appear or vanish unexpectedly.
 

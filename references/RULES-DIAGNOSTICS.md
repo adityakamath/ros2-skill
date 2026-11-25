@@ -68,3 +68,13 @@ Execute step N, verify it (Rule 8), then start step N+1. If step N fails, stop a
 | Move 1 m, then rotate 90° right | `publish-until` forward → verify delta → `publish-until` rotate → verify |
 | Configure the arm controller, then send a trajectory | `configure-controller` → verify `inactive` → `switch-controllers --activate` → verify `active` → `actions send` |
 | Set max speed 0.3, then move | `params set` → `params get` → motion workflow |
+
+## Fields that explain a motion result
+
+| Field | Meaning and action |
+|---|---|
+| `cause` / `limited_downstream` | A limiter (collision monitor, smoother) cut the speed (`commanded_mps` vs `executed_mps`). The robot was stopped normally and the e-stop is not latched. Read `snapshot --only scan` for what is close; do not retry blindly. |
+| `slow` | The move finished but took over twice its cruise time plus 3 s: the same limiter was throttling it. Report it. |
+| `cancelled: true` | `estop`, Ctrl-C, `kill` or a lost daemon interrupted the run. Velocity was zeroed and a Nav2 goal cancelled; nothing was retried. Find out why before starting another move. |
+| `refused` (plan) | Part of the goal was not understood, so nothing ran. Fix or split the goal using `warnings`. |
+| `source: "fast daemon"` | The move was hosted by the daemon (see RULES-MOTION.md). |

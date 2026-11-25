@@ -75,7 +75,7 @@ Run once per session (full detail in RULES-PREFLIGHT.md Rule 0.1):
 
 ```bash
 CLI doctor --exclude-packages          # stop and tell the user on critical failures
-CLI daemon-fast start                  # speedup: snapshot, look and the pre-motion check drop to ~0.3 s; safe to skip
+CLI daemon-fast start                  # optional: the daemon also starts itself on the first command that benefits
 CLI profile show                       # decides Path A or Path B
 CLI context                            # graph snapshot (only if Path B, or you need the graph)
 ```

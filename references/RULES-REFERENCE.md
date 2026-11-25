@@ -48,7 +48,7 @@ Anything not listed: `CLI <group> --help`.
 | Switch velocity input (teleop <-> Nav2) | `services call <velocity_chain.mode_service> '{"data": true|false}'` (true = Nav2); `plan` inserts this itself |
 | Look around (fixed camera) | `plan "look around 4 views"` (capture, `tf lookup`, `nav2 rotate`) |
 | Patrol, waypoints, map via robot services | `plan "start patrol"`, `"record waypoint"`, `"reset waypoints"`, `"save the map"` |
-| Do a plain motion goal now (fastest path) | `plan "<goal>" --run` (one call: check, move, stop, verify) |
+| Do a plain motion goal now (fastest path) | `plan "<goal>" --run` (one call: check, move, stop, verify). Chains with "then"/"and": turn (direction optional, "turn around"), "undo that"/"rotate back", "report the battery", "is the path ahead clear", "look at X", "remember that ...". Refuses the whole goal if any part is not understood |
 | Routine stop | `stop --verify-odom-topic <ODOM>` (never latches the e-stop) |
 | Multi-step goal in words | `plan "<goal>"` (compiles to commands, executes nothing; unknown places become warnings) |
 | Navigate to X,Y | `nav2 go X Y [--yaw D]` (Rule 9 Nav2 preemption first); see SKILL.md Nav2 section |
