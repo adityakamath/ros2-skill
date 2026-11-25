@@ -53,13 +53,15 @@ jobs:
             ros-kilted-xacro ros-kilted-mujoco-ros2-control-plugins ros-kilted-ament-cmake-gtest ros-kilted-ament-cmake-pytest
           pip install --break-system-packages --ignore-installed pytest pyyaml
           pip install --break-system-packages --ignore-installed -r ws/src/lekiwi_ros2/lekiwi_mujoco/requirements.txt
+          # lekiwi_bringup depends on lekiwi_audio, which needs its build requirements even though no audio runs here
+          pip install --break-system-packages --ignore-installed -r ws/src/lekiwi_ros2/lekiwi_audio/requirements-build.txt
 
       - name: colcon build
         working-directory: ws
         run: |
           . /opt/ros/kilted/setup.sh
           colcon build --packages-select \
-            lekiwi_control lekiwi_navigation lekiwi_description lekiwi_mujoco lekiwi_bringup mujoco_ros2_plugins \
+            lekiwi_control lekiwi_navigation lekiwi_description lekiwi_mujoco lekiwi_bringup lekiwi_audio mujoco_ros2_plugins \
             --packages-ignore orbbec_camera orbbec_camera_msgs orbbec_description \
               sts_hardware_interface bno055_hardware_interface ldlidar_ros2 ina260_battery_monitor tof_imager_ros
 
