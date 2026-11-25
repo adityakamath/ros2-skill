@@ -42,6 +42,9 @@ class TestIsNodeProcess(unittest.TestCase):
     def test_parameter_is_not_a_remap(self):
         self.assertFalse(matches(["/ws/lib/pkg/driver", "--ros-args", "-p", "__node:=camera"]))
 
+    def test_name_remap_targeted_at_another_node_does_not_match(self):
+        self.assertFalse(matches(remap("other_node:__name:=camera")))
+
     def test_namespace_must_match(self):
         argv = remap("__node:=camera", "__ns:=/front")
         self.assertTrue(matches(argv, namespace="/front"))

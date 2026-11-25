@@ -32,9 +32,11 @@ def _is_node_process(argv, node_name, namespace, prefixes):
             continue
         lhs, value = rule.split(":=", 1)
         target, _, key = lhs.rpartition(":")  # "talker:__ns" applies to one node
+        if target not in ("", node_name):
+            continue
         if key in ("__node", "__name"):
             names.append(value)
-        elif key == "__ns" and target in ("", node_name):
+        elif key == "__ns":
             namespaces.append("/" + value.strip("/"))
 
     if (namespaces[0] if namespaces else "/") != namespace:
