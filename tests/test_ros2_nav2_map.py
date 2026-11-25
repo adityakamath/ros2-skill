@@ -136,6 +136,15 @@ class TestNav2MapSave(unittest.TestCase):
         self.assertIn('slam_toolbox', call_args['error'])
 
 
+def _has_module(name):
+    import importlib.util
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+@unittest.skipUnless(_has_module("nav2_msgs"), "needs the nav2_msgs package (a ROS 2 install)")
 class TestNav2MapLoad(unittest.TestCase):
     """Test nav2 map load command."""
 

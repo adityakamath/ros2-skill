@@ -583,8 +583,10 @@ from ros2_motion_core import (  # noqa: E402,F401  (re-exported)
 )
 
 
-class ConditionMonitor(ConditionTracker, Node):
-    """Subscriber node that feeds every incoming message to a ConditionTracker (its attributes are the monitor's)."""
+class ConditionMonitor(Node):
+    """Subscriber node that feeds every incoming message to the shared ConditionTracker logic."""
+
+    update = ConditionTracker.update  # borrowed, not inherited: Node may be a stand-in without a usable metaclass
 
     def __init__(self, topic, msg_type, field, operator, threshold, stop_event,
                  euclidean=False, rotate=None):

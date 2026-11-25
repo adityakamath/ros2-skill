@@ -19,7 +19,7 @@ on:
 
 jobs:
   sim:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: ros:kilted
     timeout-minutes: 45
     env:

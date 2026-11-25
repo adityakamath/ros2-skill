@@ -3390,6 +3390,10 @@ class TestEstopBranching(unittest.TestCase):
         self.assertIn('error', json.loads(buf.getvalue()))
 
     def test_estop_engages_setbool_service_but_never_a_trigger_toggle(self):
+        try:
+            import std_srvs.srv  # noqa: F401
+        except ImportError:
+            self.skipTest("needs the std_srvs package (a ROS 2 install)")
         resp = MagicMock(success=True)
         topics = [('/cmd_vel', ['geometry_msgs/msg/Twist'])]
         r, _, call = self._run_estop(topics, msg_has_twist=False, service_resp=resp, services=[

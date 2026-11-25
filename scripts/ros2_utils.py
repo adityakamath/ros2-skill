@@ -207,8 +207,12 @@ def ros2_context():
     if _CONTEXT_DEPTH == 0:
         # rclpy's own SIGINT handler would shut the context down mid-command, and the zero-velocity burst in a
         # `finally` could then no longer publish. With it off, SIGINT/SIGTERM raise KeyboardInterrupt and unwind normally.
-        from rclpy.signals import SignalHandlerOptions
-        rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+        try:
+            from rclpy.signals import SignalHandlerOptions
+        except ImportError:  # a stand-in rclpy (unit tests without ROS)
+            rclpy.init()
+        else:
+            rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         _route_sigterm_to_interrupt()
     _CONTEXT_DEPTH += 1
     try:
