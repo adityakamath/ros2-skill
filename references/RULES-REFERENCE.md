@@ -66,7 +66,8 @@ Anything not listed: `CLI <group> --help`.
 | Bag | `bag info <file>`. Recording/playback has no CLI command; give the user `ros2 bag record|play` |
 | Logs | `logs list-runs|query|tail|node-summary` (works without a live graph) |
 | Packages | `pkg list|prefix|executables|xml|create` |
-| Profile | `profile scan|show|rescan|list|annotate|set-camera-rotation` (Rules 0.6, 0.7) |
+| Profile | `profile context` (loaded with the skill; creates/updates), `scan|show|rescan|list|annotate|set-camera-rotation|set-obstacle` (Rules 0.0, 0.6, 0.7) |
+| Drive until an obstacle | `plan "drive forward until obstacle" --run` (RULES-MOTION.md Rule 25) |
 | Daemon | `daemon status|start|stop`, `daemon-fast status|start|stop` |
 | Domain / localhost problems | Check `ROS_DOMAIN_ID` / `ROS_LOCALHOST_ONLY`, then `nodes list` (Rule 0.1 step 1) |
 | Run package tests | Shell: `colcon test --packages-select <pkg>`, then `colcon test-result --verbose` (the CLI has no test runner) |

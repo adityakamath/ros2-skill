@@ -8,17 +8,19 @@ Load at session start and before the first action. Related: [RULES-CORE.md](RULE
 
 ## Rule 0 — Profile first, live for the rest
 
-**0.0 Path selection (once per session).** Run `profile show` once.
-- **Path A:** it succeeded and `summary` is non-empty. Static data comes from the profile and live calls cover runtime state only.
-- **Path B:** it failed or `summary` is empty. Discover everything live.
+**0.0 Path selection (once per session).** The profile is loaded with the skill: the block under "Robot profile" in SKILL.md is the output of `profile context`, which first creates a missing profile and brings an incomplete or stale one up to date. Where that block was not filled in (an agent that does not run commands while loading a skill), run `profile context` once. Keep the answer for the session.
+- **Path A:** it names a `robot`. Static data comes from it and live calls cover runtime state only.
+- **Path B:** `robot` is null. Discover everything live and tell the user `profile_problem`.
 
-The path never flips mid-session, except after a user-requested `profile scan` completes.
+Do not run `profile show`, and do not run `profile context` again, to look something up. The path never flips mid-session, except after a `profile scan|rescan` completes (then run `profile context` once).
 
-**0.0a Per-field presence.** A field is present if it is non-null and non-empty. If one field is absent, fall back to live discovery **for that field only**. Field names are exact; the profile omits fields rather than storing nulls. Use `profile show` to confirm a path before reading it.
+**0.0a Per-field presence.** `profile context` omits what the profile does not have. If one thing is absent, fall back to live discovery **for that thing only**. Only when a task needs detail the context leaves out on purpose (capability parameters, camera or Nav2 settings, the full URDF facts), read it once with `profile show`.
 
 **0.0b Profile and live graph disagree → stop.** If a profile value fails live (e.g. `cmd_vel_topic` is not in `topics list`, or a named controller is missing), do not search for a different name and do not rescan mid-task. Run `nodes list` and `topics list` once, then report: *"Profile field `<f>` = `<v>` but live reports `<symptom>`. Bringup likely isn't running or the profile is stale."* Wait for the user.
 
 ### Profile fast-path (Path A: zero live calls for these)
+
+SKILL.md lists the keys of the loaded context. The same facts in the full profile (`profile show`, and the names the CLI uses in its refusals):
 
 | Need | Profile field |
 |---|---|
@@ -39,6 +41,7 @@ The path never flips mid-session, except after a user-requested `profile scan` c
 | Velocity chain | `summary.velocity_chain` = `{teleop_input, nav2_input, output, mode_service}` (SetBool: true = Nav2 input) |
 | Robot services | `summary.robot_services` (joystick-bound: `record_waypoint`, `save_map`, ...), `summary.toggles` (SetBool state services) |
 | Fitted hardware | `summary.hardware_fitted` (from `hardware.yaml`) |
+| Range sensors for the obstacle stop | `summary.obstacle_sensing` (context: `obstacle_stop`) = scan / point cloud / depth topics, `footprint_radius_m`, collision monitor |
 | Always fixed | `/diagnostics`, `/joint_states` |
 
 The CLI itself refuses `topics find` / `services find` calls that duplicate these fields. `--ignore-profile` overrides this and is logged. Use it only for deliberate Path B debugging.
@@ -58,7 +61,7 @@ Never guess names. The velocity topic may be `/base_controller/cmd_vel`, the typ
 | Call a service / send an action goal | `services|actions list` or `find` → `details` |
 | Read a sensor | `topics find <type>` → `topics type` |
 | Camera image | `topics find sensor_msgs/msg/CompressedImage` and `.../Image`, then `topics capture-image`. Camera topics are never in the profile. No calibration check per capture (see Rule 0.6). |
-| Spatial use of sensor data (detection, depth, point clouds) | Read `header.frame_id`, confirm it is in `tf list`, and `tf echo <SENSOR> <BASE> --duration 1` is fresh. Cameras also need a `camera_info` topic with a non-zero `K`, verified once per camera launch (Rule 0.6). |
+| Spatial use of sensor data (detection, depth, point clouds). Not needed for stopping at obstacles: the CLI does that from the profile | Read `header.frame_id`, confirm it is in `tf list`, and `tf echo <SENSOR> <BASE> --duration 1` is fresh. Cameras also need a `camera_info` topic with a non-zero `K`, verified once per camera launch (Rule 0.6). |
 | TF query | `tf list`; never hardcode frame names |
 | Switch controllers | `control list-controllers`; `list-hardware-components` and `list-hardware-interfaces` must be active/available (otherwise commands are silently discarded: block and escalate). Use `--strictness STRICT`. If the listing errors, check `nodes list` for `controller_manager`; if it is absent, escalate. With several velocity controllers, pick by the part named in the request ("arm" vs "base"), else take the first and say so. |
 | Node, component, parameter work | `nodes list` first. `component load/unload`: `component list` first, note the `unique_id`, and verify afterwards. `params set`: `params list` → `params describe` (type, range, read-only) → `set` → `get` to verify. `params load`: YAML keys that don't match a declared parameter are **silently ignored**, so compare against `params list`, check types, then verify with `get`. |
@@ -78,7 +81,7 @@ Never guess names. The velocity topic may be `/base_controller/cmd_vel`, the typ
 4. Lifecycle: `lifecycle nodes`, then `lifecycle get` on each.
 5. Log directory: `$ROS_LOG_DIR`, else `$ROS_HOME/log`, else `~/.ros/log` (for diagnostics, no command).
 6. `context` for a one-call graph snapshot (topics capped at 50).
-7. `profile show`. If there is no profile, run `profile scan --name <robot>` (one robot), `--packages a,b --name label` (several), or bare `profile scan`. Use `safety_limits.binding` as `--max-vel` / `--max-ang`; this makes the four-source sweep unnecessary.
+7. The profile is already loaded (Rule 0.0). Use its `limits` as `--max-vel` / `--max-ang`; this makes the four-source sweep unnecessary. If it reports `profile_problem`, tell the user.
 8. Optional speedup: `daemon-fast start`. Without it the daemon starts itself in the background on the first `snapshot`, `look`, `preflight motion`, `stop`, `publish-until` or `plan --run` and exits after 30 idle minutes (`ROS2_SKILL_NO_AUTOSTART=1` prevents that).
 
 Do not repeat these per command. Re-run only if the robot is relaunched or nodes appear or vanish unexpectedly.
@@ -91,13 +94,13 @@ When the user reports that a `launch new` (or `run new`) they ran is up, check w
 find "<profile.workspace>/src" \( -name package.xml -o -name '*.launch.*' -o -name '*.yaml' -o -name '*.urdf' -o -name '*.xacro' -o -name '*.srdf' \) -newer "<profile_json>" -print -quit
 ```
 
-Any output means one silent `profile scan` with the profile's original `name`/`packages`, then `profile show`. No output means skip. Skip the check if the launch failed or the profile was just rescanned. A missing `generated_at` at session start is reported once and nothing else.
+Any output means one silent `profile context`: it rescans with the profile's original name and packages and returns the new context. No output means skip. Skip the check if the launch failed or the profile was just rescanned. (At skill load `profile context` makes the same check by itself.)
 
 **Camera calibration:** if the launch brought up a camera driver, check once that a `camera_info` topic exists and `K` is non-zero. Do not repeat it per capture or per spatial task, unless the camera session is relaunched or the driver crashes and restarts.
 
 ## Rule 0.7 — When `profile scan` is allowed
 
-Only when the user asks, when no profile exists yet, or after a launch with the Rule 0.6 gate positive (one scan per launch). Never because it seems prudent, a field looks missing (use per-field fallback), a live call surprised you (escalate per 0.0b), or time has passed.
+`profile context` creates and updates the profile itself. Run `profile scan` by hand only when the user asks, or when `profile context` could not build one and you know the workspace or packages. Never because it seems prudent, a field looks missing (use per-field fallback), a live call surprised you (escalate per 0.0b), or time has passed.
 
 ## Rule 14 — Lifecycle state
 

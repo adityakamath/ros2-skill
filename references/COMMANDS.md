@@ -500,7 +500,8 @@ options:
 ```
 usage: ros2_cli.py topics publish [-h] [--msg-type MSG_TYPE] [--duration DURATION] [--rate RATE]
                                   [--retries RETRIES] [--max-vel MAX_VEL] [--max-ang MAX_ANG]
-                                  [--dry-run]
+                                  [--dry-run] [--obstacle-stop CLEARANCE] [--no-obstacle-stop]
+                                  [--robot-radius ROBOT_RADIUS]
                                   [topic] [msg]
 
 positional arguments:
@@ -519,6 +520,14 @@ options:
   --max-ang MAX_ANG     Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
                         other message types unaffected)
   --dry-run             Validate topic type and payload without publishing
+
+obstacle stop (on by default for base velocity commands with linear motion):
+  --obstacle-stop CLEARANCE
+                        Free distance in metres to keep from an obstacle (default 0.15); also
+                        refuses to run if the move cannot be guarded
+  --no-obstacle-stop    Drive without obstacle detection. Only when the user asks for that
+  --robot-radius ROBOT_RADIUS
+                        Footprint radius in metres, when the profile has none
 ```
 
 ### CLI topics pub
@@ -526,7 +535,8 @@ options:
 ```
 usage: ros2_cli.py topics pub [-h] [--msg-type MSG_TYPE] [--duration DURATION] [--rate RATE]
                               [--retries RETRIES] [--max-vel MAX_VEL] [--max-ang MAX_ANG]
-                              [--dry-run]
+                              [--dry-run] [--obstacle-stop CLEARANCE] [--no-obstacle-stop]
+                              [--robot-radius ROBOT_RADIUS]
                               [topic] [msg]
 
 positional arguments:
@@ -545,6 +555,14 @@ options:
   --max-ang MAX_ANG     Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
                         other message types unaffected)
   --dry-run             Validate topic type and payload without publishing
+
+obstacle stop (on by default for base velocity commands with linear motion):
+  --obstacle-stop CLEARANCE
+                        Free distance in metres to keep from an obstacle (default 0.15); also
+                        refuses to run if the move cannot be guarded
+  --no-obstacle-stop    Drive without obstacle detection. Only when the user asks for that
+  --robot-radius ROBOT_RADIUS
+                        Footprint radius in metres, when the profile has none
 ```
 
 ### CLI topics publish-sequence
@@ -552,22 +570,32 @@ options:
 ```
 usage: ros2_cli.py topics publish-sequence [-h] [--msg-type MSG_TYPE] [--rate RATE]
                                            [--max-vel MAX_VEL] [--max-ang MAX_ANG] [--dry-run]
+                                           [--obstacle-stop CLEARANCE] [--no-obstacle-stop]
+                                           [--robot-radius ROBOT_RADIUS]
                                            [topic] [messages] [durations]
 
 positional arguments:
-  topic                Topic name to publish to (e.g. /cmd_vel)
-  messages             JSON array of messages
-  durations            JSON array of durations in seconds (message is repeated during each)
+  topic                 Topic name to publish to (e.g. /cmd_vel)
+  messages              JSON array of messages
+  durations             JSON array of durations in seconds (message is repeated during each)
 
 options:
-  -h, --help           show this help message and exit
-  --msg-type MSG_TYPE  Message type (auto-detected if not provided)
-  --rate RATE          Publish rate in Hz (default: 10)
-  --max-vel MAX_VEL    Clamp linear velocity (x/y/z) to ±N m/s before publishing (Twist /
-                       TwistStamped only; other message types unaffected)
-  --max-ang MAX_ANG    Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
-                       other message types unaffected)
-  --dry-run            Validate topic type and payload without publishing
+  -h, --help            show this help message and exit
+  --msg-type MSG_TYPE   Message type (auto-detected if not provided)
+  --rate RATE           Publish rate in Hz (default: 10)
+  --max-vel MAX_VEL     Clamp linear velocity (x/y/z) to ±N m/s before publishing (Twist /
+                        TwistStamped only; other message types unaffected)
+  --max-ang MAX_ANG     Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
+                        other message types unaffected)
+  --dry-run             Validate topic type and payload without publishing
+
+obstacle stop (on by default for base velocity commands with linear motion):
+  --obstacle-stop CLEARANCE
+                        Free distance in metres to keep from an obstacle (default 0.15); also
+                        refuses to run if the move cannot be guarded
+  --no-obstacle-stop    Drive without obstacle detection. Only when the user asks for that
+  --robot-radius ROBOT_RADIUS
+                        Footprint radius in metres, when the profile has none
 ```
 
 ### CLI topics publish-until
@@ -582,6 +610,8 @@ usage: ros2_cli.py topics publish-until [-h] [--monitor MONITOR] [--field FIELD 
                                         [--msg-type MSG_TYPE]
                                         [--monitor-msg-type MONITOR_MSG_TYPE] [--max-vel MAX_VEL]
                                         [--max-ang MAX_ANG] [--dry-run]
+                                        [--obstacle-stop CLEARANCE] [--until-obstacle]
+                                        [--no-obstacle-stop] [--robot-radius ROBOT_RADIUS]
                                         [topic] [msg]
 
 positional arguments:
@@ -630,6 +660,17 @@ options:
   --max-ang MAX_ANG     Clamp angular.z to ±N rad/s before publishing (Twist / TwistStamped only;
                         other message types unaffected)
   --dry-run             Validate topic type and payload without publishing
+
+obstacle stop (on by default for base velocity commands with linear motion):
+  --obstacle-stop CLEARANCE
+                        Free distance in metres to keep from an obstacle (default 0.15); also
+                        refuses to run if the move cannot be guarded
+  --until-obstacle      Drive until an obstacle: stopping for one is success. The distance
+                        condition (--euclidean --delta N) is the longest the robot may travel
+                        looking for it
+  --no-obstacle-stop    Drive without obstacle detection. Only when the user asks for that
+  --robot-radius ROBOT_RADIUS
+                        Footprint radius in metres, when the profile has none
 ```
 
 ### CLI services list
@@ -2398,6 +2439,38 @@ options:
                         Persist the active transport profile (e.g. dds, zenoh, rosbridge)
 ```
 
+### CLI profile context
+
+```
+usage: ros2_cli.py profile context [-h]
+
+options:
+  -h, --help  show this help message and exit
+```
+
+### CLI profile set-obstacle
+
+```
+usage: ros2_cli.py profile set-obstacle [-h] [--radius RADIUS] [--max-height MAX_HEIGHT]
+                                        [--ignore-source TOPIC] [--add-source TYPE:TOPIC]
+                                        [--no-sensors] [--clear] [--name NAME]
+
+options:
+  -h, --help            show this help message and exit
+  --radius RADIUS       Metres from the base centre to the robot's furthest part
+  --max-height MAX_HEIGHT
+                        3D points above this height (m) are overhead, not obstacles (default 0.5)
+  --ignore-source TOPIC
+                        Range topic the obstacle stop must not use (repeatable)
+  --add-source TYPE:TOPIC
+                        Range topic the scan missed: scan:TOPIC, pointcloud:TOPIC or depth:TOPIC
+                        (repeatable)
+  --no-sensors          Declare that the robot has no range sensor, so it moves without an
+                        obstacle stop
+  --clear               Drop the stored obstacle settings first
+  --name NAME           Robot profile name
+```
+
 ### CLI profile show
 
 ```
@@ -2762,6 +2835,8 @@ options:
 ```
 usage: ros2_cli.py nav2 move-timed [-h] --duration SEC --speed SPEED
                                    [--direction {fwd,back,left,right}] [--topic TOPIC]
+                                   [--obstacle-stop CLEARANCE] [--no-obstacle-stop]
+                                   [--robot-radius ROBOT_RADIUS]
 
 options:
   -h, --help            show this help message and exit
@@ -2770,6 +2845,14 @@ options:
   --direction {fwd,back,left,right}
                         Movement direction (default: fwd)
   --topic TOPIC         cmd_vel topic override (default: auto-discover)
+
+obstacle stop (on by default for base velocity commands with linear motion):
+  --obstacle-stop CLEARANCE
+                        Free distance in metres to keep from an obstacle (default 0.15); also
+                        refuses to run if the move cannot be guarded
+  --no-obstacle-stop    Drive without obstacle detection. Only when the user asks for that
+  --robot-radius ROBOT_RADIUS
+                        Footprint radius in metres, when the profile has none
 ```
 
 ### CLI nav2 costmap-clear

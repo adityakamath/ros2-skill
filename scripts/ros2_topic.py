@@ -20,6 +20,7 @@ from ros2_utils import (
     resolve_output_path, ros2_context, resolve_topic_type, try_fastd, uninterruptible,
 )
 from ros2_safety import heartbeat_touch, validate_publish
+import ros2_obstacle
 
 # ---------------------------------------------------------------------------
 # Velocity message types used to identify velocity command topics.
@@ -577,7 +578,7 @@ from ros2_condition import ConditionTracker, normalize_angle, quaternion_to_yaw 
 
 # Per-axis fallback minimums (fine-control floor) and accel defaults.
 from ros2_motion_core import (  # noqa: E402,F401  (re-exported)
-    prepare_publish_until, probe_throttle,
+    prepare_guard, prepare_publish_until, probe_throttle,
     _ACCEL_KEYWORDS, _ANG_ACCEL_KEYWORDS, _DECEL_DEFAULTS, _MIN_ANG_VEL_KEYWORDS, _MIN_VEL_KEYWORDS, _clamp_velocity,
     _fetch_first_param, _has_velocity_fields, _twist_speed, compute_decel_params, scale_twist_velocity, slow_move,
 )
@@ -637,6 +638,17 @@ class HzMonitor(Node):
 # topics publish
 # ---------------------------------------------------------------------------
 
+def _zero_burst(publisher, msg_class, msg_data, count=4):
+    """Command zero velocity a few times. Committed: a second Ctrl-C must not cut the stop short."""
+    try:
+        zero_msg = dict_to_msg(msg_class, scale_twist_velocity(msg_data, 0.0))
+        with uninterruptible():
+            for _ in range(count):
+                publisher.pub.publish(zero_msg)
+                time.sleep(0.05)
+    except Exception:
+        pass
+
 def cmd_topics_publish(args):
     if not args.topic:
         return output({"error": "topic argument is required"})
@@ -666,6 +678,9 @@ def cmd_topics_publish(args):
     if safety_action == "cap" and isinstance(modified_msg, dict):
         msg_data = modified_msg
     safety_warning = "; ".join(safety_detail.get("violations", [])) if safety_action == "warn" else None
+    err, guard_cfg = prepare_guard(args, msg_data, args.topic, args.msg_type or "")
+    if err:
+        return output(err)
 
     try:
         heartbeat_touch()
@@ -673,9 +688,10 @@ def cmd_topics_publish(args):
         pass
 
     dry_run = getattr(args, 'dry_run', False)
+    guard = ros2_obstacle.CommandGuard(guard_cfg)
 
     try:
-        with ros2_context():
+        with ros2_context(), guard:   # the guard closes while ROS is still up
             topic = args.topic
             temp_node = ROS2CLI("temp")
             msg_type = resolve_topic_type(temp_node, topic, args.msg_type)
@@ -696,6 +712,8 @@ def cmd_topics_publish(args):
                     result["safety_capped"] = True
                 if safety_warning:
                     result["safety_warning"] = safety_warning
+                if guard_cfg:
+                    result["obstacle_stop"] = guard_cfg
                 return output(result)
 
             publisher = TopicPublisher(topic, msg_type)
@@ -711,18 +729,25 @@ def cmd_topics_publish(args):
 
             if duration and duration > 0:
                 published = 0
-                start_time = time.time()
-                end_time = start_time + duration
+                interval = min(interval, guard.interval_cap)
+                halt = threading.Event()   # set by the obstacle guard the moment it sees a reason to stop
                 stopped_by = "timeout"
+                start_time = time.time()
                 try:
-                    while time.time() < end_time:
+                    guard.arm(msg_data, halt)
+                    start_time = time.time()
+                    end_time = start_time + duration
+                    while time.time() < end_time and not halt.is_set() and not guard.poll():
                         publisher.pub.publish(msg)
                         published += 1
                         remaining = end_time - time.time()
                         if remaining > 0:
-                            time.sleep(min(interval, remaining))
+                            halt.wait(min(interval, remaining))
                 except KeyboardInterrupt:
                     stopped_by = "keyboard_interrupt"
+                finally:
+                    if guard.active:   # a guarded velocity command ends with the base commanded to stop
+                        _zero_burst(publisher, msg_class, msg_data)
                 elapsed = round(time.time() - start_time, 3)
                 result = {"success": True, "topic": topic, "msg_type": msg_type,
                           "duration": elapsed, "rate": rate, "published_count": published,
@@ -733,20 +758,39 @@ def cmd_topics_publish(args):
                     result["safety_capped"] = True
                 if safety_warning:
                     result["safety_warning"] = safety_warning
-                output(result)
+                output(guard.annotate(result, met=guard.tripped is None))
             else:
-                publisher.pub.publish(msg)
-                time.sleep(0.1)
+                halt = threading.Event()
+                if guard.arm(msg_data, halt):
+                    _zero_burst(publisher, msg_class, msg_data)
+                    return output(guard.annotate({"success": False, "topic": topic, "msg_type": msg_type,
+                                                  "published_count": 0}))
+                if guard.active:   # one velocity message is watched briefly and then withdrawn, never left latched
+                    try:
+                        publisher.pub.publish(msg)
+                        end_time = time.time() + ros2_obstacle.ONE_SHOT_S
+                        while time.time() < end_time and not halt.is_set() and not guard.poll():
+                            halt.wait(0.05)
+                    finally:
+                        _zero_burst(publisher, msg_class, msg_data)
+                else:
+                    publisher.pub.publish(msg)
+                    time.sleep(0.1)
                 result = {"success": True, "topic": topic, "msg_type": msg_type}
+                if guard.active:
+                    result["note"] = (f"single velocity message: zeroed after {ros2_obstacle.ONE_SHOT_S} s; "
+                                      "use --duration to drive longer")
                 if clamp_notices:
                     result["velocity_clamped"] = clamp_notices
                 if safety_action == "cap":
                     result["safety_capped"] = True
                 if safety_warning:
                     result["safety_warning"] = safety_warning
-                output(result)
+                output(guard.annotate(result, met=guard.tripped is None))
     except Exception as e:
         output({"error": str(e)})
+    finally:
+        guard.close()
 
 
 def cmd_topics_publish_sequence(args):
@@ -772,8 +816,10 @@ def cmd_topics_publish_sequence(args):
     except Exception:
         pass
 
+    guard = ros2_obstacle.CommandGuard(None)
+
     try:
-        with ros2_context():
+        with ros2_context(), guard:   # the guard closes while ROS is still up
             topic = args.topic
             temp_node = ROS2CLI("temp")
             msg_type = resolve_topic_type(temp_node, topic, args.msg_type)
@@ -843,20 +889,50 @@ def cmd_topics_publish_sequence(args):
                         safety_warnings.append(str(warn))
                 staged_messages.append(candidate)
 
+            step_guards = []   # resolved before anything moves, so a refusal never leaves the sequence half run
+            for idx, candidate in enumerate(staged_messages):
+                err, step_cfg = prepare_guard(args, candidate, topic, msg_type)
+                if err:
+                    return output(dict(err, index=idx))
+                step_guards.append(step_cfg)
+            inactive = next((c for c in step_guards if c and not c.get("active")), None)
+
+            stopped_at = None
             total_published = 0
             last_msg_data = staged_messages[0] if staged_messages else {}
             try:
-                for msg_data, dur in zip(staged_messages, durations):
+                for idx, (msg_data, dur) in enumerate(zip(staged_messages, durations)):
                     last_msg_data = msg_data
                     msg = dict_to_msg(msg_class, msg_data)
+                    previous = staged_messages[idx - 1] if idx else None
+
+                    def hold(previous=previous):   # the next step needs a look first: do not coast on the last one
+                        if previous is not None and _has_velocity_fields(previous):
+                            _zero_burst(publisher, msg_class, previous, count=1)
+
+                    if guard.tripped:   # seen after the previous step's last look
+                        stopped_at = idx
+                        break
+                    halt = threading.Event()
+                    if guard.arm(msg_data, halt, cfg=step_guards[idx], on_wait=hold):
+                        stopped_at = idx
+                        break
+                    step_interval = interval
+                    if step_guards[idx] and step_guards[idx].get("active"):
+                        step_interval = min(interval, ros2_obstacle.MAX_PUBLISH_INTERVAL_S)
                     if dur > 0:
                         end_time = time.time() + dur
                         while time.time() < end_time:
+                            if halt.is_set() or guard.poll():
+                                stopped_at = idx
+                                break
                             publisher.pub.publish(msg)
                             total_published += 1
                             remaining = end_time - time.time()
                             if remaining > 0:
-                                time.sleep(min(interval, remaining))
+                                halt.wait(min(step_interval, remaining))
+                        if stopped_at is not None:
+                            break
                     else:
                         publisher.pub.publish(msg)
                         total_published += 1
@@ -866,14 +942,7 @@ def cmd_topics_publish_sequence(args):
                 # payloads; silently skipped for other message types so non-motion
                 # sequences are unaffected.
                 if _has_velocity_fields(last_msg_data):
-                    try:
-                        zero_msg = dict_to_msg(msg_class, scale_twist_velocity(last_msg_data, 0.0))
-                        with uninterruptible():
-                            for _ in range(3):
-                                publisher.pub.publish(zero_msg)
-                                time.sleep(0.05)
-                    except Exception:
-                        pass
+                    _zero_burst(publisher, msg_class, last_msg_data, count=3)
 
             result = {"success": True, "published_count": total_published, "topic": topic,
                       "rate": rate}
@@ -887,9 +956,17 @@ def cmd_topics_publish_sequence(args):
             if safety_warnings:
                 seen = set()
                 result["safety_warning"] = "; ".join([w for w in safety_warnings if not (w in seen or seen.add(w))])
+            if stopped_at is not None:
+                result["stopped_at_index"] = stopped_at
+            if guard.host is not None:
+                guard.annotate(result, met=stopped_at is None)
+            elif inactive:
+                ros2_obstacle.annotate(result, inactive)
             output(result)
     except Exception as e:
         output({"error": str(e)})
+    finally:
+        guard.close()
 
 
 def cmd_topics_publish_until(args):
@@ -908,10 +985,11 @@ def cmd_topics_publish_until(args):
     if served is not None:
         return output(served)
 
+    guard = ros2_obstacle.CommandGuard(plan.get("guard"))
     try:
         from ros2_utils import trace
         trace('publish-until: validated')
-        with ros2_context():
+        with ros2_context(), guard:   # the guard closes while ROS is still up
             pub_msg_type, mon_msg_type = args.msg_type, args.monitor_msg_type
             if not (pub_msg_type and mon_msg_type):  # both types given (plan passes them): no discovery node
                 temp_node = ROS2CLI("temp")
@@ -933,6 +1011,8 @@ def cmd_topics_publish_until(args):
                     result["safety_capped"] = True
                 if safety_warning:
                     result["safety_warning"] = safety_warning
+                if plan.get("guard"):
+                    result["obstacle_stop"] = plan["guard"]
                 return output(result)
 
             pub_msg_class = get_msg_type(pub_msg_type)
@@ -1012,9 +1092,14 @@ def cmd_topics_publish_until(args):
             from ros2_utils import trace
             trace('publish-until: first publish')
             throttle = None
+            interval = min(interval, guard.interval_cap)
             try:
+                guard.arm(msg_data, stop_event)   # nothing is published until a sensor has looked along the path
+                start_time = time.time()
                 while not stop_event.is_set():
                     if timeout and (time.time() - start_time) >= timeout:
+                        break
+                    if guard.poll():
                         break
 
                     publish_msg = msg
@@ -1040,7 +1125,7 @@ def cmd_topics_publish_until(args):
                     publisher.pub.publish(publish_msg)
                     published_count += 1
                     executor.spin_once(timeout_sec=interval)
-                if monitor.end_msg is None:
+                if monitor.end_msg is None and not guard.tripped:
                     # timed out: say whether a downstream limiter (collision monitor) was cutting the speed
                     try:
                         from ros2_profile import load_profile_summary
@@ -1048,8 +1133,12 @@ def cmd_topics_publish_until(args):
                     except Exception:
                         upstream = None
                     if upstream and upstream != args.topic:
-                        throttle = probe_throttle(publisher, lambda: publisher.pub.publish(msg),
-                                              lambda t: executor.spin_once(timeout_sec=t), upstream)
+                        def probe():
+                            if guard.poll():
+                                publisher.pub.publish(dict_to_msg(pub_msg_class, scale_twist_velocity(msg_data, 0.0)))
+                            else:
+                                publisher.pub.publish(msg)
+                        throttle = probe_throttle(publisher, probe, lambda t: executor.spin_once(timeout_sec=t), upstream)
             finally:
                 stop_event.set()
                 # Always send a zero-velocity burst after the loop to stop the robot,
@@ -1118,24 +1207,26 @@ def cmd_topics_publish_until(args):
                 if condition_met and euclidean and base.get("euclidean_distance"):
                     slow = slow_move(base["euclidean_distance"], _twist_speed(msg_data), elapsed)
                 if condition_met:
-                    output({**base,
-                            **({"slow": slow} if slow else {}),
-                            "success": True,
-                            "condition_met": True,
-                            "decel_zone": decel_meta,
-                            "start_msg": _drop_covariance(monitor.start_msg),
-                            "end_msg": _drop_covariance(monitor.end_msg),
-                            **clamp_extra,
-                            **safety_extra})
+                    result = {**base,
+                              **({"slow": slow} if slow else {}),
+                              "success": True,
+                              "condition_met": True,
+                              "decel_zone": decel_meta,
+                              "start_msg": _drop_covariance(monitor.start_msg),
+                              "end_msg": _drop_covariance(monitor.end_msg),
+                              **clamp_extra,
+                              **safety_extra}
                 else:
-                    output({**base,
-                            "success": False,
-                            "condition_met": False,
-                            "decel_zone": decel_meta,
-                            "error": f"Timeout after {timeout}s: condition not met",
-                            **({"limited_downstream": throttle} if throttle else {}),
-                            **clamp_extra,
-                            **safety_extra})
+                    result = {**base,
+                              "success": False,
+                              "condition_met": False,
+                              "decel_zone": decel_meta,
+                              "error": f"Timeout after {timeout}s: condition not met",
+                              **({"limited_downstream": throttle} if throttle else {}),
+                              **clamp_extra,
+                              **safety_extra}
+                output(guard.annotate(result, met=condition_met))
+            guard.close()
             publisher.destroy_node()  # a later publish-until in this process (plan --run) must not share the node names
             monitor.destroy_node()
 
@@ -1143,6 +1234,8 @@ def cmd_topics_publish_until(args):
         output({"success": False, "cancelled": True, "error": "interrupted: velocity zeroed"})
     except Exception as e:
         output({"error": str(e)})
+    finally:
+        guard.close()
 
 
 # ---------------------------------------------------------------------------

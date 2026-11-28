@@ -31,6 +31,8 @@ from typing import Optional
 
 import rclpy
 
+import ros2_obstacle
+from ros2_motion_core import prepare_guard
 from ros2_utils import (
     ROS2CLI, call_ros_service, get_action_type, get_msg_type, get_srv_type, msg_to_dict, dict_to_msg,
     output, ros2_context, spin_until, uninterruptible,
@@ -1446,24 +1448,31 @@ def cmd_nav2_move_timed(args):
             else:  # right
                 twist.angular.z = -speed
 
-            end = time.time() + duration
+            command = {"linear": {"x": float(twist.linear.x)}, "angular": {"z": float(twist.angular.z)}}
+            err, guard_cfg = prepare_guard(args, command, vel_topic, vel_type)
+            if err:
+                return output(err)
+            guard, halt, published = ros2_obstacle.CommandGuard(guard_cfg), threading.Event(), 0
+            result = {"topic": vel_topic, "msg_type": vel_type, "topic_subscribers": chosen["subscribers"],
+                      "direction": direction, "speed": speed, "duration_s": duration}
             try:
-                while time.time() < end:
-                    pub.publish(msg)
-                    rclpy.spin_once(node, timeout_sec=0.05)
-            finally:  # also on Ctrl-C / SIGTERM / estop
-                with uninterruptible():
-                    _publish_zero_burst(node)
+                try:
+                    guard.arm(command, halt)
+                    end = time.time() + duration
+                    while time.time() < end and not halt.is_set() and not guard.poll():
+                        pub.publish(msg)
+                        published += 1
+                        rclpy.spin_once(node, timeout_sec=0.05)
+                finally:  # also on Ctrl-C / SIGTERM / estop
+                    with uninterruptible():
+                        _publish_zero_burst(node)
+                if guard.active:
+                    result["published_count"] = published
+                guard.annotate(result, met=guard.tripped is None)
+            finally:
+                guard.close()
 
-        return output({
-            "moved": True,
-            "topic": vel_topic,
-            "msg_type": vel_type,
-            "topic_subscribers": chosen["subscribers"],
-            "direction": direction,
-            "speed": speed,
-            "duration_s": duration,
-        })
+        return output({"moved": published > 0, **result})
 
     except Exception as e:
         return output({"error": str(e)})

@@ -46,7 +46,7 @@ Load before any command that moves the robot (cmd_vel, joints, Nav2). Related: [
 
 ## Rule 18 — stop after publish-until / publish-sequence
 
-After a normal completion run `stop --verify-odom-topic <ODOM>`: it zeroes every velocity topic, waits until the robot is stationary and reports the final position. It never latches the e-stop service. After a timeout, an error or anything unsafe run `estop` instead. `plan --run` does both automatically.
+After a normal completion, or a move the obstacle stop ended or refused (`stopped_by`), run `stop --verify-odom-topic <ODOM>`: it zeroes every velocity topic, waits until the robot is stationary and reports the final position. It never latches the e-stop service. After a timeout, an error or anything unsafe run `estop` instead. `plan --run` does both automatically.
 
 `estop` does three things: it interrupts a running motion command (SIGINT, so that command's own zero burst runs), engages the robot's idempotent SetBool e-stop service when one exists (`summary.estop_config`; never a Trigger toggle, which would release on a second call), and zeroes **every** velocity topic (zeroing one input does nothing while another source is selected). A service e-stop disables motor torque, so wheels coast. Releasing it (`services call <svc> '{"data": false}'`) is the operator's decision. Afterwards run `nav2 cancel` if navigating; it cancels every Nav2 action server (navigate, waypoints, spin, backup, wait), not just NavigateToPose.
 
@@ -82,6 +82,7 @@ The CLI enforces one motion command at a time (a lock file): a second motion com
 | Situation | Autonomous retries | Then |
 |---|---|---|
 | `publish-until` timeout | 1 (remainder only) | escalate |
+| Stopped for an obstacle (`stopped_by`) | 0: never retry or drive around it unasked | report what was there |
 | Verification failure | 2 | escalate as critical |
 | Empty discovery | 1 (broadened) | ask or declare unavailable |
 | Other step failure | 1 | escalate |
@@ -89,11 +90,19 @@ The CLI enforces one motion command at a time (a lock file): a second motion com
 
 Known fallbacks run without asking, but the user is told what failed and the accuracy cost (e.g. closed loop → open loop when odom or QoS fails). Escalation is one message: what was tried, what failed, state (position, controller), and one recommended next step. Never present a menu of options.
 
-## Rule 25 — Proximity scan for long moves
+## Rule 25 — Obstacle stop
 
-Only if the estimated duration is over 5 s, run `topics find` for `sensor_msgs/msg/LaserScan`, `Range` and `PointCloud2` in parallel (Path A: `summary.lidar_scan_topic`). Mention any hits in the report. Never warn about or block on a missing sensor.
+Every base command with a linear velocity is guarded: `plan --run`, `topics publish-until`, `publish`, `publish-sequence` and `nav2 move-timed`. Nothing extra to call: do not subscribe to a sensor to decide whether to start or when to stop, and never approximate a stop with `publish-until --above` / `--below` (one field, such as a single LiDAR beam) or a subscribe-then-publish loop.
 
-**The CLI has no obstacle stop.** `publish-until --above` / `--below` compares a single field. On a `LaserScan`, `ranges.<i>` is one beam (`ranges.0` is the beam at `angle_min`, which may not face forward), so an obstacle seen by any other beam does not stop the robot. Never use it as an obstacle stop, and do not approximate one with subscribe-then-publish loops. If asked to drive until something is close, say this is not supported and offer a fixed distance, or a Nav2 goal when Nav2 is running.
+- **What is watched** comes from the profile (`obstacle_stop` in the loaded context): every LaserScan beam, every point of each PointCloud2 and the whole depth image, against the path the commanded velocity sweeps (straight, strafe or arc) with the robot's radius; and a running Nav2 collision monitor (its stop state, or it cutting the command to under half). Sensors that are not publishing are listed in `sources_unavailable`. Clouds in a `map` or `odom` frame are processed data and are not used.
+- **Behaviour:** no motion unless a fresh sensor covers the direction of travel; stop at `clearance` (0.15 m beyond the footprint, plus reaction and braking distance); stop when **any** sensor that was covering the move goes quiet or stops covering it, even if another still looks that way (with another watching, it gets 1-2 s for dropped frames; the only watching sensor gets none beyond its own period). Something a sensor last saw on the path is still counted: if the distance driven since then reaches it, the move stops (`obstacle` with `estimated: true`).
+- **Covers** means: a LaserScan with no blind patch wider than 15° within 30° of the direction of travel (NaN, 0 and returns on the robot itself are blind; dark or glass surfaces can cause such a patch and a refusal); a point cloud with at least 5 returns there, on both sides; a depth image from a roughly level camera with valid depth near the horizon in every 5° slice up to 10° either side. Floor alone, zeros or invalid pixels are not "clear".
+- **Single and chained messages:** a guarded `topics publish` without `--duration` / `--timeout` watches for 0.5 s and then zeroes the velocity (use `publish-until` or a duration to keep moving). `publish-sequence` checks every step; the base holds at zero while a step waits for its sensor, and the sequence ends at a refused step (`stopped_at_index`).
+- **Driving until an obstacle:** `plan "drive forward until obstacle" --run` (also "back up until 30 cm from the wall", "strafe left until obstacle up to 2 m"; 10 m limit unless given). Directly: `publish-until ... --euclidean --delta <MAX> --until-obstacle [--obstacle-stop <CLEARANCE>]`; success means an obstacle was reached.
+- **Results:** `stopped_by` = `obstacle` | `collision_monitor` (success with `--until-obstacle`, otherwise a failed move), `max_distance` (limit reached, nothing met), `sensor_lost` / `no_sensor` (failure: report which sensor and why). `obstacle` gives `distance_m` along the path, `bearing_deg` and `source`. Report `sources_used`, and any source that was unavailable.
+- **Blocked** (`blocked: true`, nothing moves): the profile names no usable range sensor (no profile, nothing listed, or everything ignored), or no footprint radius. First run `profile context` with the sensors running. Otherwise ask the user for the missing fact and store it: `profile set-obstacle --radius M`, `--add-source scan|pointcloud|depth:TOPIC` for a sensor the scan missed (also `--max-height M`, `--ignore-source TOPIC` for a sensor that sees the robot itself). `--no-sensors` records that a robot has none, which lets it drive unguarded: only on the user's word. Never guess a value to get past a block.
+- `--no-obstacle-stop` only when the user explicitly asks to drive without obstacle detection (or to push against something).
+- **Limits, say them when they matter:** a 2D LiDAR sees one height only; a camera sees only its field of view and has a near blind zone; glass and dark or thin objects may return nothing; coverage is judged around the starting direction of an arc; returns from the robot's own body just outside its radius can stop a move (`--ignore-source`); the age of sensor data is judged by arrival, not by its header stamp; turning on the spot and Nav2 goals are not covered (Nav2 has its own costmaps); it is not a safety-rated stop and does not replace the e-stop or watching the robot.
 
 ## Cancel vs estop
 
@@ -119,5 +128,7 @@ With `daemon-fast` running, `topics publish-until` (euclidean or `--rotate`), `s
 - `estop` and `stop` cancel the running move first;
 - if the daemon itself is killed, publishing stops and the base controller's `cmd_vel_timeout` (0.5 s on LeKiwi) ends the motion: measured, the base is stationary about 1 s after a `kill -9` of the daemon at 0.1 m/s;
 - a request the daemon may have received is never retried locally (no double move): the CLI reports `cancelled` and zeroes velocity. A request it never received runs in-process as before.
+
+Guarded moves are hosted too: the daemon keeps the range sensors and TF subscribed (large clouds are dropped after 60 s unused), so the obstacle stop adds no start-up step. A daemon from an older version of the skill refuses a guarded move; the CLI then runs it in-process and restarts the daemon.
 
 Conditions other than a distance or rotation (`--above`, `--below`, `--equals`) and `--dry-run` always run in-process.

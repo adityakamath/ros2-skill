@@ -81,7 +81,7 @@ Issue independent discovery or runtime-state calls together, never in sequence. 
 
 ## Rule 13 — Profile data persists; runtime state does not
 
-The profile is valid all session. Do not re-discover profile-covered fields between tasks. Re-check runtime state each task: controller active, node presence, lifecycle state, current odom or joint values.
+The profile is loaded once, with the skill, and is valid all session: do not run `profile show` or `profile context` to look things up again. Do not re-discover profile-covered fields between tasks. Re-check runtime state each task: controller active, node presence, lifecycle state, current odom or joint values.
 
 "Fresh introspection is safer" is not a reason to re-discover static names in Path A. A name does not change between tasks, and live re-discovery hides profile–live disagreements that Rule 0.0b exists to surface. If the user asks why you did live discovery, acknowledge the mistake and use the profile next time.
 
@@ -91,7 +91,7 @@ For `publish-until`/`publish-sequence` over 10 s, run `nodes list` every 10 s (a
 
 ## Rule 14 — Path A: forbidden static discovery
 
-In Path A, do not run these to resolve static data:
+In Path A, do not run these to resolve static data (the `summary.*` facts are already in the loaded context):
 
 | Forbidden | Use |
 |---|---|

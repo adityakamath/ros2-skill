@@ -8,7 +8,7 @@
 agent -> ros2_cli.py -> rclpy -> ROS 2 graph
 ```
 
-The agent reads `SKILL.md` (short) and loads `references/` on demand. Static facts (topics, limits, frames, controllers) come from a robot profile built once from the workspace; live calls are for runtime state only. Motion is closed loop with velocity limits, a pre-motion check (controller, odometry, e-stop, drive mode, battery), one motion command at a time, and an `estop` that works on robots with a twist switch.
+The agent reads `SKILL.md` (short) and loads `references/` on demand. Static facts (topics, limits, frames, controllers, range sensors) come from a robot profile built from the workspace and loaded into the agent's context with the skill; live calls are for runtime state only. Motion is closed loop with velocity limits, a pre-motion check (controller, odometry, e-stop, drive mode, battery), one motion command at a time, an obstacle stop, and an `estop` that works on robots with a twist switch.
 
 ## Install
 
@@ -20,11 +20,15 @@ source /opt/ros/$ROS_DISTRO/setup.bash
 python3 ~/.claude/skills/ros2-skill/scripts/ros2_cli.py version
 ```
 
-Then ask Claude, e.g. "what topics are there?", "drive forward 1 m", "look around", "stop". Build the profile once with `profile scan --name <robot>` (the agent does this when none exists). `ros2_cli.py --help` lists every command; [`references/COMMANDS.md`](references/COMMANDS.md) is generated from it.
+Then ask Claude, e.g. "what topics are there?", "drive forward 1 m", "look around", "stop". The profile is created and kept up to date when the skill loads (`profile context`); `profile scan --name <robot>` builds one by hand. `ros2_cli.py --help` lists every command; [`references/COMMANDS.md`](references/COMMANDS.md) is generated from it.
 
 ## Speed
 
 `plan "<goal>" --run` compiles and runs a plain goal in one call. The fast daemon (`daemon-fast`, started automatically on the first command that benefits, 30-minute idle exit, `ROS2_SKILL_NO_FASTD=1` to disable) keeps the sensors and the velocity publisher warm: `snapshot` and `look` answer in about 0.3 s, and a closed-loop move starts about 0.15 s after the command. Halting a daemon-hosted move works from Ctrl-C, `kill`, `estop`, or a lost daemon (the controller's `cmd_vel_timeout` ends it); see `references/RULES-MOTION.md`.
+
+## Obstacle stop
+
+Every base command with a linear velocity checks the whole path it is about to sweep in every LaserScan, point cloud and depth image the profile lists, and watches a running Nav2 collision monitor. It does not start towards an obstacle, stops short of one, and stops when a sensor watching the way is lost (dropped frames get a short grace while another still watches). If the profile knows no range sensor, the move is refused (`--no-obstacle-stop` per command, or `profile set-obstacle --no-sensors` for a robot without any). A single velocity message is zeroed after 0.5 s. "Drive forward until obstacle" is one call. It needs `numpy` (installed with ROS 2). It is not a safety-rated function: it cannot see what no sensor sees, and does not cover turning on the spot or Nav2 goals. See `references/RULES-MOTION.md` Rule 25.
 
 ## Layout
 

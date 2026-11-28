@@ -310,9 +310,18 @@ python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
   --monitor <ODOM_TOPIC> --rotate -90 --degrees --timeout 30
 ```
 
-### Stopping near an obstacle
+### Drive until an obstacle (whole scan / point cloud / depth, from the profile)
+```bash
+python3 scripts/ros2_cli.py plan "drive forward until obstacle" --run
+python3 scripts/ros2_cli.py plan "back up until you are 30 cm from the wall, up to 2 m" --run
 
-Not supported. `--above` / `--below` watch a single field, such as one LiDAR beam, so they are not an obstacle stop (RULES-MOTION.md Rule 25). Drive a fixed distance, or send a Nav2 goal.
+# The same as one command; --delta is the most it may drive
+python3 scripts/ros2_cli.py topics publish-until <VEL_TOPIC> \
+  '{"linear":{"x":0.2,"y":0,"z":0},"angular":{"x":0,"y":0,"z":0}}' \
+  --monitor <ODOM_TOPIC> --field pose.pose.position --euclidean --delta 5.0 \
+  --until-obstacle --obstacle-stop 0.2 --timeout 60
+```
+Every linear move stops for obstacles; `--until-obstacle` makes meeting one the goal (RULES-MOTION.md Rule 25).
 
 ### Open-loop fallback (no odometry available)
 ```bash

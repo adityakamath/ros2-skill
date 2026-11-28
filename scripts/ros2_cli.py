@@ -251,6 +251,22 @@ def _add_subscribe_args(p):
                    help="Stop collecting when total JSON-serialised output exceeds N bytes")
 
 
+def _add_obstacle_flags(p, until=False):
+    """The obstacle-stop options shared by every command that drives the base with a velocity."""
+    g = p.add_argument_group("obstacle stop (on by default for base velocity commands with linear motion)")
+    g.add_argument("--obstacle-stop", dest="obstacle_stop", type=float, default=None, metavar="CLEARANCE",
+                   help="Free distance in metres to keep from an obstacle (default 0.15); also refuses to run "
+                        "if the move cannot be guarded")
+    if until:
+        g.add_argument("--until-obstacle", dest="until_obstacle", action="store_true", default=False,
+                       help="Drive until an obstacle: stopping for one is success. The distance condition "
+                            "(--euclidean --delta N) is the longest the robot may travel looking for it")
+    g.add_argument("--no-obstacle-stop", dest="no_obstacle_stop", action="store_true", default=False,
+                   help="Drive without obstacle detection. Only when the user asks for that")
+    g.add_argument("--robot-radius", dest="robot_radius", type=float, default=None,
+                   help="Footprint radius in metres, when the profile has none")
+
+
 def build_parser():
     argparse._ = lambda text: text  # skip gettext lookups (~0.06 s over 700 calls); output is English only
     parser = argparse.ArgumentParser(
@@ -484,6 +500,7 @@ def build_parser():
                             "(Twist / TwistStamped only; other message types unaffected)")
         p.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
                        help="Validate topic type and payload without publishing")
+        _add_obstacle_flags(p)
     p = tsub.add_parser("publish-sequence", help="Publish message sequence with delays")
     p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
     p.add_argument("messages", nargs="?", help="JSON array of messages")
@@ -501,6 +518,7 @@ def build_parser():
                         "(Twist / TwistStamped only; other message types unaffected)")
     p.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
                    help="Validate topic type and payload without publishing")
+    _add_obstacle_flags(p)
     p = tsub.add_parser("publish-until",
                         help="Publish until a monitor-topic condition is met")
     p.add_argument("topic", nargs="?", help="Topic name to publish to (e.g. /cmd_vel)")
@@ -560,6 +578,7 @@ def build_parser():
                         "(Twist / TwistStamped only; other message types unaffected)")
     p.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
                    help="Validate topic type and payload without publishing")
+    _add_obstacle_flags(p, until=True)
     # ------------------------------------------------------------------
     # services
     # ------------------------------------------------------------------
@@ -1497,6 +1516,20 @@ def build_parser():
     p.add_argument("--transport", default=None, metavar="TRANSPORT",
                    help="Persist the active transport profile (e.g. dds, zenoh, rosbridge)")
 
+    psub.add_parser("context",
+                    help="The whole robot stack in one compact answer; creates or updates the profile if needed")
+    p = psub.add_parser("set-obstacle", help="Store what the obstacle stop needs and the scan cannot know")
+    p.add_argument("--radius", type=float, default=None, help="Metres from the base centre to the robot's furthest part")
+    p.add_argument("--max-height", dest="max_height", type=float, default=None,
+                   help="3D points above this height (m) are overhead, not obstacles (default 0.5)")
+    p.add_argument("--ignore-source", dest="ignore_source", action="append", default=None, metavar="TOPIC",
+                   help="Range topic the obstacle stop must not use (repeatable)")
+    p.add_argument("--add-source", dest="add_source", action="append", default=None, metavar="TYPE:TOPIC",
+                   help="Range topic the scan missed: scan:TOPIC, pointcloud:TOPIC or depth:TOPIC (repeatable)")
+    p.add_argument("--no-sensors", dest="no_sensors", action="store_true",
+                   help="Declare that the robot has no range sensor, so it moves without an obstacle stop")
+    p.add_argument("--clear", action="store_true", help="Drop the stored obstacle settings first")
+    p.add_argument("--name", default=None, help="Robot profile name")
     # show
     p = psub.add_parser("show",
                         help="Show the current robot profile (or a specific section)")
@@ -1749,6 +1782,7 @@ def build_parser():
                    help="Movement direction (default: fwd)")
     p.add_argument("--topic", default=None,
                    help="cmd_vel topic override (default: auto-discover)")
+    _add_obstacle_flags(p)
 
     # costmap-clear
     p = nav2sub.add_parser("costmap-clear",
@@ -2146,6 +2180,8 @@ DISPATCH = {
     ("logs", "tail"):         ("ros2_logs", "cmd_logs_tail"),
     ("logs", "node-summary"): ("ros2_logs", "cmd_logs_node_summary"),
     # profile
+    ("profile", "context"):  ("ros2_profile_context", "cmd_profile_context"),
+    ("profile", "set-obstacle"): ("ros2_profile_context", "cmd_profile_set_obstacle"),
     ("profile", "scan"):     ("ros2_profile", "cmd_profile_scan"),
     ("profile", "show"):     ("ros2_profile", "cmd_profile_show"),
     ("profile", "rescan"):   ("ros2_profile", "cmd_profile_rescan"),

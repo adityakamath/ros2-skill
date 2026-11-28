@@ -10,8 +10,17 @@ metadata:
 
 Every command is `python3 ${CLAUDE_SKILL_DIR}/scripts/ros2_cli.py <command> [subcommand] [args]` and returns JSON. Below, `CLI` means that prefix. Never call `ros2` directly or run another `scripts/ros2_*.py` file. The path is substituted when the skill loads; the base directory is also shown at the top of the loaded skill. `CLI --help` and `CLI <command> --help` list every command and flag; trust them over memory. Global options go before the command: `--timeout SECONDS`, `--retries N`.
 
+## Robot profile (loaded with the skill)
+
+`profile context` created or updated the profile and printed it here:
+
+!`python3 "${CLAUDE_SKILL_DIR}/scripts/ros2_cli.py" profile context 2>/dev/null || true`
+
+- This describes the robot and its ROS stack for the **whole session**. Do not run `profile show` or `profile context` again, and do not discover live anything it already says. Run `CLI profile context` once more only after `profile scan|rescan|set-obstacle`, or after a user-run launch with changed sources.
+- If the command itself appears above instead of its JSON, or a notice that shell execution is disabled (other agents), run `CLI profile context` once now and keep the answer for the session.
+
 Every task is **resolve → act → verify**:
-- **Resolve:** read static facts (topic names, types, limits, frames, controllers) from the robot profile.
+- **Resolve:** read static facts (topic names, types, limits, frames, controllers, range sensors) from the profile above.
 - **Act:** run the command.
 - **Verify:** read the post-action state. A zero-error return only means the request was delivered.
 
@@ -40,6 +49,8 @@ CLI plan "move forward 1 m at top speed" --run
 
 It switches the drive mode if needed, runs the pre-motion check, runs each step with the profile's speed limits, stops and verifies. A blocked check means no motion. A failed step ends the run: it latches the e-stop (tell the user how to release it), except when the report has a `cause` (a collision monitor or smoother cut the speed; the robot is stopped normally and nothing is latched). A move that finishes but took over twice its cruise time carries `slow` in its step result (a limiter was cutting the speed). If any part of the goal is not understood, nothing runs (`refused`, with `warnings`). `estop`, Ctrl-C or `kill` during a run stops it (`cancelled: true`): velocity is zeroed and a Nav2 goal is cancelled. Report the result in one line (`moved_m`, `ok`, `cause`, `slow`). Only if it reports `blocked`, `ok: false` or warnings, or the goal is not a plain one, load the rules below.
 
+**Driving towards things** ("drive forward until obstacle", "back up until you are 30 cm from the wall", "strafe left until something is in the way, up to 2 m") is a plain goal too. Every base command with a linear velocity (`plan --run`, `publish-until`, `publish`, `publish-sequence`, `nav2 move-timed`) has an **obstacle stop**: it looks along the whole path in every LaserScan, point cloud and depth image the profile lists (and watches a collision monitor that is running), refuses to start towards an obstacle, and stops short of one (0.15 m beyond the footprint, `--obstacle-stop METRES` to change it). It needs no extra call: do not read sensors to decide when to stop. A lone velocity `topics publish` is zeroed after 0.5 s. The result says why it ended (`stopped_by`: `obstacle`, `collision_monitor`, `max_distance`, `sensor_lost`, `no_sensor`), what was there (`obstacle`) and what was watched (`obstacle_stop.sources_used`, `sources_unavailable`); report a source that was unavailable.
+
 Goals that chain in one call: "rotate 90 then take a picture then rotate back", "move forward 0.3 m, take a picture, and report the battery", "turn around", "undo that" / "go back" (reverses the previous move, strafe or turn in the same goal), "is the path ahead clear" / "what is around me" (LiDAR, ToF, depth), "look at the desk", "remember that the dock is by the door", "what do you remember about the dock".
 
 **Memory:** `CLI notes remember <text> [--tag T]`, `notes recall [words]`, `notes forget <id>` (kept across sessions and profile switches); `CLI nav2 place save <name> --snapshot` also stores a camera frame with the place.
@@ -64,42 +75,43 @@ Before the first action that the fast path does not cover, read these from `refe
 
 ## Hard constraints
 
-1. **Processes are the user's.** Never run `launch new|restart|kill|foxglove`, `run new|restart|kill`, `component standalone|kill`, `foxglove start|stop` or `nodes kill`. Give the user the exact command and continue when they say it is done. Reading (`launch list`, `run list`, `foxglove status`, `profile show`) is fine, as is `component load|unload` in a running container.
+1. **Processes are the user's.** Never run `launch new|restart|kill|foxglove`, `run new|restart|kill`, `component standalone|kill`, `foxglove start|stop` or `nodes kill`. Give the user the exact command and continue when they say it is done. Reading (`launch list`, `run list`, `foxglove status`) is fine, as is `component load|unload` in a running container.
 2. **Motion** uses closed loop (`publish-until`) when odometry is usable. Always pass `--max-vel` / `--max-ang` from the profile's safety limits. Run `preflight motion` first, and `stop --verify-odom-topic <ODOM>` after every `publish-until` / `publish-sequence` (`estop` instead after a timeout or error). Details are in RULES-MOTION.md.
 3. **Never invent a command or flag.** Check `--help`.
 4. **Fix failures yourself** (introspect, correct, retry) before reporting. Report outcomes in one line.
 5. **Emergency stop:** `CLI estop --verify-odom-topic <ODOM>`; `CLI stop` is the routine, non-latching version. `estop` engages the robot's SetBool e-stop service (if any), interrupts a running motion command, and zeroes **every** velocity topic. If verification shows non-zero velocity after 5 s (10 s above 20 kg), treat it as critical and escalate. Releasing a service e-stop is the operator's decision; never clear it yourself.
-6. **One motion command at a time** is enforced: a second `publish-until`, `publish-sequence` or `nav2 go|rotate|move-timed|place go` is refused while one runs.
+6. **Never turn the obstacle stop off** (`--no-obstacle-stop`, `profile set-obstacle --no-sensors`) unless the user asks for that in so many words. When it blocks a move (it does when it knows no range sensor), report why. `profile set-obstacle --radius M | --max-height M | --ignore-source TOPIC | --add-source TYPE:TOPIC` stores what the scan cannot know (kept across rescans); use values from the user, the robot's description or the running graph, never a guess to get past a block. It does not see what no listed sensor sees (a 2D LiDAR sees one height), does not cover turning on the spot or Nav2 goals, and does not replace the e-stop.
+7. **One motion command at a time** is enforced: a second `publish-until`, `publish-sequence` or `nav2 go|rotate|move-timed|place go` is refused while one runs.
 
 ## Session start
 
-Run once per session (full detail in RULES-PREFLIGHT.md Rule 0.1):
+Run once per session (full detail in RULES-PREFLIGHT.md Rule 0.1). The profile is already loaded above.
 
 ```bash
 CLI doctor --exclude-packages          # stop and tell the user on critical failures
 CLI daemon-fast start                  # optional: the daemon also starts itself on the first command that benefits
-CLI profile show                       # decides Path A or Path B
 CLI context                            # graph snapshot (only if Path B, or you need the graph)
 ```
 
 If a simulated clock exists (`topics find rosgraph_msgs/msg/Clock`), confirm it advances before every timed command.
 
-**Path A (profile loaded, `summary` non-empty):** read static facts from the profile and do not run `topics find`, `topics type`, `tf list`, `services find` or a `params list` limit sweep for anything it holds. The CLI refuses those calls and names the profile field (`--ignore-profile` overrides, and is logged). Live calls are only for runtime state:
+**Path A (the profile above names a `robot`):** read static facts from it and do not run `topics find`, `topics type`, `tf list`, `services find` or a `params list` limit sweep for anything it holds. The CLI refuses those calls and names the profile field (`--ignore-profile` overrides, and is logged). Live calls are only for runtime state:
 
-| Need | Profile field |
+| Need | Key in the profile above |
 |---|---|
-| Velocity topic / type | `summary.cmd_vel_topic` / `summary.velocity_topics[].type` |
-| Odometry topic | first of `summary.localization_config.fused_sources` |
-| `--max-vel` / `--max-ang` | `summary.safety_limits.binding.linear_x` / `.angular_z` |
-| TF frames, e-stop service, drive type | `summary.tf_frames`, `summary.estop_config.service_name`, `summary.drive_type` |
-| Joint commands | `summary.joint_command_topics[]` (topic, controller and joint order; always `std_msgs/msg/Float64MultiArray`) |
-| IMU, GPS, LiDAR | `summary.imu_topics[]`, `summary.gps_topics[]`, `summary.lidar_scan_topic` |
-| Robot specifics | `summary.estop_config` (idempotent SetBool), `summary.velocity_chain` (teleop/Nav2 inputs and `mode_service`), `summary.robot_services`, `summary.hardware_fitted` |
+| Velocity topic / type | `velocity.cmd_vel_topic` / `velocity.msg_type` |
+| Odometry topic | `odom_topic` |
+| `--max-vel` / `--max-ang` | `limits.linear_x` / `limits.angular_z` |
+| TF frames, e-stop service, drive type | `frames`, `sensor_frames`, `estop.service_name`, `drive_type` |
+| Joint commands | `joint_command_topics[]` (topic, controller and joint order; always `std_msgs/msg/Float64MultiArray`) |
+| IMU, GPS, LiDAR | `imu_topics`, `gps_topics`, `lidar_scan_topic` |
+| Range sensors, robot radius, collision monitor | `obstacle_stop` |
+| Robot specifics | `velocity.chain` (teleop/Nav2 inputs and `mode_service`), `services`, `toggles`, `hardware_fitted`, `nav2`, `maps`, `launch_files`, `annotations`, `safety_overrides` |
 | Always fixed | `/diagnostics`, `/joint_states` |
 
-If a profile value disagrees with the live graph, **stop and report it** (Rule 0.0b); don't search for a replacement. A missing field means live discovery for that field only.
+If a profile value disagrees with the live graph, **stop and report it** (Rule 0.0b); don't search for a replacement. A missing key means live discovery for that one thing.
 
-**Path B (no profile):** discover everything live. To build a profile, run `profile scan --name <robot>` (one robot), `profile scan --packages a,b --name label` (several), or bare `profile scan`. Scan only on user request, first bootstrap, or after a user-run launch when sources changed (Rules 0.6, 0.7).
+**Path B (`robot` is null):** `profile_problem` says why no profile could be built. Discover live, or build one with `profile scan --workspace <path>` (`--name <robot>`, or `--packages a,b --name label` for several). `profile context` itself creates a missing profile and rescans when sources changed; otherwise scan only on user request (Rules 0.6, 0.7).
 
 ## Core commands
 
@@ -116,6 +128,7 @@ CLI topics publish <t> '<json>' --max-vel V --max-ang W            # --dry-run v
 CLI topics publish-sequence <t> '[<move>,<zero>]' '[<secs>,0.5]' --max-vel V --max-ang W
 CLI topics publish-until <t> '<json>' --monitor <ODOM> --field pose.pose.position --euclidean --delta 1.0 --timeout T --max-vel V --max-ang W
 CLI topics publish-until <t> '<json>' --monitor <ODOM> --rotate 90 --degrees --timeout T --max-vel V --max-ang W
+CLI topics publish-until <t> '<json>' --monitor <ODOM> --field pose.pose.position --euclidean --delta 5 --until-obstacle --timeout T --max-vel V --max-ang W   # drive until an obstacle (at most 5 m)
 CLI stop --verify-odom-topic <ODOM>     # routine stop: zero velocity everywhere, wait until stationary, report final position; never latches the e-stop
 CLI topics capture-image --topic <t> --output ${CLAUDE_SKILL_DIR}/.artifacts/<name>.jpg
 CLI topics depth-point --topic <t> --u <col> --v <row>

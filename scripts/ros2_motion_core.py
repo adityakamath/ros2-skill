@@ -288,6 +288,47 @@ def slow_move(distance_m, commanded_mps, duration_s, ramp_s=3.0):
             "hint": "finished but slowly: a limiter (collision monitor) probably cut the speed; `snapshot --only scan` shows what is close"}
 
 
+def _number(args, name):
+    value = getattr(args, name, None)
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def prepare_guard(args, msg_data, topic, msg_type=""):
+    """Obstacle-stop setup for one velocity command, from the profile. Returns ``(error_dict, None)`` or ``(None, guard)``.
+
+    *guard* is None when there is nothing to guard (no linear velocity), else ``ros2_obstacle.resolve``'s answer.
+    A cached profile read: no ROS, no scan (unless the profile has no obstacle-sensing section yet).
+    """
+    import ros2_obstacle
+
+    until = getattr(args, "until_obstacle", False) is True
+    disabled = getattr(args, "no_obstacle_stop", False) is True
+    clearance = _number(args, "obstacle_stop")
+    demanded = until or clearance is not None
+    velocity = ros2_obstacle.twist_of(msg_data)
+    moving = velocity is not None and math.hypot(velocity[0], velocity[1]) >= ros2_obstacle.MIN_LINEAR_MPS
+    if not moving and not demanded:
+        return None, None
+    try:
+        summary, overrides = {}, {}
+        if not disabled:
+            from ros2_profile_context import guard_inputs
+            summary, overrides = guard_inputs()
+        from ros2_braking import load_braking
+        measured = load_braking()
+        guard = ros2_obstacle.resolve(
+            summary, msg_data, topic, msg_type or "", overrides, clearance=clearance, radius=_number(args, "robot_radius"),
+            until=until, disabled=disabled, decel=measured["linear_mps2"] if measured else None)
+    except Exception as exc:  # never drive on as if there were nothing to look at
+        if disabled and not until:
+            return None, {"active": False, "reason": "disabled with --no-obstacle-stop"}
+        return {"error": f"obstacle stop could not be set up: {type(exc).__name__}: {exc}", "blocked": True,
+                "obstacle_stop_blocked": True}, None
+    if "error" in guard:
+        return guard, None
+    return None, guard
+
+
 def prepare_publish_until(args):
     """Validate a ``publish-until`` request and apply the safety clamps. Returns ``(error_dict, None)`` or ``(None, plan)``.
 
@@ -362,6 +403,10 @@ def prepare_publish_until(args):
     violations = safety_detail.get("violations", [])
     safety_warning = ("; ".join(violations) if isinstance(violations, list) else violations) if safety_action == "warn" else None
 
+    err, guard = prepare_guard(args, msg_data, args.topic, args.msg_type or "")
+    if err:
+        return err, None
+
     try:
         heartbeat_touch()
     except Exception:
@@ -371,6 +416,7 @@ def prepare_publish_until(args):
         "msg_data": msg_data, "field_paths": field_paths, "euclidean": euclidean, "rotate_angle": rotate_angle,
         "use_degrees": use_degrees, "operator": operator, "threshold": threshold, "clamp_notices": clamp_notices,
         "safety_action": safety_action, "safety_warning": safety_warning, "dry_run": getattr(args, "dry_run", False),
+        "guard": guard,
     }
 
 

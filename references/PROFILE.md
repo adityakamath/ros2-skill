@@ -53,6 +53,14 @@ Load this file when you need to look up a specific profile field name, understan
     "imu_config": {"plugin": "...", "state_interfaces": [...], "hardware_params": {...}, "broadcaster": {"frame_id": "imu_link", "publish_rate": 100}},
     ← Sensors
     "lidar_config": {"topic": "/scan", "frame_id": "lidar_link"},
+    "obstacle_sensing": {                 ← what the obstacle stop watches (RULES-MOTION.md Rule 25)
+      "version": 1, "base_frame": "base_footprint", "footprint_radius_m": 0.17,
+      "sources": [{"type": "scan", "topic": "/scan"}, {"type": "pointcloud", "topic": "/tof/pointcloud"},
+                  {"type": "depth", "topic": "/camera/depth/image_raw", "info_topic": "/camera/depth/camera_info"}],
+      "collision_monitor": {"cmd_vel_in": "/cmd_vel_presafety", "cmd_vel_out": "/base_controller/cmd_vel",
+                            "state_topic": "/collision_monitor_state", "polygons": ["FootprintApproach"]},
+      "live_verified": false              ← true once the topics were seen published on a running stack
+    },
     "camera_configs": [...],
     "sensor_filter_pipeline": [{"name": "range_filter", "type": "laser_filters/LaserScanRangeFilter", "source_file": "...", "params": {...}}],
     ← Navigation
@@ -73,6 +81,10 @@ Load this file when you need to look up a specific profile field name, understan
     ← Package metadata
     "package_dependencies": {"my_robot_bringup": ["rclpy", "nav2_bringup", ...]}
   },
+  "source_stamp": 1790000000.0,  ← newest workspace source file at scan time; `profile context` rescans when it moves
+  "obstacle_overrides": {"footprint_radius_m": 0.18, "max_height_m": 0.4, "ignore_sources": ["/tof/pointcloud"],
+                         "add_sources": [{"type": "scan", "topic": "/scan"}]},   (or "no_range_sensors": true)
+                                  ← only from `profile set-obstacle`; kept across rescans
   "annotations": [              ← user-added free-text notes; ALWAYS read at session start
     {
       "added_at": "2026-05-12T...",
@@ -104,6 +116,12 @@ Load this file when you need to look up a specific profile field name, understan
   }
 }
 ```
+
+## Loading the profile
+
+`profile context` is the one call that gives an agent the robot: it creates a missing profile (from the workspace, else from the running graph), rescans when the sources changed, adds sections an older profile lacks, and prints a compact single-line JSON (velocity, limits, odometry, frames, sensors, `obstacle_stop`, services, launch files, annotations). SKILL.md runs it while the skill loads, so it is in context for the whole session; `profile show` is only for detail the compact form leaves out.
+
+`obstacle_sensing` is read from the workspace (driver and Nav2 parameter files, launch remappings, collision-monitor and costmap settings, URDF) and completed from the running graph (scans, depth images, and clouds named like a driver's output such as `.../points` or `/tof/pointcloud`; add any other cloud with `--add-source`). Correct what cannot be read with `profile set-obstacle --radius M | --max-height M | --ignore-source TOPIC | --add-source scan|pointcloud|depth:TOPIC` (`--no-sensors` for a robot that has none, `--clear` removes the overrides). With no usable source, linear base motion is blocked.
 
 ## Robot Types
 

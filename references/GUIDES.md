@@ -8,7 +8,7 @@ Load when the task needs one of these topics. Rules are in the `RULES-*.md` file
 
 ## Robot capabilities
 
-`profile scan|rescan` infers a `capabilities` section from what it finds (Nav2, cmd_vel, odometry, drive type). Check `profile show` for it before planning. Each capability has `inputs`, `constraints`, `maps_to` (the action or topic to use) and a `result_schema`.
+`profile scan|rescan` infers a `capabilities` section from what it finds (Nav2, cmd_vel, odometry, drive type). The loaded context lists the names; read the details with `profile show` only when a task needs them. Each capability has `inputs`, `constraints`, `maps_to` (the action or topic to use) and a `result_schema`.
 
 | Capability | Requires |
 |---|---|

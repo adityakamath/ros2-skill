@@ -443,7 +443,13 @@ def _handle_look(node, params):
     return daemon_look(node, params, _LOOK_STATE)
 
 
+def _handle_published_topics(node, params):
+    from ros2_profile_context import published_topics
+    return {"topics": published_topics(node)}
+
+
 _HANDLERS = {
+    "published_topics": _handle_published_topics,
     "snapshot": _handle_snapshot,
     "look": _handle_look,
     "list_controllers": _handle_list_controllers,
@@ -465,7 +471,8 @@ _HANDLERS = {
 }
 
 
-_MOTION_OPS = frozenset({"move", "stop", "cancel_motion", "preflight_motion"})
+# "guarded_move" is its own op so that a daemon started by older code rejects it instead of moving without the guard.
+_MOTION_OPS = frozenset({"move", "guarded_move", "stop", "cancel_motion", "preflight_motion"})
 
 
 _LAST_REQUEST = [time.monotonic()]
@@ -487,6 +494,22 @@ def _idle_watchdog(limit_s):
             print(f"[ros2-skill fastd] idle for {limit_s}s: exiting", file=sys.stderr)
             os.kill(os.getpid(), signal.SIGINT)
             return
+
+
+def _guard_keeper(node, rclpy_lock):
+    """Keep the profile's range sensors subscribed, so a guarded move starts without waiting for first data, and add
+    range topics that appear later (a sensor started after the others) to the profile."""
+    while True:
+        try:
+            import ros2_motionhost
+            from ros2_profile_context import save_live_sources
+            with rclpy_lock:
+                topics = _handle_published_topics(node, {}).get("topics")
+            save_live_sources(topics)
+            ros2_motionhost.keep_guard_warm(_TF_BUFFER)
+        except Exception as exc:
+            print(f"[ros2-skill fastd] obstacle guard not warmed: {exc}", file=sys.stderr)
+        time.sleep(30)
 
 
 def _serve_one(node, conn, rclpy_lock):
@@ -519,8 +542,10 @@ def _serve_one(node, conn, rclpy_lock):
             import ros2_motionhost
             conn.settimeout(None)
             try:
-                if op == "move":
-                    response = ros2_motionhost.run_move(node, params, conn)
+                if op == "guarded_move" and not params.get("guard"):
+                    response = {"error": "guarded_move without a guard"}
+                elif op in ("move", "guarded_move"):
+                    response = ros2_motionhost.run_move(node, params, conn, tf_buffer=_TF_BUFFER)
                 elif op == "stop":
                     response = ros2_motionhost.run_stop(node, params)
                 elif op == "preflight_motion":
@@ -603,6 +628,7 @@ def main():
     # connection handling is now concurrent.
     rclpy_lock = threading.Lock()
 
+    threading.Thread(target=_guard_keeper, args=(node, rclpy_lock), daemon=True).start()
     idle_s = int(os.environ.get("ROS2_SKILL_FASTD_IDLE_S", "0") or 0)
     if idle_s > 0:
         threading.Thread(target=_idle_watchdog, args=(idle_s,), daemon=True).start()

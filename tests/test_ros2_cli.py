@@ -315,6 +315,8 @@ MINIMAL_ARGS = [
     ("profile",  "ls",       ["profile", "ls"]),
     ("profile",  "annotate", ["profile", "annotate", "test annotation"]),
     ("profile",  "set-camera-rotation", ["profile", "set-camera-rotation", "oak", "90"]),
+    ("profile",  "context",    ["profile", "context"]),
+    ("profile",  "set-obstacle", ["profile", "set-obstacle", "--radius", "0.2"]),
     ("profile",  "set-safety-overlay", ["profile", "set-safety-overlay", "--json", "{}"]),
     ("profile",  "set-context", ["profile", "set-context", "--namespace", "/robot1", "--transport", "zenoh"]),
     # nav2

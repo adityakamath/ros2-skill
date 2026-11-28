@@ -10,11 +10,13 @@ passed. A ``finally`` always sends the zero burst. If this whole process dies, p
 controller's ``cmd_vel_timeout`` (0.5 s on LeKiwi) ends the motion.
 """
 
+import json
 import select
 import socket
 import threading
 import time
 
+import ros2_obstacle
 from ros2_condition import ConditionTracker
 from ros2_motion_core import (_clamp_velocity, _twist_speed, compute_decel_params, probe_throttle,
                               scale_twist_velocity, slow_move)
@@ -152,11 +154,46 @@ def cancel_motion(_node=None, _params=None):
     return {"cancelled": running}
 
 
-def run_move(node, params, conn=None):
+_GUARDS = {}   # one obstacle guard per sensing setup, kept subscribed for the daemon's life
+_GUARDS_LOCK = threading.Lock()
+
+
+def _guard_host(sensing, tf_buffer, keeper=False):
+    """The kept guard for *sensing*. The *keeper* never replaces one while a move may be using it."""
+    key = json.dumps(sensing, sort_keys=True)
+    with _GUARDS_LOCK:
+        host = _GUARDS.get(key)
+        if host is None:
+            if keeper and _GUARDS and _MOVE_LOCK.locked():
+                return None
+            for old in list(_GUARDS):
+                _GUARDS.pop(old).close()
+            host = _GUARDS[key] = ros2_obstacle.GuardHost(sensing, tf_buffer)
+        return host
+
+
+def keep_guard_warm(tf_buffer):
+    """Subscribe the profile's range sensors ahead of the first move, and drop large ones that sit unused."""
+    from ros2_profile import load_profile_record
+    profile = load_profile_record(readonly=True)
+    summary = (profile or {}).get("summary") or {}
+    cfg = ros2_obstacle.resolve(summary, {"linear": {"x": 0.1}}, summary.get("cmd_vel_topic") or "/cmd_vel", "",
+                                (profile or {}).get("obstacle_overrides"))
+    if not cfg.get("active"):
+        return False
+    import numpy  # noqa: F401  (first import costs a noticeable fraction of a second: pay it now)
+    host = _guard_host(cfg["sensing"], tf_buffer, keeper=True)
+    if host is not None:
+        host.guard.drop_idle_heavy()
+    return True
+
+
+def run_move(node, params, conn=None, tf_buffer=None):
     from ros2_safety import validate_publish
 
     if not _MOVE_LOCK.acquire(blocking=False):
         return {"error": "another move is already running in the fast daemon", "blocked": True}
+    guard = None
     try:
         _CANCEL.clear()
         topic, monitor = params["topic"], params["monitor"]
@@ -175,6 +212,13 @@ def run_move(node, params, conn=None):
         except Exception:
             return {"fallback": True}
 
+        guard_cfg = params.get("guard")
+        if guard_cfg:
+            try:
+                guard = _guard_host(guard_cfg["sensing"], tf_buffer).guard
+            except Exception as exc:
+                return {"error": f"obstacle stop could not start: {type(exc).__name__}: {exc}", "blocked": True,
+                        "obstacle_stop_blocked": True}
         rotate, euclidean = params.get("rotate"), bool(params.get("euclidean"))
         stop_event = threading.Event()
         tracker = ConditionTracker(params["fields"] if euclidean else params["fields"][0], "delta" if rotate is None else None,
@@ -190,13 +234,21 @@ def run_move(node, params, conn=None):
 
         timeout, interval = min(float(params.get("timeout") or 60.0), 600.0), 1.0 / float(params.get("rate") or 10.0)
         base_msg_data, start, published, cancelled, throttle = msg_data, time.time(), 0, False, None
-        hub.tracker = tracker
+        if guard is not None:
+            interval = min(interval, ros2_obstacle.MAX_PUBLISH_INTERVAL_S)
         try:
+            if guard is not None:   # nothing is published until a sensor has looked along the path
+                wait = ros2_obstacle.READY_TIMEOUT_S if guard.has_data() else ros2_obstacle.COLD_TIMEOUT_S
+                guard.arm(ros2_obstacle.twist_of(msg_data), guard_cfg["move"], stop_event, timeout=wait)
+                start = time.time()
+            hub.tracker = tracker
             while not stop_event.is_set():
                 if _CANCEL.is_set() or _client_gone(conn):
                     cancelled = True
                     break
                 if time.time() - start >= timeout:
+                    break
+                if guard is not None and guard.poll():
                     break
                 out = base_msg_data
                 if slow_zone and slow_zone > 0:
@@ -212,14 +264,19 @@ def run_move(node, params, conn=None):
                 hub.publish(topic, out)
                 published += 1
                 stop_event.wait(interval)
-            if not cancelled and tracker.end_msg is None and tracker.field_error is None:
+            if not cancelled and tracker.end_msg is None and tracker.field_error is None and not (guard and guard.tripped):
                 try:
                     from ros2_profile import load_profile_summary
                     upstream = ((load_profile_summary(readonly=True) or {}).get("velocity_chain") or {}).get("output")
                 except Exception:
                     upstream = None
                 if upstream and upstream != topic:
-                    throttle = probe_throttle(hub.node, lambda: hub.publish(topic, base_msg_data), time.sleep, upstream)
+                    def probe():
+                        if _CANCEL.is_set() or _client_gone(conn) or (guard is not None and guard.poll()):
+                            hub.zero(topic)
+                        else:
+                            hub.publish(topic, base_msg_data)
+                    throttle = probe_throttle(hub.node, probe, time.sleep, upstream)
         finally:
             for _ in range(4):  # committed: the stop must go out whatever happened above
                 try:
@@ -255,12 +312,20 @@ def run_move(node, params, conn=None):
             if met:
                 slow = slow_move(base.get("euclidean_distance"), _twist_speed(msg_data), elapsed) \
                     if euclidean and base.get("euclidean_distance") else None
-                return {**base, **({"slow": slow} if slow else {}), "success": True, "condition_met": True,
-                        "decel_zone": decel_meta, "start_msg": _slim(tracker.start_msg), "end_msg": _slim(tracker.end_msg), **extra}
-            return {**base, "success": False, "condition_met": False, "decel_zone": decel_meta,
-                    "error": f"Timeout after {params.get('timeout')}s: condition not met",
-                    **({"limited_downstream": throttle} if throttle else {}), **extra}
+                result = {**base, **({"slow": slow} if slow else {}), "success": True, "condition_met": True,
+                          "decel_zone": decel_meta, "start_msg": _slim(tracker.start_msg), "end_msg": _slim(tracker.end_msg),
+                          **extra}
+            else:
+                result = {**base, "success": False, "condition_met": False, "decel_zone": decel_meta,
+                          "error": f"Timeout after {params.get('timeout')}s: condition not met",
+                          **({"limited_downstream": throttle} if throttle else {}), **extra}
+            result = ros2_obstacle.annotate(result, guard_cfg, guard, met)
+        if guard is not None:
+            ros2_obstacle.confirm_sources(guard_cfg, hub.node)
+        return result
     finally:
+        if guard is not None:
+            guard.disarm()
         _MOVE_LOCK.release()
 
 

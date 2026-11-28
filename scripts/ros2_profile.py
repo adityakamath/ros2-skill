@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from ros2_utils import output
+import ros2_range_sources
 from ros2_capabilities import infer_capabilities, generate_capability_summary
 
 
@@ -2218,6 +2219,12 @@ def _outside_modules(files):
     return kept or files
 
 
+def _outside_lidar_modules(configs):
+    """LiDAR configs of the robot itself, not the examples shipped with a driver submodule (unless that is all)."""
+    own = [c for c in configs or [] if "/modules/" not in str(c.get("path", "")).replace("\\", "/")]
+    return own if any(c.get("laser_scan_topic_name") for c in own) else configs
+
+
 def _extract_active_controllers(all_launch_files):
     """Return sorted list of unique controller names spawned across all launch files.
 
@@ -3349,8 +3356,16 @@ def _run_static_scan(ws_path, distro, allow_live=False,
         )
     )
 
+    # --- 6. Obstacle sensing (what a motion command watches) ---
+    scan_steps.append("obstacle_sensing")
+    obstacle_sensing = ros2_range_sources.build(
+        _outside_modules(all_yaml_files), _load_yaml, _outside_modules(primary_src_files + all_launch_files),
+        _outside_lidar_modules(lidar_config), ros2_ctrl["kinematics"], tf_frames.get("base_frame"),
+        tf_frames.get("urdf_links"))
+
     return {
         "scan_steps": scan_steps,
+        "obstacle_sensing": obstacle_sensing,
         "ws_packages": ws_pkg_names,
         "ament_packages": all_ament_pkg_names,
         "all_launch_files": all_launch_files,
@@ -3474,7 +3489,9 @@ def _load_profile(name="robot"):
 def _save_profile(profile, name="robot"):
     """Write the profile dict to disk as JSON."""
     p = _profile_path(name)
-    p.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary = p.with_name(f"{p.name}.{os.getpid()}.tmp")   # readers never see a half-written profile
+    temporary.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, p)
     return str(p)
 
 
@@ -3668,6 +3685,8 @@ def _build_profile(robot_name, workspace, distro, scan_result, namespace=None, t
     base_profile = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        # source_stamp: newest source file at scan time; `profile context` rescans when something is newer.
+        "source_stamp": sr.get("source_stamp"),
         "robot_name": robot_name,
         "workspace": workspace,
         "ros_distro": distro,
@@ -3750,6 +3769,8 @@ def _build_profile(robot_name, workspace, distro, scan_result, namespace=None, t
             "hardware_interfaces": sr["hardware_interfaces"],
             # ---- Sensors ---------------------------------------------------
             "lidar_config": sr["lidar_config"],
+            # obstacle_sensing: range topics, footprint radius and collision monitor a motion command watches.
+            "obstacle_sensing": sr.get("obstacle_sensing"),
             # Static topic conventions the Path A fast path relies on; omitted when empty.
             **{k: sr[k] for k in ("lidar_scan_topic", "imu_topics", "gps_topics", "joint_command_topics") if sr.get(k)},
             "camera_configs": sr["camera_configs"],
@@ -3859,7 +3880,7 @@ def cmd_profile_scan(args):
     # a rescan silently missed pt_control's yaml_files because the daemon
     # had died mid-session). Check and auto-restart before scanning.
     from ros2_daemon import ensure_daemon_running
-    daemon_check = ensure_daemon_running()
+    daemon_check = None if getattr(args, "skip_daemon_check", False) else ensure_daemon_running()
 
     # --- Workspace discovery ---
     ws_path, ws_status = _discover_workspace(user_ws)
@@ -3883,6 +3904,9 @@ def cmd_profile_scan(args):
         robot_type_override=robot_type_override,
         pkg_filter=pkg_filter,
     )
+
+    from ros2_profile_context import newest_source_mtime
+    scan_result["source_stamp"] = (newest_source_mtime(ws_path) or None) if ws_path else None
 
     # --- Derive robot name ---
     # If --packages was given and no --name provided, derive from the first pattern.
@@ -3914,7 +3938,7 @@ def cmd_profile_scan(args):
     )
 
     if existing:
-        for field in ("annotations", "camera_rotation_overrides", "safety_overrides"):
+        for field in ("annotations", "camera_rotation_overrides", "safety_overrides", "obstacle_overrides"):
             if field in existing:
                 profile[field] = existing[field]
         profile["summary"]["safety_overrides"] = profile.get("safety_overrides", {})
@@ -4331,6 +4355,7 @@ def cmd_profile_rescan(args):
     # Same for camera rotation overrides — these correct URDF heuristics
     # that a rescan cannot re-derive any better than it did the first time.
     preserved_camera_overrides = (existing or {}).get("camera_rotation_overrides", [])
+    preserved_obstacle_overrides = (existing or {}).get("obstacle_overrides", {})
 
     if getattr(args, "namespace", None) is None and existing:
         args.namespace = existing.get("namespace")
@@ -4360,13 +4385,16 @@ def cmd_profile_rescan(args):
 
     # Re-inject annotations and camera rotation overrides into the freshly
     # written profile (if any exist).
-    if preserved_annotations or preserved_camera_overrides or (existing or {}).get("safety_overrides"):
+    if preserved_annotations or preserved_camera_overrides or preserved_obstacle_overrides \
+            or (existing or {}).get("safety_overrides"):
         refreshed = _load_profile(robot_name)
         if refreshed is not None:
             if preserved_annotations:
                 refreshed["annotations"] = preserved_annotations
             if preserved_camera_overrides:
                 refreshed["camera_rotation_overrides"] = preserved_camera_overrides
+            if preserved_obstacle_overrides:
+                refreshed["obstacle_overrides"] = preserved_obstacle_overrides
             if existing and isinstance(existing.get("safety_overrides"), dict):
                 refreshed["safety_overrides"] = existing["safety_overrides"]
                 refreshed.get("summary", {})["safety_overrides"] = existing["safety_overrides"]

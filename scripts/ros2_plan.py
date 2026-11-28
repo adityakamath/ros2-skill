@@ -19,6 +19,7 @@ _MAX_LINEAR_M = 50.0     # RULES-MOTION Rule 22 ceilings
 _MAX_ROTATION_DEG = 3600.0
 _DEFAULT_SPEED = 0.2     # m/s, capped by the profile ceiling
 _DEFAULT_OMEGA = 0.5     # rad/s, capped by the profile ceiling
+_DEFAULT_SEARCH_M = 10.0  # longest "until obstacle" move when no limit is given
 
 _SPEED = re.compile(rf"\bat\s+(?:its\s+)?(?:(top|max(?:imum)?|full)\s+speed|{_NUM}\s*m/s)", re.I)
 _MOVE = re.compile(rf"^(?:move|go|drive)\s+(forward|ahead|backward|back)\s+{_NUM}\s*(m|metres?|meters?|cm)?\b", re.I)
@@ -27,6 +28,18 @@ _ROTATE = re.compile(rf"^(?:turn|rotate|spin)\s+(?:{_DIR}\s+)?{_NUM}\s*(deg|degr
 _TURN_AROUND = re.compile(r"^(?:turn\s+around|u-?turn|about\s+face)$", re.I)
 _UNDO = re.compile(r"^(?:undo(?:\s+that)?|(?:go|come|move|turn|rotate|strafe)\s+back|return\s+to\s+(?:the\s+)?(?:start|where\s+you\s+started))$", re.I)
 _STRAFE = re.compile(rf"^strafe\s+(left|right)\s+{_NUM}\s*(m|metres?|meters?|cm)?\b", re.I)
+_UNTIL = re.compile(r"^(?:move|go|drive|head|strafe|keep\s+(?:moving|going|driving))(?:\s+(forwards?|ahead|straight(?:\s+ahead)?|backwards?|back|left|right))?"
+                    r"(?P<between>.*?)\s+(?:until|till?)\s+(?P<target>.+)$", re.I)
+_LIMIT = re.compile(rf",?\s*(?:but\s+)?(?:for\s+)?(?:up\s+to|at\s+most|no\s+(?:more|further)\s+than|max(?:imum)?(?:\s+of)?)\s+{_NUM}\s*(m|cm|metres?|meters?)\b", re.I)
+_GAP = re.compile(rf"\b{_NUM}\s*(m|cm|metres?|meters?)\s+(?:away(?:\s+from)?|from|before|short\s+of)(?=\s|$)", re.I)
+_LEADING = re.compile(rf"^\s*(?:for\s+)?{_NUM}\s*(m|cm|metres?|meters?)(?:\s*,)?(?:\s+or)?\s*$", re.I)
+# what may follow "until": anything else (e.g. "until the wall is gone") is not understood rather than guessed
+_OBSTACLE = re.compile(
+    r"^(?:(?:you|it|the\s+robot)\s+(?:see|sees|detect|detects|find|finds|reach|reaches|meet|meets|encounter|encounters|"
+    r"hit|hits|are|is|get|gets|come\s+to|comes\s+to)\s*)?(?:(?:near|close\s+to|next\s+to|in\s+front\s+of|to)\s+)?(?:there(?:'s|\s+is)\s+)?"
+    r"(?:(?:(?:an?|the|any)\s+)?(?:obstacle|wall|something|anything|object|barrier|obstruction)s?"
+    r"(?:\s+is)?(?:\s+(?:in\s+(?:the|your|its)\s+(?:way|path)|in\s+front(?:\s+of\s+(?:you|it|the\s+robot))?|ahead|nearby|close|detected))?"
+    r"|(?:(?:the\s+)?(?:way|path)\s+is\s+)?blocked)?$", re.I)
 _COORDS = re.compile(rf"^(?:go|navigate|drive|move)\s+to\s+{_NUM}\s*,\s*{_NUM}(?:\s+yaw\s+{_NUM})?\s*$", re.I)
 _PATROL = re.compile(r"^(?:patrol|visit)\s+(.+)$", re.I)
 _PLACE = re.compile(r"^(?:go|navigate|drive|move)\s+to\s+(?:the\s+)?([\w-]+)\s*$", re.I)
@@ -72,6 +85,7 @@ class _Ctx:
         fitted = s.get("hardware_fitted") or {}
         # Gemini 2 publishes under /gemini2/ (camera_name in gemini2.launch.py); other robots need discovery.
         self.camera = "/gemini2/color/image_raw" if fitted.get("gemini2") else "<CAMERA_TOPIC>"
+        self.sensing = s.get("obstacle_sensing")
         frames = s.get("tf_frames") or {}
         self.odom_frame, self.base_frame = frames.get("odom_frame"), frames.get("base_frame")
         self.artifacts = ".artifacts"
@@ -99,6 +113,51 @@ def _speed(text, cap):
 
 def _timeout(seconds):
     return max(15, math.ceil(2.0 * seconds))
+
+
+def _metres(value, unit):
+    return float(value) / 100.0 if unit.lower() == "cm" else float(value)
+
+
+def _step_until_obstacle(m, ctx, warn):
+    word = (m.group(1) or "forward").lower()
+    if m.string.lower().startswith("strafe") and word not in ("left", "right"):
+        return warn("strafe needs a direction: left or right")
+    rest = f"{m.group('between')} until {m.group('target')}"
+    limit = _LIMIT.search(rest)
+    gap = _GAP.search(rest)
+    rest = _SPEED.sub("", _GAP.sub("", _LIMIT.sub("", rest)))
+    before, _, target = rest.partition(" until ") if " until " in rest else rest.partition("until ")
+    target = " ".join(target.split()).strip(" ,.")
+    leading = _LEADING.match(before)   # "drive forward 2 m (or) until ...": the distance is the limit
+    if leading:
+        limit, before = limit or leading, ""
+    if before.strip(" ,") or not _OBSTACLE.match(target) or not (target or gap):
+        return warn("only 'until an obstacle / wall / something is in the way' (optionally '30 cm from' it, "
+                    "'up to N m', 'at N m/s') is supported")
+    if not ctx.has("move_distance"):
+        return warn("this robot has no move_distance capability (needs cmd_vel and odometry)")
+    sideways = word in ("left", "right")
+    if sideways and ctx.has_profile and "strafe" not in ctx.caps:
+        return warn("moving sideways needs a holonomic drive; this robot has no strafe capability")
+    if ctx.sensing is not None and not ctx.sensing.get("sources") and ctx.sensing.get("live_verified"):
+        return warn("the profile lists no range sensor, so an obstacle cannot be detected")
+    maximum = _metres(*limit.groups()) if limit else _DEFAULT_SEARCH_M
+    if maximum <= 0 or maximum > _MAX_LINEAR_M:
+        return warn(f"distance limit {maximum:g} m is outside (0, {_MAX_LINEAR_M:g}] m")
+    v = _speed(m.string, ctx.max_lin_y if sideways else ctx.max_lin)
+    if sideways:
+        twist = _twist(ctx.vtype, ly=v if word == "left" else -v)  # REP-103: +y is left
+    else:
+        twist = _twist(ctx.vtype, lx=-v if word.startswith("back") else v)
+    clearance = f" --obstacle-stop {_fmt(_metres(*gap.groups()))}" if gap else ""
+    cmd = (f"topics publish-until {ctx.vel} '{twist}' --monitor {ctx.odom} --field pose.pose.position --euclidean "
+           f"--delta {_fmt(maximum)} --until-obstacle{clearance} --timeout {_timeout(maximum / v)} {ctx.limits()}{ctx.types()}")
+    direction = word if sideways else "back" if word.startswith("back") else "forward"
+    inputs = {"direction": direction, "max_distance_m": maximum, "speed_mps": v}
+    if gap:
+        inputs["clearance_m"] = _metres(*gap.groups())
+    return {"capability": "move_until_obstacle", "inputs": inputs, "commands": [cmd], "motion": True, "source": "teleop"}
 
 
 def _step_move(m, ctx, warn):
@@ -312,7 +371,7 @@ _PATTERNS = [
                 r"|^what(?:'s| is)\s+(?:around|near|nearby|ahead|in\s+front)(?:\s+(?:of\s+)?(?:me|you))?$|^(?:check|scan)\s+(?:the\s+)?(?:surroundings|obstacles|area|path)$", re.I), _step_surroundings),
     (_TURN_AROUND, _step_turn_around),
 ]
-_PATTERNS += [(_MOVE, _step_move), (_ROTATE, _step_rotate), (_STRAFE, _step_strafe),
+_PATTERNS += [(_UNTIL, _step_until_obstacle), (_MOVE, _step_move), (_ROTATE, _step_rotate), (_STRAFE, _step_strafe),
              (_COORDS, _step_coords), (_PATROL, _step_patrol), (_PLACE, _step_place)]
 
 
@@ -357,7 +416,7 @@ def compile_plan(goal, summary=None, places=None, artifacts_dir=".artifacts"):
                     warnings.extend(problems)
                 break
         else:
-            warnings.append(f"'{text}': not understood; supported: move/back up/strafe/turn/turn around with a number, undo/rotate back, go to <place>|<x>, <y>, patrol <a>, <b>, save <name>, list places, take a picture, look at <x>, report the battery, check the path ahead, snapshot, record/reset waypoints, save map")
+            warnings.append(f"'{text}': not understood; supported: move/back up/strafe/turn/turn around with a number, move <direction> until obstacle, undo/rotate back, go to <place>|<x>, <y>, patrol <a>, <b>, save <name>, list places, take a picture, look at <x>, report the battery, check the path ahead, snapshot, record/reset waypoints, save map")
     # A twist switch routes either the teleop or the Nav2 velocity input to the wheels, so a step on the
     # unselected input is silently ignored. Insert a switch whenever the required input changes.
     ordered, current = [], None
@@ -441,7 +500,8 @@ def _gist(out):
     """The few fields of a command result worth reporting."""
     keep = ("success", "condition_met", "euclidean_distance", "duration", "velocity_clamped", "status", "message",
             "path", "verified_stationary", "final_position", "linear_speed", "error", "blocked_by", "translation",
-            "limited_downstream", "slow", "places", "saved", "deleted", "place")
+            "limited_downstream", "slow", "places", "saved", "deleted", "place",
+            "stopped_by", "obstacle", "obstacle_stop", "hint")
     gist = {k: out[k] for k in keep if k in out}
     reply = out.get("result")
     if isinstance(reply, dict) and reply.get("message"):  # a service reply's message ("Waypoint 0 recorded at ...")
@@ -471,10 +531,14 @@ def run_plan(plan, run_cli_fn, odom_topic):
         report["ok"] = False
         step_report["ok"] = False
         step_report["result"] = _gist(out)
-        if out.get("limited_downstream"):  # a limiter slowed the move: the robot is controlled, so no latching e-stop
+        # a limiter slowed the move, or the obstacle stop ended it: the robot is controlled, so no latching e-stop
+        guarded = out.get("stopped_by") in ("obstacle", "collision_monitor", "sensor_lost", "no_sensor") \
+            or bool(out.get("obstacle_stop_blocked"))
+        if out.get("limited_downstream") or guarded:
             run_cli_fn(["stop", "--verify-odom-topic", odom_topic] if odom_topic else ["stop"])
-            report["cause"] = out["limited_downstream"]
-            report["estop"] = "not latched: stopped normally (the move was limited downstream)"
+            report["cause"] = out.get("error") if guarded else out["limited_downstream"]
+            why = "the obstacle stop ended it" if guarded else "the move was limited downstream"
+            report["estop"] = f"not latched: stopped normally ({why})"
             return
         run_cli_fn(["estop", "--verify-odom-topic", odom_topic] if odom_topic else ["estop"])
         report["estop"] = "engaged after a failed step; release it from the joystick or `services call <estop> '{\"data\": false}'`"

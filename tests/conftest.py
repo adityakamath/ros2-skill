@@ -3,6 +3,7 @@
 import os
 
 os.environ.setdefault("ROS2_SKILL_NO_AUTOSTART", "1")  # unit tests must not spawn a background daemon
+os.environ.setdefault("ROS2_SKILL_NO_AUTOPROFILE", "1")  # nor scan a workspace to build a profile
 
 
 def pytest_addoption(parser):

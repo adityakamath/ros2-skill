@@ -43,7 +43,8 @@ def _measure_once(direction, distance, speed, summary, odom):
     reached = (move.get("result") or {}).get("euclidean_distance")
     total = report.get("moved_m")
     if not report["ok"] or reached is None or total is None:
-        return {"direction": direction, "ok": False, "error": report.get("cause") or "the move did not finish; see `plan --run`"}
+        why = report.get("cause") or (move.get("result") or {}).get("error")   # e.g. the obstacle stop's reason
+        return {"direction": direction, "ok": False, "error": why or "the move did not finish; see `plan --run`"}
     coast = round(total - reached, 4)
     return {"direction": direction, "ok": True, "reached_m": round(reached, 4), "coast_m": coast,
             "decel_mps2": None if decel_from_coast(speed, coast) is None else round(decel_from_coast(speed, coast), 3)}

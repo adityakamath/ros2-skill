@@ -65,7 +65,10 @@ def try_publish_until(args, plan):
         "degrees": plan["use_degrees"], "clamp_notices": plan["clamp_notices"], "safety_capped": plan["safety_action"] == "cap",
         "safety_warning": plan["safety_warning"],
     }
-    status, resp = _request("move", params, (args.timeout or 30) + 20)
+    guard, op = plan.get("guard"), "move"
+    if guard and guard.get("active"):
+        params["guard"], op = guard, "guarded_move"
+    status, resp = _request(op, params, (args.timeout or 30) + 20)
     if status == "unavailable":
         return None
     if status == "lost" or resp is None:
@@ -74,7 +77,32 @@ def try_publish_until(args, plan):
                 "cancelled": True}
     if resp.get("fallback"):  # the daemon declined before moving (no hub, unknown types): run it here
         return None
+    if str(resp.get("error", "")).startswith("Unknown fastd op"):  # started by older code: it cannot guard a move
+        restart_stale_daemon()
+        return None
+    if guard and not guard.get("active"):
+        import ros2_obstacle
+        ros2_obstacle.annotate(resp, guard)
     return resp
+
+
+def restart_stale_daemon():
+    """Replace a daemon that predates this code. The current command runs in its own process meanwhile."""
+    import subprocess
+    import sys
+
+    if os.environ.get("ROS2_SKILL_NO_AUTOSTART"):
+        return
+    cli = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ros2_cli.py")
+    try:
+        subprocess.run([sys.executable, cli, "daemon-fast", "stop"], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        marker = os.path.join(os.path.dirname(_FASTD_SOCKET), "starting")
+        if os.path.exists(marker):
+            os.remove(marker)
+    except (OSError, subprocess.SubprocessError):
+        return
+    maybe_autostart("topics", "publish-until", None)
 
 
 def stop_robot(odom_topic=None, verify_timeout=5.0, threshold=0.01):
@@ -115,7 +143,7 @@ def try_serve(command, sub, args):
     return None
 
 
-_AUTOSTART = {("snapshot", None), ("look", None), ("preflight", "motion"), ("stop", None), ("topics", "publish-until")}
+_AUTOSTART = {("profile", "context"), ("snapshot", None), ("look", None), ("preflight", "motion"), ("stop", None), ("topics", "publish-until")}
 _AUTOSTART_IDLE_MINUTES = 30
 _STARTING_WINDOW_S = 20
 

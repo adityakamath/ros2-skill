@@ -73,6 +73,7 @@ Execute step N, verify it (Rule 8), then start step N+1. If step N fails, stop a
 
 | Field | Meaning and action |
 |---|---|
+| `stopped_by` / `obstacle` / `obstacle_stop` | The obstacle stop ended or refused the move (Rule 25). `obstacle` / `collision_monitor`: something is in the way; report it, `stop`, do not retry. `no_sensor` / `sensor_lost`: check the topics in `sources` (publisher count, rate, TF from the sensor frame to the base frame). |
 | `cause` / `limited_downstream` | A limiter (collision monitor, smoother) cut the speed (`commanded_mps` vs `executed_mps`). The robot was stopped normally and the e-stop is not latched. Read `snapshot --only scan` for what is close; do not retry blindly. |
 | `slow` | The move finished but took over twice its cruise time plus 3 s: the same limiter was throttling it. Report it. |
 | `cancelled: true` | `estop`, Ctrl-C, `kill` or a lost daemon interrupted the run. Velocity was zeroed and a Nav2 goal cancelled; nothing was retried. Find out why before starting another move. |
